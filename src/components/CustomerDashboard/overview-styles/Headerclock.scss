@@ -1,0 +1,107 @@
+// HeaderClock - Glassmorphism Style
+
+// Variables
+$primary-orange: #FF7A18;
+$primary-orange-bright: #FF9447;
+$glass-bg: rgba(15, 23, 42, 0.6);
+$glass-border: rgba(255, 255, 255, 0.08);
+$text-primary: #ffffff;
+$text-secondary: #94A3B8;
+
+// Breakpoints
+$breakpoint-sm: 480px;
+$breakpoint-md: 640px;
+$breakpoint-lg: 768px;
+
+.header-clock {
+  display: none;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.75rem;
+
+  // Glassmorphism
+  background: $glass-bg;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid $glass-border;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+
+  // Show at md
+  @media (min-width: $breakpoint-md) {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 0.8125rem;
+  }
+
+  @media (min-width: $breakpoint-lg) {
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.875rem;
+  }
+
+  &:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+
+  &__icon {
+    width: 0.9375rem;
+    height: 0.9375rem;
+    color: $primary-orange;
+    filter: drop-shadow(0 0 6px rgba(255, 122, 24, 0.5));
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-lg) {
+      width: 1.125rem;
+      height: 1.125rem;
+    }
+  }
+
+  &__time {
+    display: flex;
+    align-items: center;
+    gap: 0.0625rem;
+  }
+
+  &__hours,
+  &__minutes {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: $text-primary;
+    line-height: 1;
+
+    @media (min-width: $breakpoint-lg) {
+      font-size: 0.9375rem;
+    }
+  }
+
+  &__colon {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: $primary-orange;
+    line-height: 1;
+
+    @media (min-width: $breakpoint-lg) {
+      font-size: 0.9375rem;
+    }
+  }
+
+  &__ampm {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: $primary-orange-bright;
+    margin-left: 0.1875rem;
+    text-shadow: 0 0 8px rgba(255, 122, 24, 0.4);
+    line-height: 1;
+
+    @media (min-width: $breakpoint-lg) {
+      font-size: 0.8125rem;
+      margin-left: 0.25rem;
+    }
+  }
+}

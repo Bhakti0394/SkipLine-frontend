@@ -1,0 +1,568 @@
+// ============================================================
+// Header SCSS — Dark UI with Orange Accents
+// Fully responsive across all screen sizes
+// ============================================================
+
+$breakpoint-xs: 475px;
+$breakpoint-sm: 640px;
+$breakpoint-md: 768px;
+$breakpoint-lg: 1024px;
+$breakpoint-xl: 1280px;
+
+// Theme
+$bg-primary:      #0a1628;
+$bg-secondary:    #0f1729;
+$border-primary:  rgba(249, 115, 22, 0.15);
+$border-subtle:   rgba(71, 85, 105, 0.3);
+$orange-primary:  #f97316;
+$orange-accent:   #fb923c;
+$orange-dark:     #ea580c;
+$text-primary:    #f1f5f9;
+$text-secondary:  #94a3b8;
+$text-muted:      #64748b;
+
+// ============================================================
+// ROOT
+// ============================================================
+.header {
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid $border-primary;
+  padding: 0.625rem 0.75rem;
+
+  @media (min-width: $breakpoint-sm) { padding: 0.75rem 1.25rem; }
+  @media (min-width: $breakpoint-lg) { padding: 0.875rem 1.75rem; }
+
+  // ── Container ──────────────────────────────────────────────
+  &__container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+  }
+
+  // ── Left ───────────────────────────────────────────────────
+  &__left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-sm) { gap: 0.875rem; }
+    @media (min-width: $breakpoint-lg) { gap: 1.25rem;  }
+  }
+
+  // ── Mobile hamburger ───────────────────────────────────────
+  &__mobile-menu-wrapper {
+    display: flex;
+    align-items: center;
+
+    @media (min-width: $breakpoint-md) { display: none; }
+  }
+
+  &__mobile-menu-btn {
+    height: 2rem;
+    width: 2rem;
+    transition: all 0.2s ease;
+    color: $text-primary;
+    flex-shrink: 0;
+
+    &:hover {
+      background-color: rgba(249, 115, 22, 0.1);
+      color: $orange-primary;
+    }
+  }
+
+  &__icon {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  // ── Logo ───────────────────────────────────────────────────
+  &__logo {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-sm) { gap: 0.5rem; }
+  }
+
+  &__logo-icon {
+    width: 1.875rem;
+    height: 1.875rem;
+    border-radius: 0.5rem;
+    background: linear-gradient(to bottom right, $orange-primary, $orange-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-sm) {
+      width: 2.25rem;
+      height: 2.25rem;
+      border-radius: 0.625rem;
+    }
+
+    &--glow { box-shadow: 0 0 16px rgba(249, 115, 22, 0.4); }
+    &--mobile {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 0.75rem;
+      box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+    }
+  }
+
+  &__logo-text {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #fff;
+    @media (min-width: $breakpoint-sm) { font-size: 1.125rem; }
+  }
+
+  &__brand {
+    display: none;
+    @media (min-width: $breakpoint-xs) { display: block; }
+  }
+
+  &__brand-name {
+    font-size: 1rem;
+    font-weight: 700;
+    background: linear-gradient(to right, $orange-primary, $orange-accent);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.2;
+
+    @media (min-width: $breakpoint-sm) { font-size: 1.125rem; }
+  }
+
+  &__brand-subtitle {
+    display: none;
+    font-size: 0.625rem;
+    color: $text-secondary;
+
+    @media (min-width: $breakpoint-sm) {
+      display: block;
+      font-size: 0.7rem;
+    }
+  }
+
+  // ── Desktop view switcher ──────────────────────────────────
+  &__view-switcher {
+    display: none;
+
+    @media (min-width: $breakpoint-lg) {
+      display: flex;
+      gap: 0.125rem;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 0.625rem;
+      padding: 0.2rem;
+    }
+  }
+
+  &__view-btn {
+    height: 1.875rem;
+    padding: 0 0.5rem;
+    color: $text-secondary;
+    border-radius: 0.4rem;
+    transition: all 0.18s ease;
+    font-size: 0.8rem;
+
+    &:hover {
+      background-color: rgba(249, 115, 22, 0.1);
+      color: $orange-accent;
+    }
+
+    @media (min-width: $breakpoint-lg) { padding: 0 0.625rem; }
+
+    &--active {
+      background-color: rgba(249, 115, 22, 0.18);
+      color: $orange-primary;
+      box-shadow: 0 0 12px rgba(249, 115, 22, 0.15);
+    }
+  }
+
+  &__view-icon {
+    width: 0.9rem;
+    height: 0.9rem;
+
+    @media (min-width: $breakpoint-lg) { margin-right: 0.3rem; }
+  }
+
+  &__view-label {
+    display: none;
+    @media (min-width: $breakpoint-lg) { display: inline; }
+  }
+
+  // ── Right section ──────────────────────────────────────────
+  // FIX: removed the hardcoded padding-left: 230px that broke layouts
+  &__right {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-sm) { gap: 0.625rem; }
+    @media (min-width: $breakpoint-lg) { gap: 0.875rem; }
+  }
+
+  // ── Clock ──────────────────────────────────────────────────
+  &__clock {
+    display: block;               // always visible, including phone
+    font-size: 0.7rem;
+    color: $text-secondary;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+
+    @media (min-width: $breakpoint-sm) { font-size: 0.8rem;   }
+    @media (min-width: $breakpoint-lg) { font-size: 0.875rem; }
+  }
+
+  // ── Actions row ────────────────────────────────────────────
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+
+    @media (min-width: $breakpoint-sm) { gap: 0.375rem; }
+    @media (min-width: $breakpoint-lg) { gap: 0.5rem;   }
+  }
+
+  // ── Desktop search ─────────────────────────────────────────
+  &__desktop-search {
+    display: none;
+
+    @media (min-width: $breakpoint-lg) { display: block; }
+
+    .header__search-container {
+      position: relative;
+      width: 11rem;
+      @media (min-width: $breakpoint-xl) { width: 15rem; }
+    }
+
+    .header__search-icon {
+      position: absolute;
+      left: 0.625rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0.875rem;
+      height: 0.875rem;
+      color: $text-muted;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .header__search-input {
+      width: 100%;
+      height: 2rem;
+      padding-left: 2rem;
+      border-radius: 0.5rem;
+      background: rgba(26, 35, 50, 0.5);
+      border: 1px solid rgba(71, 85, 105, 0.3);
+      color: $text-primary;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+
+      &::placeholder { color: rgba(100, 116, 139, 0.6); }
+
+      &:focus {
+        border-color: rgba(249, 115, 22, 0.4);
+        background: rgba(26, 35, 50, 0.75);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.08);
+      }
+    }
+  }
+
+  // ── Notifications ──────────────────────────────────────────
+  &__notifications { display: block; }
+
+  // ── User avatar ────────────────────────────────────────────
+  &__user {
+    display: flex;
+    align-items: center;
+
+    @media (min-width: $breakpoint-sm) {
+      padding-left: 0.625rem;
+      border-left: 1px solid $border-subtle;
+    }
+
+    &--mobile-visible { display: flex; }
+  }
+
+  // ============================================================
+  // MOBILE SHEET (Slide-out drawer)
+  // ============================================================
+  &__mobile-sheet {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    z-index: 100;
+    width: 280px;
+    max-width: 85vw;
+    background: linear-gradient(180deg, $bg-primary 0%, $bg-secondary 100%);
+    border-right: 1px solid $border-primary;
+  }
+
+  &__mobile-sheet-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.25rem 1.25rem 1rem;
+  }
+
+  &__mobile-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  &__mobile-search-wrapper {
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid $border-subtle;
+
+    .header__search-container { position: relative; }
+
+    .header__search-input {
+      height: 2.5rem;
+      border-radius: 0.625rem;
+      background: rgba(26, 35, 50, 0.6);
+      border: 1px solid rgba(71, 85, 105, 0.4);
+      padding-left: 2.5rem;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+      color: $text-primary;
+      width: 100%;
+
+      &:focus {
+        border-color: rgba(249, 115, 22, 0.5);
+        background: rgba(26, 35, 50, 0.8);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1);
+      }
+
+      &::placeholder { color: rgba(100, 116, 139, 0.7); }
+    }
+
+    .header__search-icon {
+      position: absolute;
+      left: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0.9rem;
+      height: 0.9rem;
+      color: rgba(148, 163, 184, 0.7);
+      pointer-events: none;
+      z-index: 1;
+    }
+  }
+
+  &__mobile-nav {
+    padding: 1rem 1rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    flex: 1;
+  }
+
+  // Section heading "NAVIGATION" — distinct class, no conflict with btn label
+  &__mobile-nav-heading {
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: rgba(148, 163, 184, 0.6);
+    margin-bottom: 0.375rem;
+    padding: 0 0.625rem;
+  }
+
+  &__mobile-nav-btn {
+    width: 100%;
+    height: 3rem;
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0 0.875rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    // force left-align — shadcn Button resets this
+    justify-content: flex-start !important;
+    text-align: left;
+    border-radius: 0.625rem;
+    transition: all 0.18s ease;
+    position: relative;
+    overflow: hidden;
+    color: $text-secondary;
+    border: 1px solid transparent;
+
+    // Left orange accent strip
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 15%;
+      bottom: 15%;
+      width: 3px;
+      border-radius: 0 2px 2px 0;
+      background: $orange-primary;
+      transform: scaleY(0);
+      transition: transform 0.18s ease;
+    }
+
+    &:hover:not(&--active) {
+      background: rgba(31, 41, 55, 0.45);
+      color: $text-primary;
+    }
+
+    &--active {
+      background: linear-gradient(90deg, rgba(249, 115, 22, 0.14), rgba(249, 115, 22, 0.04));
+      color: $orange-accent;
+      font-weight: 600;
+      border-color: rgba(249, 115, 22, 0.18);
+
+      &::before { transform: scaleY(1); }
+
+      .header__mobile-nav-icon-wrapper {
+        background: rgba(249, 115, 22, 0.18);
+        box-shadow: 0 0 10px rgba(249, 115, 22, 0.2);
+      }
+    }
+  }
+
+  // Icon square inside each nav button
+  &__mobile-nav-icon-wrapper {
+    width: 2rem;
+    height: 2rem;
+    min-width: 2rem;             // prevent squishing
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.45rem;
+    background: rgba(31, 41, 55, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: all 0.18s ease;
+    flex-shrink: 0;
+  }
+
+  &__mobile-nav-icon {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+  }
+
+  // Text label inside the nav button — fills remaining space
+  &__mobile-nav-text {
+    flex: 1;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__mobile-nav-indicator {
+    width: 0.4rem;
+    height: 0.4rem;
+    min-width: 0.4rem;
+    border-radius: 50%;
+    background: $orange-primary;
+    margin-left: auto;
+    flex-shrink: 0;
+    animation: navPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes navPulse {
+    0%, 100% { opacity: 1; transform: scale(1);    }
+    50%       { opacity: 0.6; transform: scale(0.9); }
+  }
+
+  &__mobile-user-section {
+    margin-top: auto;
+    padding: 1rem 1rem 1.25rem;
+    border-top: 1px solid $border-subtle;
+  }
+
+  &__mobile-user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.625rem;
+    background: rgba(26, 35, 50, 0.5);
+    border: 1px solid rgba(71, 85, 105, 0.3);
+  }
+
+  &__mobile-user-avatar {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.5rem;
+    background: linear-gradient(135deg, $orange-primary, $orange-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: #fff;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);
+  }
+
+  &__mobile-user-details {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__mobile-user-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: $text-primary;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__mobile-user-role {
+    font-size: 0.7rem;
+    color: $text-secondary;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  // ── Search shared ──────────────────────────────────────────
+  &__search-container { position: relative; }
+
+  &__search-icon {
+    position: absolute;
+    left: 0.625rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0.875rem;
+    height: 0.875rem;
+    color: $text-muted;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  &__search-input {
+    padding-left: 2rem;
+    background: rgba(26, 35, 50, 0.5);
+    border: 1px solid rgba(71, 85, 105, 0.3);
+    color: $text-primary;
+
+    &::placeholder { color: rgba(100, 116, 139, 0.7); }
+
+    &--desktop:focus {
+      border-color: rgba(249, 115, 22, 0.4);
+      outline: none;
+      background: rgba(26, 35, 50, 0.7);
+    }
+  }
+}

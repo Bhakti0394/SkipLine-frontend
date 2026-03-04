@@ -1,0 +1,517 @@
+// UserProfileDropdown SCSS - Mobile Responsive
+// All styles wrapped in .user-profile container
+
+// Breakpoints
+$breakpoint-xs: 475px;
+$breakpoint-sm: 640px;
+$breakpoint-md: 768px;
+$breakpoint-lg: 1024px;
+$breakpoint-xl: 1280px;
+
+// User Profile Component (Scoped)
+.user-profile {
+  position: relative;
+  display: inline-block;
+
+  // Trigger Button
+  &__trigger {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.2s ease;
+
+    &:hover {
+      opacity: 0.8;
+    }
+
+    &:focus {
+      outline: 2px solid hsl(var(--primary));
+      outline-offset: 2px;
+      border-radius: 50%;
+    }
+  }
+
+  // Avatar
+  &__avatar {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: linear-gradient(to bottom right, hsl(var(--primary) / 0.3), hsl(var(--accent) / 0.3));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s ease;
+
+    @media (min-width: $breakpoint-sm) {
+      width: 2.25rem;
+      height: 2.25rem;
+    }
+
+    &--large {
+      width: 3.5rem;
+      height: 3.5rem;
+      background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
+      box-shadow: 0 4px 12px hsl(var(--primary) / 0.3);
+
+      @media (min-width: $breakpoint-sm) {
+        width: 4rem;
+        height: 4rem;
+      }
+    }
+
+    &:hover {
+      transform: scale(1.05);
+    }
+  }
+
+  &__initials {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 0.875rem;
+    }
+
+    &--large {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: hsl(var(--background));
+
+      @media (min-width: $breakpoint-sm) {
+        font-size: 1.5rem;
+      }
+    }
+  }
+
+  // Dropdown Menu - Mobile Responsive
+  &__dropdown {
+    width: 280px;
+    max-width: calc(100vw - 2rem);
+    padding: 0;
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 12px;
+    box-shadow: 0 10px 40px hsl(var(--foreground) / 0.1);
+    overflow: hidden;
+
+    @media (min-width: $breakpoint-sm) {
+      width: 320px;
+    }
+  }
+
+  // Header Section
+  &__header {
+    padding: 1.5rem;
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.05), hsl(var(--accent) / 0.05));
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 1rem;
+
+    @media (min-width: $breakpoint-sm) {
+      padding: 2rem;
+    }
+  }
+
+  &__info {
+    width: 100%;
+  }
+
+  &__name {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+    margin: 0 0 0.25rem 0;
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 1.25rem;
+    }
+  }
+
+  &__role {
+    font-size: 0.875rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0 0 0.25rem 0;
+  }
+
+  &__email {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
+    word-break: break-word;
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 0.8125rem;
+    }
+  }
+
+  // Menu Items
+  &__menu-item {
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: hsl(var(--foreground));
+    font-size: 0.9375rem;
+
+    @media (min-width: $breakpoint-sm) {
+      padding: 0.875rem 1.25rem;
+    }
+
+    &:hover {
+      background: hsl(var(--accent) / 0.1);
+    }
+
+    &:focus {
+      background: hsl(var(--accent) / 0.1);
+      outline: none;
+    }
+
+    &--logout {
+      color: hsl(var(--destructive));
+
+      &:hover {
+        background: hsl(var(--destructive) / 0.1);
+      }
+    }
+  }
+
+  &__menu-icon {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  // Dialog Styles - Mobile Responsive
+  &__dialog {
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 16px;
+    padding: 0;
+    max-width: calc(100vw - 2rem);
+    width: 100%;
+    box-shadow: 0 20px 60px hsl(var(--foreground) / 0.15);
+
+    @media (min-width: $breakpoint-sm) {
+      width: 450px;
+    }
+
+    @media (min-width: $breakpoint-md) {
+      width: 500px;
+    }
+
+    // Hide default shadcn dialog close button
+    button[aria-label="Close"] {
+      display: none !important;
+    }
+
+    // Hide any default close button from DialogPrimitive
+    > button {
+      display: none !important;
+    }
+  }
+
+  &__dialog-header {
+    position: relative;
+    padding: 1.25rem 1rem;
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+
+    @media (min-width: $breakpoint-sm) {
+      padding: 1.5rem 2rem;
+    }
+  }
+
+  &__dialog-title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+    margin: 0;
+    padding-right: 2.5rem;
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 1.5rem;
+    }
+  }
+
+  &__dialog-close {
+    position: absolute;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: hsl(var(--secondary));
+    border: none;
+    border-radius: 8px;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: hsl(var(--foreground));
+
+    @media (min-width: $breakpoint-sm) {
+      right: 1.5rem;
+    }
+
+    &:hover {
+      background: hsl(var(--secondary) / 0.8);
+      transform: translateY(-50%) scale(1.05);
+    }
+
+    &:focus {
+      outline: 2px solid hsl(var(--primary));
+      outline-offset: 2px;
+    }
+  }
+
+  &__close-icon {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  // Form Styles
+  &__form {
+    padding: 1.25rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+
+    @media (min-width: $breakpoint-sm) {
+      padding: 2rem;
+      gap: 1.5rem;
+    }
+  }
+
+  &__form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  &__label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 0.9375rem;
+    }
+  }
+
+  &__input {
+    padding: 0.75rem 1rem;
+    background: hsl(var(--secondary) / 0.5);
+    border: 1px solid hsl(var(--border) / 0.5);
+    border-radius: 8px;
+    font-size: 0.9375rem;
+    color: hsl(var(--foreground));
+    transition: all 0.2s ease;
+
+    &:focus {
+      outline: none;
+      border-color: hsl(var(--primary));
+      background: hsl(var(--background));
+      box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
+    }
+
+    &::placeholder {
+      color: hsl(var(--muted-foreground));
+    }
+  }
+
+  &__form-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+
+    @media (min-width: $breakpoint-sm) {
+      gap: 1rem;
+    }
+  }
+
+  &__button {
+    flex: 1;
+    padding: 0.75rem 1.25rem;
+    border-radius: 8px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+
+    @media (min-width: $breakpoint-sm) {
+      padding: 0.875rem 1.75rem;
+      font-size: 1rem;
+    }
+
+    &--cancel {
+      background: hsl(var(--secondary));
+      color: hsl(var(--foreground));
+      border: 1px solid hsl(var(--border));
+
+      &:hover {
+        background: hsl(var(--secondary) / 0.8);
+        transform: translateY(-1px);
+      }
+    }
+
+    &--save {
+      background: linear-gradient(135deg, hsl(189 94% 43%), hsl(189 94% 53%));
+      color: white;
+
+      &:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px hsl(189 94% 43% / 0.4);
+      }
+    }
+
+    &:focus {
+      outline: 2px solid hsl(var(--primary));
+      outline-offset: 2px;
+    }
+  }
+
+  // Activity Log Styles
+  &__activity-list {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 60vh;
+    overflow-y: auto;
+
+    @media (min-width: $breakpoint-sm) {
+      padding: 1.5rem;
+      gap: 1rem;
+    }
+
+    &::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: hsl(var(--secondary) / 0.3);
+      border-radius: 4px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: hsl(var(--border));
+      border-radius: 4px;
+
+      &:hover {
+        background: hsl(var(--foreground) / 0.3);
+      }
+    }
+  }
+
+  &__activity-item {
+    padding: 1rem;
+    background: hsl(var(--secondary) / 0.3);
+    border: 1px solid hsl(var(--border) / 0.5);
+    border-radius: 12px;
+    display: flex;
+    gap: 0.875rem;
+    transition: all 0.2s ease;
+
+    @media (min-width: $breakpoint-sm) {
+      padding: 1.25rem;
+      gap: 1rem;
+    }
+
+    &:hover {
+      background: hsl(var(--secondary) / 0.5);
+      transform: translateX(4px);
+      box-shadow: 0 4px 12px hsl(var(--foreground) / 0.05);
+    }
+
+    &--order {
+      border-left: 3px solid hsl(142 76% 36%);
+
+      .user-profile__activity-icon {
+        background: linear-gradient(135deg, hsl(142 76% 36%), hsl(142 76% 46%));
+      }
+    }
+
+    &--stock {
+      border-left: 3px solid hsl(48 96% 53%);
+
+      .user-profile__activity-icon {
+        background: linear-gradient(135deg, hsl(48 96% 53%), hsl(48 96% 63%));
+      }
+    }
+
+    &--shift {
+      border-left: 3px solid hsl(221 83% 53%);
+
+      .user-profile__activity-icon {
+        background: linear-gradient(135deg, hsl(221 83% 53%), hsl(221 83% 63%));
+      }
+    }
+  }
+
+  &__activity-icon {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: white;
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-sm) {
+      width: 2.5rem;
+      height: 2.5rem;
+      font-size: 1.125rem;
+    }
+  }
+
+  &__activity-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  &__activity-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    margin: 0;
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 1rem;
+    }
+  }
+
+  &__activity-description {
+    font-size: 0.8125rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 0.875rem;
+    }
+  }
+
+  &__activity-timestamp {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground) / 0.7);
+    margin-top: 0.25rem;
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 0.8125rem;
+    }
+  }
+}

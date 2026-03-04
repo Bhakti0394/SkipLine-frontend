@@ -1,0 +1,98 @@
+// LiveClock.scss
+
+.live-clock {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  @media (min-width: 640px) {
+    gap: 0.75rem;
+  }
+}
+
+.time-container {
+  text-align: right;
+}
+
+.time-display {
+  font-size: 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+
+  @media (min-width: 640px) {
+    font-size: 1.5rem;
+  }
+}
+
+.date-display {
+  display: none;
+  font-size: 0.625rem;
+  color: hsl(var(--muted-foreground));
+
+  @media (min-width: 640px) {
+    display: block;
+    font-size: 0.75rem;
+  }
+}
+
+.rush-badge {
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 9999px;
+  background: hsla(var(--urgent), 0.2);
+  color: hsl(var(--urgent));
+  font-size: 0.625rem;
+  font-weight: 500;
+
+  @media (min-width: 768px) {
+    display: flex;
+    padding: 0.125rem 0.5rem;
+  }
+
+  @media (min-width: 640px) {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+  }
+}
+
+.rush-indicator {
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 9999px;
+  background: hsl(var(--urgent));
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+  @media (min-width: 640px) {
+    width: 0.375rem;
+    height: 0.375rem;
+  }
+}
+
+.rush-text-full {
+  display: none;
+
+  @media (min-width: 1024px) {
+    display: inline;
+  }
+}
+
+.rush-text-short {
+  display: inline;
+
+  @media (min-width: 1024px) {
+    display: none;
+  }
+}
+
+// Pulse animation for the rush indicator
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

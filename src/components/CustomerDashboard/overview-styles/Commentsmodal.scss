@@ -1,0 +1,172 @@
+// Premium Dark Theme Variables
+$bg-dark: #0a0a0b;
+$card-bg: #141416;
+$primary: #ff6b35;
+$accent: #ff8f66;
+$text-primary: #e8e8e8;
+$text-secondary: #a0a0a8;
+$border: rgba(255, 107, 53, 0.1);
+
+.comments-modal {
+  max-width: 32rem;
+  max-height: 85vh;
+  background: $card-bg;
+  border: 1px solid $border;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6),
+              0 0 0 1px rgba(255, 255, 255, 0.03);
+
+  @media (max-width: 640px) {
+    max-width: 95vw;
+    max-height: 90vh;
+  }
+
+  &__title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: $text-primary;
+    background: linear-gradient(135deg, $text-primary, $text-secondary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+
+    @media (max-width: 640px) {
+      font-size: 1rem;
+    }
+  }
+
+  &__scroll {
+    height: 450px;
+    padding-right: 0.75rem;
+
+    @media (max-width: 640px) {
+      height: 60vh;
+    }
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    padding: 0.25rem;
+  }
+
+  &__empty {
+    font-size: 0.875rem;
+    color: $text-secondary;
+    text-align: center;
+    padding: 3rem 1rem;
+    opacity: 0.7;
+  }
+}
+
+.comment-card {
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 100%;
+    background: linear-gradient(180deg, $primary, $accent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: $border;
+    transform: translateX(4px);
+
+    &::before {
+      opacity: 1;
+    }
+  }
+
+  @media (max-width: 640px) {
+    padding: 0.875rem;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  &__user {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: $text-primary;
+
+    @media (max-width: 640px) {
+      font-size: 0.75rem;
+    }
+  }
+
+  &__stars {
+    display: flex;
+    align-items: center;
+    gap: 0.175rem;
+    flex-shrink: 0;
+  }
+
+  &__star {
+    width: 0.875rem;
+    height: 0.875rem;
+    color: rgba(160, 160, 168, 0.3);
+    transition: all 0.2s;
+
+    &--filled {
+      color: $primary;
+      fill: $primary;
+      filter: drop-shadow(0 0 4px rgba(255, 107, 53, 0.3));
+    }
+
+    @media (max-width: 640px) {
+      width: 0.75rem;
+      height: 0.75rem;
+    }
+  }
+
+  &__text {
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: $text-secondary;
+
+    @media (max-width: 640px) {
+      font-size: 0.75rem;
+    }
+  }
+
+  &__date {
+    font-size: 0.7rem;
+    color: rgba(160, 160, 168, 0.6);
+    font-style: italic;
+
+    @media (max-width: 640px) {
+      font-size: 0.65rem;
+    }
+  }
+}
+
+// Override dialog styles for dark theme
+[data-radix-dialog-content] {
+  background: $card-bg !important;
+  border: 1px solid $border !important;
+}
+
+[data-radix-dialog-overlay] {
+  background: rgba(0, 0, 0, 0.8) !important;
+  backdrop-filter: blur(8px) !important;
+}

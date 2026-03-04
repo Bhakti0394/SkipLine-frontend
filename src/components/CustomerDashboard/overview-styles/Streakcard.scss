@@ -1,0 +1,711 @@
+// StreakCard Styles – Customer Dashboard
+// =======================================
+// "Why streaks benefit you" section replaces the old operator metrics panel.
+// All styles are 100% customer-facing.
+
+// Responsive Breakpoints
+$xs: 320px;
+$sm: 480px;
+$md: 640px;
+$lg: 768px;
+$xl: 1024px;
+
+// ─── Celebration Modal ────────────────────────────────────────────────────────
+
+.streak-celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  padding: 1rem;
+
+  &__modal {
+    position: relative;
+    padding: 2.5rem 2rem;
+    border-radius: 1.75rem;
+    background: linear-gradient(
+      135deg,
+      rgba(245, 158, 11, 0.25),
+      rgba(249, 115, 22, 0.25),
+      rgba(239, 68, 68, 0.2)
+    );
+    border: 2px solid rgba(245, 158, 11, 0.4);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    max-width: 26rem;
+    width: 100%;
+    text-align: center;
+    box-shadow:
+      0 25px 50px -12px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+    @media (max-width: $sm) {
+      padding: 2rem 1.5rem;
+      max-width: 22rem;
+    }
+  }
+
+  &__confetti {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 1.75rem;
+  }
+
+  &__particle {
+    position: absolute;
+    font-size: 1.75rem;
+    pointer-events: none;
+
+    @media (max-width: $sm) {
+      font-size: 1.5rem;
+    }
+  }
+
+  &__emoji {
+    font-size: 4.5rem;
+    margin-bottom: 1.25rem;
+    filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.3));
+
+    @media (max-width: $sm) {
+      font-size: 3.5rem;
+    }
+  }
+
+  &__title {
+    font-size: 1.75rem;
+    font-weight: 800;
+    margin-bottom: 1rem;
+    background: linear-gradient(to right, #fbbf24, #f97316, #ef4444);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: -0.02em;
+
+    @media (max-width: $sm) {
+      font-size: 1.5rem;
+    }
+  }
+
+  &__name {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+    color: #fff;
+
+    @media (max-width: $sm) {
+      font-size: 1.125rem;
+    }
+  }
+
+  &__description {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+
+    @media (max-width: $sm) {
+      font-size: 0.9375rem;
+    }
+  }
+
+  &__button {
+    background: linear-gradient(to right, #f59e0b, #f97316);
+    color: white;
+    font-weight: 700;
+    padding: 0.875rem 2.5rem;
+    border-radius: 0.875rem;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 1rem;
+    box-shadow: 0 4px 6px -1px rgba(245, 158, 11, 0.3);
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 12px -2px rgba(245, 158, 11, 0.4);
+    }
+
+    &:active {
+      transform: translateY(0);
+    }
+  }
+}
+
+// ─── Main Streak Card ─────────────────────────────────────────────────────────
+
+.streak-enhanced {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.125rem;
+  background: linear-gradient(
+    135deg,
+    rgba(249, 115, 22, 0.12),
+    rgba(245, 158, 11, 0.12),
+    rgba(234, 179, 8, 0.1)
+  );
+  border: 1.5px solid rgba(245, 158, 11, 0.25);
+  padding: 1.5rem;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+  @media (max-width: $sm) {
+    padding: 1.25rem;
+  }
+
+  @media (min-width: $lg) {
+    padding: 1.75rem;
+  }
+
+  // Background decorations
+  &__bg-decoration {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(64px);
+    pointer-events: none;
+
+    &--top {
+      top: -2rem;
+      right: -2rem;
+      width: 10rem;
+      height: 10rem;
+      background: linear-gradient(
+        135deg,
+        rgba(245, 158, 11, 0.25),
+        rgba(249, 115, 22, 0.2)
+      );
+    }
+
+    &--bottom {
+      bottom: -2rem;
+      left: -2rem;
+      width: 8rem;
+      height: 8rem;
+      background: linear-gradient(
+        135deg,
+        rgba(234, 179, 8, 0.25),
+        rgba(245, 158, 11, 0.2)
+      );
+    }
+  }
+
+  // ── Header ──────────────────────────────────────────────────────────────────
+
+  &__header {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+
+    @media (max-width: $sm) {
+      flex-direction: column;
+      align-items: flex-start;
+      margin-bottom: 1.25rem;
+    }
+  }
+
+  &__title-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+  }
+
+  &__fire-icon {
+    font-size: 2.5rem;
+    filter: drop-shadow(0 0 12px rgba(249, 115, 22, 0.4));
+
+    @media (max-width: $sm) {
+      font-size: 2rem;
+    }
+  }
+
+  &__title {
+    font-weight: 800;
+    font-size: 1.375rem;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.25rem;
+
+    @media (max-width: $sm) {
+      font-size: 1.25rem;
+    }
+  }
+
+  &__subtitle {
+    font-size: 0.9375rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 500;
+
+    @media (max-width: $sm) {
+      font-size: 0.875rem;
+    }
+  }
+
+  // Streak Counter Pill
+  &__counter {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.625rem 1.125rem;
+    border-radius: 9999px;
+    background: linear-gradient(to right, #f97316, #f59e0b);
+    color: white;
+    font-weight: 800;
+    box-shadow:
+      0 4px 6px -1px rgba(249, 115, 22, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+
+    @media (max-width: $sm) {
+      padding: 0.5rem 1rem;
+    }
+  }
+
+  &__counter-icon {
+    width: 1.375rem;
+    height: 1.375rem;
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.4));
+
+    @media (max-width: $sm) {
+      width: 1.125rem;
+      height: 1.125rem;
+    }
+  }
+
+  &__counter-number {
+    font-size: 1.5rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+
+    @media (max-width: $sm) {
+      font-size: 1.25rem;
+    }
+  }
+
+  &__counter-label {
+    font-size: 0.9375rem;
+    opacity: 0.9;
+
+    @media (max-width: $sm) {
+      font-size: 0.875rem;
+    }
+  }
+
+  // ── Why Streaks Benefit You ──────────────────────────────────────────────────
+
+  &__benefits-section {
+    position: relative;
+    margin-bottom: 1.5rem;
+  }
+
+  &__benefits-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.875rem 1rem;
+    border-radius: 0.875rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(255, 255, 255, 0.18);
+      color: #fff;
+    }
+
+    @media (max-width: $sm) {
+      font-size: 0.8125rem;
+      padding: 0.75rem 0.875rem;
+    }
+  }
+
+  &__benefits-toggle-icon {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex-shrink: 0;
+    color: #f59e0b;
+  }
+
+  &__benefits-toggle-text {
+    flex: 1;
+    text-align: left;
+  }
+
+  &__benefits-toggle-chevron {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    opacity: 0.6;
+  }
+
+  &__benefits-content {
+    overflow: hidden;
+    padding-top: 1rem;
+  }
+
+  &__benefits-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+
+    @media (max-width: $sm) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  // Individual benefit card
+  &__benefit-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.875rem;
+    border-radius: 0.75rem;
+    border: 1px solid;
+    transition: transform 0.2s, background 0.2s;
+
+    &:hover {
+      transform: translateY(-2px);
+    }
+
+    // Save More – amber/gold
+    &--savings {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: rgba(245, 158, 11, 0.2);
+
+      .streak-enhanced__benefit-icon {
+        color: #fbbf24;
+        filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.4));
+      }
+    }
+
+    // Skip the Queue – cyan/teal
+    &--speed {
+      background: rgba(59, 246, 218, 0.08);
+      border-color: rgba(59, 246, 218, 0.18);
+
+      .streak-enhanced__benefit-icon {
+        color: #3bf6da;
+        filter: drop-shadow(0 0 6px rgba(59, 246, 218, 0.4));
+      }
+    }
+
+    // VIP Access – purple/pink
+    &--vip {
+      background: rgba(192, 132, 252, 0.1);
+      border-color: rgba(192, 132, 252, 0.2);
+
+      .streak-enhanced__benefit-icon {
+        color: #c084fc;
+        filter: drop-shadow(0 0 6px rgba(192, 132, 252, 0.4));
+      }
+    }
+  }
+
+  &__benefit-icon {
+    width: 1.375rem;
+    height: 1.375rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  &__benefit-label {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 0.2rem;
+  }
+
+  &__benefit-detail {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.65);
+    line-height: 1.4;
+  }
+
+  &__benefits-explanation {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    padding: 0.875rem 1rem;
+    border-radius: 0.75rem;
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.12), rgba(245, 158, 11, 0.08));
+    border: 1px solid rgba(249, 115, 22, 0.2);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  &__benefits-explanation-icon {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+    color: #fbbf24;
+  }
+
+  // ── Progress Section ─────────────────────────────────────────────────────────
+
+  &__progress-section {
+    position: relative;
+    margin-bottom: 1.75rem;
+  }
+
+  &__progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.625rem;
+    gap: 0.5rem;
+  }
+
+  &__progress-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+
+    @media (max-width: $sm) {
+      font-size: 0.875rem;
+    }
+  }
+
+  &__progress-remaining {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 500;
+    white-space: nowrap;
+
+    @media (max-width: $sm) {
+      font-size: 0.75rem;
+    }
+  }
+
+  &__progress-bar {
+    height: 0.875rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  &__progress-fill {
+    height: 100%;
+    border-radius: 9999px;
+    background: linear-gradient(to right, #f97316, #f59e0b, #facc15);
+    position: relative;
+    box-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
+  }
+
+  &__progress-shine {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to right,
+      transparent,
+      rgba(255, 255, 255, 0.4),
+      transparent
+    );
+  }
+
+  &__progress-description {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.75);
+    margin-top: 0.5rem;
+    line-height: 1.5;
+  }
+
+  // ── Rewards Section ───────────────────────────────────────────────────────────
+
+  &__rewards {
+    position: relative;
+    margin-bottom: 1rem;
+  }
+
+  &__rewards-header {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin-bottom: 0.875rem;
+  }
+
+  &__rewards-icon {
+    width: 1.125rem;
+    height: 1.125rem;
+    color: #f59e0b;
+    filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.4));
+  }
+
+  &__rewards-title {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  &__rewards-list {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    overflow-x: auto;
+    padding-bottom: 0.625rem;
+
+    scrollbar-width: thin;
+    scrollbar-color: rgba(245, 158, 11, 0.3) transparent;
+
+    &::-webkit-scrollbar {
+      height: 0.25rem;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: rgba(245, 158, 11, 0.3);
+      border-radius: 9999px;
+
+      &:hover {
+        background: rgba(245, 158, 11, 0.5);
+      }
+    }
+  }
+
+  // Reward Badge
+  &__reward-badge {
+    position: relative;
+    flex-shrink: 0;
+    width: 4rem;
+    height: 4rem;
+    border-radius: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.75rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 2px solid;
+    background: none;
+    cursor: pointer;
+
+    @media (max-width: $sm) {
+      width: 3.5rem;
+      height: 3.5rem;
+      font-size: 1.5rem;
+    }
+
+    &--unlocked {
+      border-color: rgba(255, 255, 255, 0.25);
+      box-shadow:
+        0 10px 20px -5px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+
+      &[data-color='from-yellow-400 to-amber-500'] {
+        background: linear-gradient(135deg, #facc15, #f59e0b);
+      }
+
+      &[data-color='from-orange-400 to-red-500'] {
+        background: linear-gradient(135deg, #fb923c, #ef4444);
+      }
+
+      &[data-color='from-blue-400 to-purple-500'] {
+        background: linear-gradient(135deg, #60a5fa, #a855f7);
+      }
+
+      &[data-color='from-purple-400 to-pink-500'] {
+        background: linear-gradient(135deg, #c084fc, #ec4899);
+      }
+
+      &[data-color='from-amber-400 to-yellow-300'] {
+        background: linear-gradient(135deg, #fbbf24, #fde047);
+      }
+    }
+
+    &--locked {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.1);
+      filter: grayscale(1);
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  &__reward-sparkle {
+    position: absolute;
+    top: -0.375rem;
+    right: -0.375rem;
+  }
+
+  &__sparkle-icon {
+    width: 1.125rem;
+    height: 1.125rem;
+    color: #fde047;
+    filter: drop-shadow(0 0 8px rgba(253, 224, 71, 0.6));
+  }
+
+  &__reward-lock {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 1rem;
+  }
+
+  &__reward-lock-text {
+    font-size: 0.875rem;
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  // ── Footer ────────────────────────────────────────────────────────────────────
+
+  &__footer {
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 0.875rem;
+    background: linear-gradient(
+      to right,
+      rgba(59, 246, 218, 0.1),
+      rgba(92, 246, 226, 0.1)
+    );
+    border: 1px solid rgba(59, 246, 218, 0.2);
+  }
+
+  &__footer-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+  }
+
+  &__footer-icon {
+    width: 1.125rem;
+    height: 1.125rem;
+    color: #3bf6da;
+    margin-top: 0.125rem;
+    flex-shrink: 0;
+  }
+
+  &__footer-text {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.5;
+
+    @media (max-width: $sm) {
+      font-size: 0.75rem;
+    }
+  }
+
+  &__footer-highlight {
+    color: #3bf6da;
+    font-weight: 700;
+  }
+}

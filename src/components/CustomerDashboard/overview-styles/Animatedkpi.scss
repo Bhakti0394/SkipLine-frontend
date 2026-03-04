@@ -1,0 +1,264 @@
+// Variables for colors - adjust these to match your theme
+$primary-color: #ff6b2c; // Prepline orange
+$accent-color: #22e3c4;  // Prepline teal
+$success-color: #22e3c4; // teal = success
+$warning-color: #ff9f45; // warm orange warning
+
+$card-bg: rgba(255, 255, 255, 0.04);
+$card-border: rgba(255, 255, 255, 0.08);
+$muted-foreground: #9aa3a3;
+$text-primary: #ffffff;
+
+$text-primary: #ffffff;
+
+// Breakpoint for responsive design
+$breakpoint-sm: 640px;
+
+// Base component styles
+.animated-kpi {
+  position: relative;
+  padding: 1.25rem;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: default;
+  margin-bottom:20px;
+
+  backdrop-filter: blur(14px);
+  background: $card-bg;
+  border: 1px solid $card-border;
+
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  @media (min-width: $breakpoint-sm) {
+    padding: 1.25rem;
+  }
+
+  &:hover {
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+                0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  }
+
+  // Gradient overlay
+ &__gradient-overlay {
+  position: absolute;
+  inset: 0;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+
+  // Main content wrapper
+  &__content {
+    position: relative;
+    z-index: 10;
+  }
+
+  // Header with icon and trend
+  &__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+  }
+
+  // Icon wrapper
+  &__icon-wrapper {
+    padding: 0.625rem;
+    border-radius: 0.5rem;
+  }
+
+  &__icon {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  // Trend indicator
+  &__trend {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+
+    &--up {
+      color: #4ade80;
+    }
+
+    &--down {
+      color: #f87171;
+    }
+  }
+
+  &__trend-icon {
+    width: 0.75rem;
+    height: 0.75rem;
+  }
+
+  // Values section
+  &__values {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  &__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 1.875rem;
+    }
+  }
+
+  &__label {
+    font-size: 0.75rem;
+    color: $muted-foreground;
+
+    @media (min-width: $breakpoint-sm) {
+      font-size: 0.875rem;
+    }
+  }
+
+  // Glow effect on hover
+  &__glow-effect {
+    position: absolute;
+    inset: -0.25rem;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    filter: blur(1.5rem);
+    pointer-events: none;
+  }
+
+  &:hover &__glow-effect {
+    opacity: 1;
+  }
+
+  // Variant: Primary
+  &--primary {
+    .animated-kpi__icon-wrapper {
+      background: rgba($primary-color, 0.2);
+    }
+
+    .animated-kpi__icon {
+      color: $primary-color;
+    }
+
+    .animated-kpi__gradient-overlay {
+      background: linear-gradient(
+        to bottom right,
+        rgba($primary-color, 0.1),
+        transparent
+      );
+    }
+
+    &:hover {
+      box-shadow: 0 20px 25px -5px rgba($primary-color, 0.3),
+                  0 10px 10px -5px rgba($primary-color, 0.2);
+    }
+
+    .animated-kpi__glow-effect {
+      background: linear-gradient(
+        to right,
+        rgba($primary-color, 0.1),
+        transparent
+      );
+    }
+  }
+
+  // Variant: Accent
+  &--accent {
+    .animated-kpi__icon-wrapper {
+      background: rgba($accent-color, 0.2);
+    }
+
+    .animated-kpi__icon {
+      color: $accent-color;
+    }
+
+    .animated-kpi__gradient-overlay {
+      background: linear-gradient(
+        to bottom right,
+        rgba($accent-color, 0.1),
+        transparent
+      );
+    }
+
+    &:hover {
+      box-shadow: 0 20px 25px -5px rgba($accent-color, 0.3),
+                  0 10px 10px -5px rgba($accent-color, 0.2);
+    }
+
+    .animated-kpi__glow-effect {
+      background: linear-gradient(
+        to right,
+        rgba($accent-color, 0.1),
+        transparent
+      );
+    }
+  }
+
+  // Variant: Success
+  &--success {
+    .animated-kpi__icon-wrapper {
+      background: rgba($success-color, 0.2);
+    }
+
+    .animated-kpi__icon {
+      color: #4ade80;
+    }
+
+    .animated-kpi__gradient-overlay {
+      background: linear-gradient(
+        to bottom right,
+        rgba($success-color, 0.1),
+        transparent
+      );
+    }
+
+    &:hover {
+      box-shadow: 0 20px 25px -5px rgba($success-color, 0.3),
+                  0 10px 10px -5px rgba($success-color, 0.2);
+    }
+
+    .animated-kpi__glow-effect {
+      background: linear-gradient(
+        to right,
+        rgba($success-color, 0.1),
+        transparent
+      );
+    }
+  }
+
+  // Variant: Warning
+  &--warning {
+    .animated-kpi__icon-wrapper {
+      background: rgba($warning-color, 0.2);
+    }
+
+    .animated-kpi__icon {
+      color: #facc15;
+    }
+
+    .animated-kpi__gradient-overlay {
+      background: linear-gradient(
+        to bottom right,
+        rgba($warning-color, 0.1),
+        transparent
+      );
+    }
+
+    &:hover {
+      box-shadow: 0 20px 25px -5px rgba($warning-color, 0.3),
+                  0 10px 10px -5px rgba($warning-color, 0.2);
+    }
+
+    .animated-kpi__glow-effect {
+      background: linear-gradient(
+        to right,
+        rgba($warning-color, 0.1),
+        transparent
+      );
+    }
+  }
+}

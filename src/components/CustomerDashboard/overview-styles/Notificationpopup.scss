@@ -1,0 +1,204 @@
+// NotificationPopup - Fixed Style (less blur, more solid)
+
+// Variables
+$primary-orange: #FF7A18;
+$primary-orange-bright: #FF9447;
+$green-status: #22C55E;
+$glass-bg: rgba(15, 23, 42, 0.6);
+$glass-border: rgba(255, 255, 255, 0.08);
+$text-primary: #ffffff;
+$text-secondary: #94A3B8;
+$text-muted: #64748B;
+
+// Solid card background — dark navy, no excessive transparency
+$card-bg: #181e2e;
+
+.notification-popup {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 22rem;
+  width: calc(100vw - 2rem);
+
+  @media (min-width: 480px) {
+    width: 22rem;
+  }
+
+  &__item {
+    position: relative;
+    padding: 1rem;
+    border-radius: 0.875rem;
+    border: 1px solid rgba(255, 122, 24, 0.3);
+
+    // Solid dark background — readable, not see-through
+    background: $card-bg;
+    // Subtle left accent via box-shadow instead of transparent gradient
+    box-shadow:
+      inset 3px 0 0 rgba(255, 122, 24, 0.6),   // left accent stripe
+      0 16px 48px rgba(0, 0, 0, 0.75),
+      0 4px 16px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+    // Only a tiny blur — not full glassy
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+
+    &--green {
+      border-color: rgba(34, 197, 94, 0.35);
+      box-shadow:
+        inset 3px 0 0 rgba(34, 197, 94, 0.7),
+        0 16px 48px rgba(0, 0, 0, 0.75),
+        0 4px 16px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    &--orange {
+      border-color: rgba(255, 122, 24, 0.35);
+      box-shadow:
+        inset 3px 0 0 rgba(255, 122, 24, 0.7),
+        0 16px 48px rgba(0, 0, 0, 0.75),
+        0 4px 16px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    &--blue {
+      border-color: rgba(59, 130, 246, 0.35);
+      box-shadow:
+        inset 3px 0 0 rgba(59, 130, 246, 0.7),
+        0 16px 48px rgba(0, 0, 0, 0.75),
+        0 4px 16px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    &--yellow {
+      border-color: rgba(234, 179, 8, 0.35);
+      box-shadow:
+        inset 3px 0 0 rgba(234, 179, 8, 0.7),
+        0 16px 48px rgba(0, 0, 0, 0.75),
+        0 4px 16px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    &--primary {
+      border-color: rgba(255, 122, 24, 0.35);
+    }
+  }
+
+  &__dismiss {
+    position: absolute;
+    top: 0.625rem;
+    right: 0.625rem;
+    padding: 0.3rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  &__dismiss-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+    color: $text-secondary;
+  }
+
+  &__content {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding-right: 1.5rem;
+  }
+
+  &__icon-wrapper {
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.07);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  &__icon {
+    width: 1.25rem;
+    height: 1.25rem;
+
+    &--green  { color: #4ADE80; }
+    &--orange { color: #FB923C; }
+    &--blue   { color: #60A5FA; }
+    &--yellow { color: #FACC15; }
+    &--primary { color: $primary-orange-bright; }
+  }
+
+  &__text {
+    flex: 1 1 0%;
+    min-width: 0;
+  }
+
+  &__title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    line-height: 1.3;
+    margin: 0;
+    color: $text-primary;
+  }
+
+  &__message {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: $text-secondary;
+    margin-top: 0.25rem;
+    margin-bottom: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 0.1875rem;
+    background-color: rgba(255, 255, 255, 0.2);
+    transform-origin: left;
+    border-radius: 0 0 0.875rem 0.875rem;
+  }
+}
+
+// Responsive
+@media (max-width: 480px) {
+  .notification-popup {
+    right: 0.75rem;
+    left: 0.75rem;
+    bottom: 0.75rem;
+    width: auto;
+    
+    max-width: 100%;
+
+    &__item {
+      padding: 0.875rem;
+    }
+
+    &__title {
+      font-size: 0.875rem;
+    }
+
+    &__message {
+      font-size: 0.75rem;
+    }
+  }
+}

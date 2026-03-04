@@ -1,0 +1,231 @@
+// Landing Page Theme Variables
+$primary-orange: #FF6634;
+$primary-orange-hover: #ff7a4d;
+$dark-bg: #0a0a0a;
+$dark-card: #141414;
+$dark-card-hover: #1a1a1a;
+$text-primary: #ffffff;
+$text-secondary: #9ca3af;
+$text-muted: #6b7280;
+$green-accent: #10b981;
+$border-color: rgba(255, 255, 255, 0.08);
+$border-subtle: rgba(255, 255, 255, 0.05);
+
+// Breakpoints
+$breakpoint-xs: 360px;
+$breakpoint-sm: 480px;
+$breakpoint-md: 640px;
+$breakpoint-lg: 768px;
+$breakpoint-xl: 1024px;
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding:500px;
+  background: transparent;
+  min-height: 3.25rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  gap: 0.5rem;
+
+   margin-right: 20px;
+
+  @media (min-width: $breakpoint-sm) {
+    padding: 0.95rem 1.25rem;
+    min-height: 3.5rem;
+  }
+
+  @media (min-width: $breakpoint-md) {
+    padding: 1rem 1.5rem;
+    min-height: 4rem;
+  }
+
+  @media (min-width: $breakpoint-lg) {
+    padding: 1.25rem 2rem;
+    min-height: 4.5rem;
+  }
+
+  @media (min-width: $breakpoint-xl) {
+    padding: 1.5rem 2.5rem;
+  }
+
+  &__left {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex: 1;
+    min-width: 0;
+
+    @media (min-width: $breakpoint-sm) { gap: 0.5rem; }
+    @media (min-width: $breakpoint-md) { gap: 0.75rem; }
+    @media (min-width: $breakpoint-lg) { gap: 1rem; }
+  }
+
+  &__logo {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-md) { gap: 0.5rem; }
+    &:hover { opacity: 0.9; }
+  }
+
+  &__logo-icon {
+    width: 1.875rem;
+    height: 1.875rem;
+    border-radius: 0.4375rem;
+    background: $primary-orange;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 20px rgba(255, 102, 52, 0.25);
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-sm) { width: 2rem; height: 2rem; border-radius: 0.5rem; }
+    @media (min-width: $breakpoint-md) { width: 2.25rem; height: 2.25rem; border-radius: 0.5625rem; }
+    @media (min-width: $breakpoint-lg) { width: 2.5rem; height: 2.5rem; border-radius: 0.625rem; }
+  }
+
+  &__logo-text {
+    font-size: 1rem;
+    font-weight: 700;
+    color: $text-primary;
+
+    @media (min-width: $breakpoint-md) { font-size: 1.125rem; }
+    @media (min-width: $breakpoint-lg) { font-size: 1.25rem; }
+  }
+
+  &__logo-name {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 700;
+    display: block;
+    font-size: 1rem;
+    color: $text-primary;
+    white-space: nowrap;
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-lg) { font-size: 1.25rem; }
+  }
+
+  &__streak {
+    display: none;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.3rem 0.625rem;
+    border-radius: 9999px;
+    background: rgba(255, 102, 52, 0.1);
+    border: 1px solid rgba(255, 102, 52, 0.2);
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-md) { display: flex; gap: 0.3rem; padding: 0.3rem 0.625rem; }
+    @media (min-width: $breakpoint-lg) { gap: 0.375rem; padding: 0.375rem 0.75rem; }
+  }
+
+  &__streak-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+    color: $primary-orange;
+
+    @media (min-width: $breakpoint-lg) { width: 1rem; height: 1rem; }
+  }
+
+  &__streak-text {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: $primary-orange;
+    white-space: nowrap;
+
+    @media (min-width: $breakpoint-lg) { font-size: 0.875rem; }
+  }
+
+  &__right {
+    display: flex;
+    align-items: center;
+    // ✅ tight gap on mobile, loosens up on larger screens
+    gap: 0.125rem;
+    flex-shrink: 0;
+    padding-left: 0;
+    margin-left: 0;
+
+    @media (min-width: $breakpoint-sm) { gap: 0.25rem; }
+    @media (min-width: $breakpoint-md) { gap: 0.375rem; }
+    @media (min-width: $breakpoint-lg) { gap: 0.5rem; }
+    @media (min-width: $breakpoint-xl) { gap: 0.75rem; }
+  }
+
+  &__user {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding-left: 0;
+    border-left: none;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+
+    @media (min-width: $breakpoint-md) {
+      gap: 0.5rem;
+      padding-left: 0.375rem;
+      border-left: 1px solid $border-color;
+    }
+
+    @media (min-width: $breakpoint-lg) {
+      gap: 0.75rem;
+      padding-left: 0.75rem;
+    }
+
+    &:hover { opacity: 0.9; }
+  }
+
+  &__user-info {
+    display: none;
+    text-align: right;
+
+    @media (min-width: $breakpoint-lg) { display: block; }
+  }
+
+  &__user-name {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: $text-primary;
+    white-space: nowrap;
+
+    @media (min-width: $breakpoint-xl) { font-size: 0.875rem; }
+  }
+
+  &__user-badge {
+    font-size: 0.6875rem;
+    color: $text-muted;
+
+    @media (min-width: $breakpoint-xl) { font-size: 0.75rem; }
+  }
+
+  &__user-avatar {
+    width: 1.875rem;
+    height: 1.875rem;
+    border-radius: 0.4375rem;
+    background: linear-gradient(135deg, $primary-orange 0%, #ff7a4d 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 10px rgba(255, 102, 52, 0.2);
+    flex-shrink: 0;
+
+    @media (min-width: $breakpoint-sm) { width: 2rem; height: 2rem; border-radius: 0.5rem; }
+    @media (min-width: $breakpoint-md) { width: 2.25rem; height: 2.25rem; }
+    @media (min-width: $breakpoint-lg) { width: 2.5rem; height: 2.5rem; border-radius: 0.625rem; }
+  }
+
+  &__user-icon {
+    width: 0.9375rem;
+    height: 0.9375rem;
+    color: $text-primary;
+
+    @media (min-width: $breakpoint-sm) { width: 1rem; height: 1rem; }
+    @media (min-width: $breakpoint-lg) { width: 1.25rem; height: 1.25rem; }
+  }
+}

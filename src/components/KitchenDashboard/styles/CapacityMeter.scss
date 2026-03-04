@@ -1,0 +1,176 @@
+// Breakpoints
+$breakpoint-sm: 640px;
+
+.capacity-meter {
+  background: rgba(1, 5, 39, 0.05);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  animation: scale-in 0.3s ease-out;
+  
+  @media (min-width: $breakpoint-sm) {
+    padding: 1.25rem;
+    border-radius: 1rem;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    
+    @media (min-width: $breakpoint-sm) {
+      margin-bottom: 1rem;
+    }
+  }
+
+  &__title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #ffffff;
+    
+    @media (min-width: $breakpoint-sm) {
+      font-size: 1rem;
+    }
+  }
+
+  &__percentage {
+    font-size: 1.125rem;
+    font-weight: 700;
+    font-family: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+    line-height: 1;
+    
+    @media (min-width: $breakpoint-sm) {
+      font-size: 1.5rem;
+    }
+
+    &--urgent {
+      color: #ff4757;
+    }
+
+    &--warning {
+      color: #ffa500;
+    }
+
+    &--normal {
+      color: #00d9ff;
+    }
+  }
+
+  &__progress {
+    position: relative;
+    height: 0.5rem;
+    background-color: rgba(42, 50, 82, 0.6);
+    border-radius: 9999px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+    
+    @media (min-width: $breakpoint-sm) {
+      height: 0.75rem;
+      margin-bottom: 1rem;
+    }
+  }
+
+  &__progress-bar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    border-radius: 9999px;
+    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: progress-fill 1.5s ease-out forwards;
+
+    &--urgent {
+      background-color: #ff4757;
+      box-shadow: 0 0 10px rgba(255, 71, 87, 0.4);
+    }
+
+    &--warning {
+      background-color: #ffa500;
+      box-shadow: 0 0 10px rgba(255, 165, 0, 0.4);
+    }
+
+    &--normal {
+      background-color: #00d9ff;
+      box-shadow: 0 0 10px rgba(0, 217, 255, 0.4);
+    }
+  }
+
+  &__labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.625rem;
+    color: #7a8aa8;
+    margin-bottom: 0.5rem;
+    
+    @media (min-width: $breakpoint-sm) {
+      font-size: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    span:nth-child(2) {
+      text-align: center;
+    }
+
+    span:last-child {
+      text-align: right;
+    }
+  }
+
+  &__status {
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: none;
+    
+    @media (min-width: $breakpoint-sm) {
+      display: block;
+    }
+  }
+
+  &__status-text {
+    font-size: 0.75rem;
+    color: #7a8aa8;
+    
+    @media (min-width: $breakpoint-sm) {
+      font-size: 0.875rem;
+    }
+
+    &--urgent {
+      color: #ff4757;
+      font-weight: 500;
+    }
+
+    &--warning {
+      color: #ffa500;
+      font-weight: 500;
+    }
+
+    &--normal {
+      color: #00d9ff;
+      font-weight: 500;
+    }
+  }
+
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes progress-fill {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+}

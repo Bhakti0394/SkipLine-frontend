@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prepline - Smart Pre-Ordering. Zero Queues. Fresh Pickup.</title>
+    <meta name="description" content="Real-time food pre-ordering and kitchen orchestration system for college canteens. Slot-based pickup, capacity-aware scheduling, and live order tracking." />
+    <meta name="author" content="Prepline" />
+
+    <meta property="og:title" content="Prepline - Smart Pre-Ordering. Zero Queues." />
+    <meta property="og:description" content="A real-time food pre-ordering system designed for high-rush environments. Eliminate waiting time and reduce food waste." />
+    <meta property="og:type" content="website" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@Prepline" />
+
+    <!--
+      CRITICAL: Inline style block — runs before ANY external CSS or JS.
+      Paints the dark background on the very first browser frame so there
+      is zero white flash between HTML parse and React mounting.
+      #080706 must match PageLoader's background exactly.
+    -->
+    <style>
+      html, body, #root {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        background-color: #080706;
+        color: #f1f5f9;
+      }
+      body {
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

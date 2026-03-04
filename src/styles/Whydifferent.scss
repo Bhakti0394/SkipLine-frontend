@@ -1,0 +1,421 @@
+// WhyDifferent.scss
+
+.why-different {
+  position: relative;
+  overflow: hidden;
+  padding: 4rem 1rem;
+
+  @media (min-width: 640px) {
+    padding: 5rem 1.5rem;
+  }
+
+  @media (min-width: 768px) {
+    padding: 7rem 2rem;
+  }
+
+  @media (min-width: 1024px) {
+    padding: 8rem 2rem;
+  }
+
+  &__bg-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, transparent, hsl(var(--primary) / 0.05), transparent);
+    pointer-events: none;
+  }
+
+  &__container {
+    position: relative;
+    z-index: 10;
+    max-width: 56rem;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  &__header {
+    text-align: center;
+    margin-bottom: 2rem;
+
+    @media (min-width: 640px) {
+      margin-bottom: 2.5rem;
+    }
+
+    @media (min-width: 768px) {
+      margin-bottom: 3.5rem;
+    }
+
+    @media (min-width: 1024px) {
+      margin-bottom: 4rem;
+    }
+  }
+
+  &__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 9999px;
+    background-color: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+
+    @media (min-width: 640px) {
+      gap: 0.5rem;
+      padding: 0.375rem 1rem;
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+  }
+
+  &__badge-icon {
+    height: 0.75rem;
+    width: 0.75rem;
+    flex-shrink: 0;
+
+    @media (min-width: 640px) {
+      height: 0.875rem;
+      width: 0.875rem;
+    }
+  }
+
+  &__title {
+    font-family: var(--font-display);
+    font-size: 1.375rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+    padding: 0 0.25rem;
+    line-height: 1.2;
+
+    @media (min-width: 640px) {
+      font-size: 1.75rem;
+      margin-bottom: 1rem;
+      padding: 0;
+    }
+
+    @media (min-width: 768px) {
+      font-size: 2.25rem;
+    }
+
+    @media (min-width: 1024px) {
+      font-size: 3rem;
+    }
+  }
+
+  &__title-gradient {
+    background: linear-gradient(to right, hsl(var(--primary)), hsl(var(--accent)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  &__comparison {
+    max-width: 56rem;
+    margin: 0 auto;
+  }
+
+  &__headers {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+
+    @media (min-width: 640px) {
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    @media (min-width: 768px) {
+      gap: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+  }
+
+  &__header-others,
+  &__header-prepline {
+    text-align: center;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+
+    @media (min-width: 640px) {
+      padding: 0.75rem 1rem;
+      border-radius: 0.75rem;
+    }
+  }
+
+  &__header-others {
+    background-color: hsl(var(--muted) / 0.3);
+
+    span {
+      color: hsl(var(--muted-foreground));
+      font-weight: 500;
+      font-size: 0.6875rem;
+
+      @media (min-width: 640px) {
+        font-size: 0.875rem;
+      }
+
+      @media (min-width: 768px) {
+        font-size: 1rem;
+      }
+    }
+  }
+
+  &__header-prepline {
+    background: linear-gradient(to right, hsl(var(--primary) / 0.2), hsl(var(--accent) / 0.2));
+    border: 1px solid hsl(var(--primary) / 0.2);
+
+    span {
+      background: linear-gradient(to right, hsl(var(--primary)), hsl(var(--accent)));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-weight: 700;
+      font-size: 0.6875rem;
+
+      @media (min-width: 640px) {
+        font-size: 1rem;
+      }
+
+      @media (min-width: 768px) {
+        font-size: 1.125rem;
+      }
+    }
+  }
+
+  &__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+
+    @media (min-width: 640px) {
+      gap: 0.625rem;
+    }
+
+    @media (min-width: 768px) {
+      gap: 0.75rem;
+    }
+  }
+
+  &__row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+
+    @media (min-width: 640px) {
+      gap: 1rem;
+    }
+
+    @media (min-width: 768px) {
+      gap: 1.5rem;
+    }
+  }
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid hsl(var(--border));
+    transition: all 0.2s;
+
+    @media (min-width: 640px) {
+      gap: 0.625rem;
+      padding: 0.75rem;
+    }
+
+    @media (min-width: 768px) {
+      gap: 0.75rem;
+      padding: 1rem;
+      border-radius: 0.75rem;
+    }
+
+    &--others {
+      background-color: hsl(var(--card));
+
+      &:hover {
+        border-color: hsl(var(--muted-foreground) / 0.3);
+      }
+    }
+
+    &--prepline {
+      background: linear-gradient(to right, hsl(var(--primary) / 0.1), hsl(var(--accent) / 0.1));
+      border-color: hsl(var(--primary) / 0.2);
+
+      &:hover {
+        border-color: hsl(var(--primary) / 0.4);
+      }
+    }
+  }
+
+  &__icon-wrapper {
+    flex-shrink: 0;
+    padding: 0.3125rem;
+    border-radius: 0.375rem;
+    transition: background-color 0.2s;
+
+    @media (min-width: 640px) {
+      padding: 0.4375rem;
+    }
+
+    @media (min-width: 768px) {
+      padding: 0.5rem;
+      border-radius: 0.5rem;
+    }
+
+    &--others {
+      background-color: hsl(var(--muted));
+
+      .why-different__item:hover & {
+        background-color: hsl(var(--destructive) / 0.1);
+      }
+    }
+
+    &--prepline {
+      background-color: hsl(var(--primary) / 0.2);
+
+      .why-different__item:hover & {
+        background-color: hsl(var(--primary) / 0.3);
+      }
+    }
+  }
+
+  &__icon {
+    height: 0.6875rem;
+    width: 0.6875rem;
+
+    @media (min-width: 640px) {
+      height: 0.875rem;
+      width: 0.875rem;
+    }
+
+    @media (min-width: 768px) {
+      height: 1rem;
+      width: 1rem;
+    }
+
+    .why-different__icon-wrapper--others & {
+      color: hsl(var(--muted-foreground));
+    }
+
+    .why-different__icon-wrapper--prepline & {
+      color: hsl(var(--primary));
+    }
+  }
+
+  &__text {
+    line-height: 1.3;
+    font-size: 0.625rem;
+
+    @media (min-width: 480px) {
+      font-size: 0.6875rem;
+    }
+
+    @media (min-width: 640px) {
+      font-size: 0.8125rem;
+    }
+
+    @media (min-width: 768px) {
+      font-size: 0.9375rem;
+      line-height: 1.4;
+    }
+
+    @media (min-width: 1024px) {
+      font-size: 1rem;
+    }
+
+    &--others {
+      color: hsl(var(--muted-foreground));
+    }
+
+    &--prepline {
+      font-weight: 500;
+    }
+  }
+
+  &__focuses {
+    margin-top: 2rem;
+
+    @media (min-width: 640px) {
+      margin-top: 2.5rem;
+    }
+
+    @media (min-width: 768px) {
+      margin-top: 3.5rem;
+    }
+
+    @media (min-width: 1024px) {
+      margin-top: 4rem;
+    }
+  }
+
+  &__focuses-label {
+    text-align: center;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.875rem;
+    margin-bottom: 0.875rem;
+
+    @media (min-width: 640px) {
+      font-size: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    @media (min-width: 768px) {
+      margin-bottom: 1.5rem;
+    }
+  }
+
+  &__focuses-list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+
+    @media (min-width: 640px) {
+      gap: 0.75rem;
+    }
+  }
+
+  &__focus-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.4375rem 0.75rem;
+    border-radius: 9999px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    background-color: hsl(var(--card) / 0.8);
+    border: 1px solid hsl(var(--border) / 0.5);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: default;
+    transition: all 0.2s;
+
+    @media (min-width: 640px) {
+      gap: 0.5rem;
+      padding: 0.5625rem 1.125rem;
+      font-size: 0.875rem;
+    }
+
+    &:hover {
+      border-color: hsl(var(--primary) / 0.5);
+      background-color: hsl(var(--primary) / 0.05);
+    }
+  }
+
+  &__focus-emoji {
+    font-size: 0.875rem;
+    transition: transform 0.2s;
+    line-height: 1;
+
+    @media (min-width: 640px) {
+      font-size: 1rem;
+    }
+
+    .why-different__focus-item:hover & {
+      transform: scale(1.15);
+    }
+  }
+}
