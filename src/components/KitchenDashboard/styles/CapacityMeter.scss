@@ -1,38 +1,53 @@
-// Breakpoints
+// ============================================================
+// src/components/KitchenDashboard/styles/CapacityMeter.scss  —  FIXED
+// ============================================================
+//
+// FIX: Removed @keyframes progress-fill that reset bar to width:0
+//      on every poll cycle (every 10s), causing a visible flash.
+//      Now uses transition:width only for smooth live updates.
+//      scale-in mount animation is kept — fires once on mount only.
+// ============================================================
+
 $breakpoint-sm: 640px;
+
+$color-urgent:     #ff4757;
+$color-warning:    #ffa500;
+$color-normal:     #00d9ff;
+$color-activate:   #10b981;
+$color-text-muted: #7a8aa8;
+$color-border:     rgba(255, 255, 255, 0.1);
+$color-border-row: rgba(255, 255, 255, 0.05);
 
 .capacity-meter {
   background: rgba(1, 5, 39, 0.05);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid $color-border;
   border-radius: 0.75rem;
   padding: 0.75rem;
   animation: scale-in 0.3s ease-out;
-  
+
   @media (min-width: $breakpoint-sm) {
     padding: 1.25rem;
     border-radius: 1rem;
   }
+
+  // ── Header ────────────────────────────────────────────────────────────────
 
   &__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 0.5rem;
-    
-    @media (min-width: $breakpoint-sm) {
-      margin-bottom: 1rem;
-    }
+
+    @media (min-width: $breakpoint-sm) { margin-bottom: 1rem; }
   }
 
   &__title {
     font-size: 0.75rem;
     font-weight: 600;
     color: #ffffff;
-    
-    @media (min-width: $breakpoint-sm) {
-      font-size: 1rem;
-    }
+
+    @media (min-width: $breakpoint-sm) { font-size: 1rem; }
   }
 
   &__percentage {
@@ -40,23 +55,15 @@ $breakpoint-sm: 640px;
     font-weight: 700;
     font-family: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace;
     line-height: 1;
-    
-    @media (min-width: $breakpoint-sm) {
-      font-size: 1.5rem;
-    }
 
-    &--urgent {
-      color: #ff4757;
-    }
+    @media (min-width: $breakpoint-sm) { font-size: 1.5rem; }
 
-    &--warning {
-      color: #ffa500;
-    }
-
-    &--normal {
-      color: #00d9ff;
-    }
+    &--urgent  { color: $color-urgent; }
+    &--warning { color: $color-warning; }
+    &--normal  { color: $color-normal; }
   }
+
+  // ── Progress bar ──────────────────────────────────────────────────────────
 
   &__progress {
     position: relative;
@@ -65,7 +72,7 @@ $breakpoint-sm: 640px;
     border-radius: 9999px;
     overflow: hidden;
     margin-bottom: 0.5rem;
-    
+
     @media (min-width: $breakpoint-sm) {
       height: 0.75rem;
       margin-bottom: 1rem;
@@ -74,103 +81,127 @@ $breakpoint-sm: 640px;
 
   &__progress-bar {
     position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
+    top: 0; bottom: 0; left: 0;
     border-radius: 9999px;
-    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
-    animation: progress-fill 1.5s ease-out forwards;
+    // FIX: transition only — no @keyframes that resets to width:0 on re-render
+    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+                background-color 0.4s ease;
 
     &--urgent {
-      background-color: #ff4757;
+      background-color: $color-urgent;
       box-shadow: 0 0 10px rgba(255, 71, 87, 0.4);
     }
-
     &--warning {
-      background-color: #ffa500;
+      background-color: $color-warning;
       box-shadow: 0 0 10px rgba(255, 165, 0, 0.4);
     }
-
     &--normal {
-      background-color: #00d9ff;
+      background-color: $color-normal;
       box-shadow: 0 0 10px rgba(0, 217, 255, 0.4);
     }
   }
+
+  // ── Labels ────────────────────────────────────────────────────────────────
 
   &__labels {
     display: flex;
     justify-content: space-between;
     font-size: 0.625rem;
-    color: #7a8aa8;
+    color: $color-text-muted;
     margin-bottom: 0.5rem;
-    
+
     @media (min-width: $breakpoint-sm) {
       font-size: 0.75rem;
       margin-bottom: 1rem;
     }
 
-    span:nth-child(2) {
-      text-align: center;
-    }
-
-    span:last-child {
-      text-align: right;
-    }
+    span:nth-child(2) { text-align: center; }
+    span:last-child   { text-align: right; }
   }
+
+  // ── Status ────────────────────────────────────────────────────────────────
 
   &__status {
     padding-top: 0.5rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid $color-border;
     display: none;
-    
-    @media (min-width: $breakpoint-sm) {
-      display: block;
-    }
+
+    @media (min-width: $breakpoint-sm) { display: block; }
   }
 
   &__status-text {
     font-size: 0.75rem;
-    color: #7a8aa8;
-    
-    @media (min-width: $breakpoint-sm) {
-      font-size: 0.875rem;
+    color: $color-text-muted;
+
+    @media (min-width: $breakpoint-sm) { font-size: 0.875rem; }
+
+    &--urgent  { color: $color-urgent;  font-weight: 500; }
+    &--warning { color: $color-warning; font-weight: 500; }
+    &--normal  { color: $color-normal;  font-weight: 500; }
+  }
+
+  // ── Staff section ─────────────────────────────────────────────────────────
+
+  &__staff-section {
+    margin-top: 0.75rem;
+  }
+
+  &__staff-heading {
+    font-size: 0.625rem;
+    color: $color-text-muted;
+    margin: 0 0 0.375rem;
+    letter-spacing: 0.05em;
+  }
+
+  &__staff-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.25rem 0;
+    font-size: 0.75rem;
+    border-bottom: 1px solid $color-border-row;
+
+    &--active { color: #ffffff; }
+    &--backup { color: rgba(255, 255, 255, 0.5); }
+  }
+
+  &__staff-name  { flex: 1; }
+
+  &__staff-slots {
+    color: $color-text-muted;
+    margin-right: 0.75rem;
+  }
+
+  &__staff-btn {
+    font-size: 0.625rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.2s ease, opacity 0.2s ease;
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
     }
 
-    &--urgent {
-      color: #ff4757;
-      font-weight: 500;
+    &--remove {
+      border: 1px solid rgba(255, 71, 87, 0.4);
+      color: $color-urgent;
+      &:hover:not(:disabled) { background: rgba(255, 71, 87, 0.12); }
     }
 
-    &--warning {
-      color: #ffa500;
-      font-weight: 500;
-    }
-
-    &--normal {
-      color: #00d9ff;
-      font-weight: 500;
+    &--activate {
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: $color-activate;
+      &:hover:not(:disabled) { background: rgba(16, 185, 129, 0.12); }
     }
   }
 
+  // ── Mount animation only — not on re-render ───────────────────────────────
 
-@keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
   }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes progress-fill {
-  from {
-    width: 0;
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
 }

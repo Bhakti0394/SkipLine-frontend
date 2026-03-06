@@ -11,6 +11,16 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
+        // Forward cookies from the browser to Spring Boot.
+        // Without this, auth_token cookie is stripped by the proxy
+        // and every request hits Spring Security as anonymous → 403.
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            if (req.headers.cookie) {
+              proxyReq.setHeader('cookie', req.headers.cookie);
+            }
+          });
+        },
       },
     },
   },

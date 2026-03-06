@@ -1,8 +1,11 @@
+// ============================================================
+// src/pages/KitchenDashboard/Index.tsx
+// ============================================================
+
 import { useState, useCallback, useEffect } from 'react';
 import { Clock, ChefHat, CheckCircle2, Timer, TrendingUp, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Components
 import { Header }             from '../../components/KitchenDashboard/dashboard/Header';
 import { StatCard }           from '../../components/KitchenDashboard/dashboard/StatCard';
 import { KanbanBoard }        from '../../components/KitchenDashboard/dashboard/KanbanBoard';
@@ -16,15 +19,13 @@ import { CompletedOrders }    from '../../components/KitchenDashboard/dashboard/
 import { OrderDetailsModal }  from '../../components/KitchenDashboard/dashboard/OrderDetailsModal';
 import { InventoryPanel }     from '../../components/KitchenDashboard/dashboard/InventoryPanel';
 
-// Data & Types
-import { mockTimeSlots } from '../../kitchen-data/mockOrders';
+import { mockTimeSlots } from '../../kitchen-data/timeSlots';
 import { Order, OrderStatus } from '../../kitchen-types/order';
 
-// Hooks
-import { useKitchenBoard }     from '../../kitchen-hooks/useKitchenBoard';
-import { useInventory }        from '../../kitchen-hooks/useInventory';
-import { useNotifications }    from '../../kitchen-hooks/useNotifications';
-import { useSettings }         from '../../kitchen-hooks/useSettings';
+import { useKitchenBoard }                         from '../../kitchen-hooks/useKitchenBoard';
+import { useInventory }                            from '../../kitchen-hooks/useInventory';
+import { useNotifications }                        from '../../kitchen-hooks/useNotifications';
+import { useSettings }                             from '../../kitchen-hooks/useSettings';
 import { useKeyboardShortcuts, showShortcutsHelp } from '../../kitchen-hooks/useKeyboardShortcuts';
 
 import './Index.scss';
@@ -43,7 +44,7 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
 };
 
 const Index = () => {
-  const [viewMode, setViewMode]           = useState<ViewMode>('kanban');
+  const [viewMode,      setViewMode]      = useState<ViewMode>('kanban');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   const {
@@ -52,69 +53,31 @@ const Index = () => {
     notifyOrderStatus, notifyInventoryAlert,
   } = useNotifications();
 
-  // ── useKitchenBoard ───────────────────────────────────────────────────────
   const {
     orders, completedOrders, boardData, loading, error: backendError,
-
-    // Safe metrics object — use metrics.X, never boardData?.metrics.X directly
-    metrics,
-
-    // Staff
-    staff,
-    allStaff,
-    backupStaff,
-    backupStaffCount,
-    capacityPercent,
-
-    // Order actions
-    updateOrderStatus, assignChef, addOrder,
+    counts, readyCountdowns, metrics, capacity,
+    staff, allStaff, backupStaff, capacityPercent, currentCapacity, activatingChefId,
+    updateOrderStatus, assignChef, addOrder, triggerBurst,
     refresh: refreshBoard,
-
-    // Simulation
-    isSimulating, setIsSimulating,
+    isSimulating, setIsSimulating, stopSimulation,
     simulationSpeed, setSimulationSpeed,
-
-    // Staff removal
+    simulationError, isSimTriggerPending,
     initiateStaffRemoval, confirmStaffRemoval, cancelStaffRemoval,
-    removalValidation, removalTargetId, isValidatingRemoval, isConfirmingRemoval,
-
-    // Chef activation
-    activateBackupChef, activatingChefId,
+    removalValidation, removalTargetId,
+    isValidatingRemoval, isConfirmingRemoval,
+    activateBackupChef,
   } = useKitchenBoard(10000);
 
-  // ── Derive values that were wrongly destructured before ──────────────────
-  // These were previously destructured from useKitchenBoard() directly but
-  // the hook never returned them — causing undefined in the UI.
+  const efficiencyPercent:  number = metrics.efficiencyPercent;
+  const avgCookTimeMinutes: number = metrics.avgCookTimeMinutes;
 
-  const efficiencyPercent: number  = metrics.efficiencyPercent;        // fixes "undefined%"
-  const avgCookTimeMinutes: number = metrics.avgCookTimeMinutes;        // fixes "—"
-  const capacityPct: number        = metrics.capacityUtilizationPercent; // alias
-
-  // Derived from live order counts + staff capacity
-  const pendingCount  = orders.filter(o => o.status === 'pending').length;
-  const cookingCount  = orders.filter(o => o.status === 'cooking').length;
-
-  // Total active cooking slots = sum of maxCapacity for onShift staff
-  const totalSlots    = staff.reduce((sum, s) => sum + s.maxCapacity, 0);
-  const freeSlots     = Math.max(0, totalSlots - cookingCount);
-  const isOverloaded  = capacityPercent > 100;
-  const isAtCapacity  = capacityPercent >= 100;
-
-  // Queue pressure tier
-  const queuePressure: 'none' | 'low' | 'medium' | 'high' | 'critical' =
-    pendingCount === 0          ? 'none'     :
-    pendingCount <= 2           ? 'low'      :
-    pendingCount <= 5           ? 'medium'   :
-    pendingCount <= 10          ? 'high'     : 'critical';
-
-  // Late orders = cooking orders past their estimated prep time
-  const lateOrders    = orders.filter(o =>
+  const lateOrders = orders.filter(o =>
     o.status === 'cooking' &&
     o.startedAt &&
     (Date.now() - new Date(o.startedAt).getTime()) / 60000 > (o.estimatedPrepTime ?? 999)
   ).length;
 
-  const avgDelayMinutes = 0; // computed server-side; use 0 until backend sends it
+  const avgDelayMinutes = 0;
 
   const {
     inventory, alerts: inventoryAlerts, stats: inventoryStats,
@@ -124,15 +87,15 @@ const Index = () => {
 
   const { settings, updateSettings } = useSettings();
 
-  // ── Derived stats ─────────────────────────────────────────────────────────
   const stats = {
-    pending:   pendingCount,
-    cooking:   cookingCount,
-    ready:     orders.filter(o => o.status === 'ready').length,
-    completed: completedOrders.length,
+    pending:   counts.pending,
+    cooking:   counts.cooking,
+    ready:     counts.ready,
+    completed: counts.completed,
   };
 
   // ── Status change ─────────────────────────────────────────────────────────
+
   const handleStatusChange = useCallback(async (
     orderId: string, status: OrderStatus, assignedTo?: string,
   ) => {
@@ -159,16 +122,16 @@ const Index = () => {
     }
   }, [updateOrderStatus, orders, consumeForOrder, notifyOrderStatus, settings?.orderAlerts]);
 
-  const handleAddOrder         = useCallback(() => { addOrder(); }, [addOrder]);
-  const handleToggleSimulation = useCallback(() => { setIsSimulating(!isSimulating); }, [isSimulating, setIsSimulating]);
+  const handleAddOrder = useCallback(() => { addOrder('', []); }, [addOrder]);
 
-  // ── Activate first available backup chef (banner button handler) ──────────
+  const handleToggleSimulation = useCallback(() => {
+    if (isSimulating) stopSimulation();
+    else setIsSimulating(true);
+  }, [isSimulating, stopSimulation, setIsSimulating]);
+
   const handleActivateBackupFromBanner = useCallback(async () => {
     const firstBackup = backupStaff[0];
-    if (!firstBackup) {
-      toast.error('No backup staff available');
-      return;
-    }
+    if (!firstBackup) { toast.error('No backup staff available'); return; }
     try {
       await activateBackupChef(firstBackup.chefId);
       toast.success(`${firstBackup.name} is now active`, {
@@ -183,7 +146,6 @@ const Index = () => {
     }
   }, [backupStaff, activateBackupChef]);
 
-  // ── Inventory alerts ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!settings?.lowInventoryAlerts) return;
     inventory.forEach(item => {
@@ -195,7 +157,6 @@ const Index = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inventory.map(i => i.currentStock).join(',')]);
 
-  // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useKeyboardShortcuts([
     { key: 'n',  description: 'Add new order',     action: handleAddOrder },
     { key: 's',  description: 'Toggle simulation', action: handleToggleSimulation },
@@ -206,24 +167,50 @@ const Index = () => {
     { key: '?',  shift: true, description: 'Help', action: showShortcutsHelp },
   ]);
 
-  // ── Shared StaffController ────────────────────────────────────────────────
+  // ── Shared render helpers ─────────────────────────────────────────────────
+
   const renderStaffController = () => (
     <StaffController
       allStaff={allStaff}
-      capacityPercent={capacityPercent}
+      currentCapacity={currentCapacity}
       onInitiateRemoval={initiateStaffRemoval}
       onConfirmRemoval={confirmStaffRemoval}
       onCancelRemoval={cancelStaffRemoval}
       onActivateChef={activateBackupChef}
       removalValidation={removalValidation}
       removalTargetId={removalTargetId}
-      isValidating={isValidatingRemoval}
-      isConfirming={isConfirmingRemoval}
+      isValidatingRemoval={isValidatingRemoval}
+      isConfirmingRemoval={isConfirmingRemoval}
       activatingChefId={activatingChefId}
     />
   );
 
-  // ── Sub-renders ───────────────────────────────────────────────────────────
+  const renderCapacityMeter = () => (
+    <CapacityMeter
+      capacity={capacity}
+      staff={allStaff}
+      onRemoveChef={initiateStaffRemoval}
+      onActivateChef={activateBackupChef}
+      pendingChefId={removalTargetId ?? activatingChefId}
+    />
+  );
+
+  // onAddOne / onBurst use triggerBurst — addOrder has no count param
+  const renderSimulationControls = () => (
+    <SimulationControls
+      isSimulating={isSimulating}
+      simulationSpeed={simulationSpeed}
+      simulationError={simulationError}
+      isSimTriggerPending={isSimTriggerPending}
+      capacity={capacity}
+      onToggleSimulation={handleToggleSimulation}
+      onSetSpeed={setSimulationSpeed}
+      onAddOne={() => triggerBurst(1)}
+      onBurst={(count) => triggerBurst(count)}
+    />
+  );
+
+  // ── Stat cards ────────────────────────────────────────────────────────────
 
   const renderStatsCards = () => (
     <div className="stats-grid">
@@ -275,16 +262,7 @@ const Index = () => {
     </div>
   );
 
-  const renderSimulationControls = () => (
-    <SimulationControls
-      isSimulating={isSimulating}
-      setIsSimulating={setIsSimulating}
-      speed={simulationSpeed}
-      setSpeed={setSimulationSpeed}
-      onAddOrder={handleAddOrder}
-      backendError={backendError}
-    />
-  );
+  // ── Views ─────────────────────────────────────────────────────────────────
 
   const renderKanbanView = () => (
     <div className="kanban-layout">
@@ -292,24 +270,15 @@ const Index = () => {
         <KanbanBoard
           orders={orders}
           staff={staff}
+          readyCountdowns={readyCountdowns}
           onStatusChange={handleStatusChange}
-          onChefAssigned={refreshBoard}
-          capacityPercent={capacityPercent}
-          backupStaffCount={backupStaffCount}
-          onActivateBackup={handleActivateBackupFromBanner}
+          onChefAssign={assignChef}
         />
       </div>
       <div className="kanban-layout__sidebar">
         {renderSimulationControls()}
         <div className="sidebar-grid">
-          <CapacityMeter
-            percentage={capacityPercent}
-            queuedOrders={stats.pending}
-            backupStaffCount={backupStaffCount}
-            freeSlots={freeSlots}
-            isOverloaded={isOverloaded}
-            queuePressure={queuePressure}
-          />
+          {renderCapacityMeter()}
           {renderStaffController()}
         </div>
       </div>
@@ -323,15 +292,10 @@ const Index = () => {
       </div>
       <div className="list-layout__sidebar space-y-4">
         {renderSimulationControls()}
-        <CapacityMeter
-          percentage={capacityPercent}
-          queuedOrders={stats.pending}
-          backupStaffCount={backupStaffCount}
-          freeSlots={freeSlots}
-          isOverloaded={isOverloaded}
-          queuePressure={queuePressure}
-        />
-        <div className="hidden-mobile"><TimelineSlots slots={mockTimeSlots} /></div>
+        {renderCapacityMeter()}
+        <div className="hidden-mobile">
+          <TimelineSlots slots={mockTimeSlots} />
+        </div>
         <CompletedOrders orders={completedOrders} />
       </div>
     </div>
@@ -345,7 +309,12 @@ const Index = () => {
             <h2 className="premium-panel__title">Kitchen Performance</h2>
           </div>
           <div className="premium-panel__content">
-            <AnalyticsPanel orders={orders} completedOrders={completedOrders} />
+            <AnalyticsPanel
+              orders={orders}
+              completedOrders={completedOrders}
+              efficiencyPercent={efficiencyPercent}
+              avgCookTimeMinutes={avgCookTimeMinutes}
+            />
           </div>
         </div>
       </div>
@@ -360,9 +329,13 @@ const Index = () => {
   const renderInventoryView = () => (
     <div className="inventory-layout">
       <InventoryPanel
-        inventory={inventory} alerts={inventoryAlerts} stats={inventoryStats}
-        getStockStatus={getStockStatus} onUpdateStock={updateStock}
-        onRestockItem={restockItem} onDeleteItem={deleteInventoryItem}
+        inventory={inventory}
+        alerts={inventoryAlerts}
+        stats={inventoryStats}
+        getStockStatus={getStockStatus}
+        onUpdateStock={updateStock}
+        onRestockItem={restockItem}
+        onDeleteItem={deleteInventoryItem}
         onAcknowledgeAlert={acknowledgeAlert}
       />
     </div>
@@ -381,12 +354,16 @@ const Index = () => {
   return (
     <div className="dashboard">
       <Header
-        viewMode={viewMode} setViewMode={setViewMode}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
         pendingCount={stats.pending}
         notifications={notifications}
-        onMarkAsRead={markAsRead} onMarkAllAsRead={markAllAsRead}
-        onDeleteNotification={deleteNotification} onClearAllNotifications={clearAll}
-        settings={settings} onSettingsChange={updateSettings}
+        onMarkAsRead={markAsRead}
+        onMarkAllAsRead={markAllAsRead}
+        onDeleteNotification={deleteNotification}
+        onClearAllNotifications={clearAll}
+        settings={settings}
+        onSettingsChange={updateSettings}
       />
       <main className="dashboard__main">
         <div className="dashboard__container">
@@ -395,8 +372,10 @@ const Index = () => {
         </div>
       </main>
       <OrderDetailsModal
-        order={selectedOrder} open={!!selectedOrder}
-        onClose={() => setSelectedOrder(null)} onStatusChange={handleStatusChange}
+        order={selectedOrder}
+        open={!!selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+        onStatusChange={handleStatusChange}
       />
     </div>
   );

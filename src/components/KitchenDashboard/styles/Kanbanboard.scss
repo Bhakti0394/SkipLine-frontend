@@ -1,9 +1,63 @@
-// Breakpoints
+// ============================================================
+// src/components/KitchenDashboard/styles/Kanbanboard.scss  —  FIXED
+// ============================================================
+//
+// FIX 1: Missing closing brace added. All .kanban-column, .order-card,
+//         .chef-option rules were nested inside .kanban-board {} making
+//         every selector require .kanban-board as ancestor — breaking all styles.
+//
+// FIX 2: Drag state classes added:
+//         .kanban-column--source         → source column dims during drag
+//         .kanban-column--valid-target   → green glow when valid drop target
+//         .kanban-column--invalid-target → dims + red tint when invalid
+//         .kanban-column__content--drop-valid / --drop-invalid
+//
+// FIX 3: cooking and ready column borders replaced — hsl(var(--cooking)/0.35)
+//         and hsl(var(--ready)/0.35) were resolving to white in the theme.
+//         Now uses explicit rgba values that match the dark UI.
+// ============================================================
+
 $breakpoint-sm: 640px;
 $breakpoint-lg: 1024px;
 $breakpoint-xs: 475px;
 
-// Kanban Board Container
+// ─── Wrapper ──────────────────────────────────────────────────────────────────
+
+.kanban-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+// ─── Error banner ─────────────────────────────────────────────────────────────
+
+.kanban-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  color: #f87171;
+
+  &__icon    { width: 0.875rem; height: 0.875rem; flex-shrink: 0; }
+  &__message { flex: 1; }
+  &__dismiss {
+    background: transparent;
+    border: none;
+    color: #f87171;
+    cursor: pointer;
+    padding: 0.1rem;
+    display: flex;
+    opacity: 0.7;
+    &:hover { opacity: 1; }
+  }
+}
+
+// ─── Board grid ───────────────────────────────────────────────────────────────
+
 .kanban-board {
   display: grid;
   grid-template-columns: 1fr;
@@ -20,41 +74,38 @@ $breakpoint-xs: 475px;
     grid-template-columns: repeat(3, 1fr);
     height: calc(100vh - 320px);
   }
+}
 
+// ─── Kanban Column ────────────────────────────────────────────────────────────
 
-// Kanban Column
 .kanban-column {
-  
- background: rgba(1, 5, 39, 0.08);
-
-
+  background: rgba(1, 5, 39, 0.08);
   border-radius: 0.75rem;
-border: none;
-
-overflow: hidden;
-
+  border: 1px solid transparent;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   min-height: 200px;
+  transition: border-color 0.2s ease, opacity 0.2s ease;
 
-  @media (min-width: $breakpoint-sm) {
-    min-height: 300px;
+  @media (min-width: $breakpoint-sm) { min-height: 300px; }
+
+  // FIX 3: replaced hsl(var(--cooking|ready)/0.35) which resolved to white.
+  // Using explicit rgba values consistent with the dark orange/green theme.
+  &--pending { border-color: rgba(100, 116, 139, 0.2); }
+  &--cooking { border-color: rgba(249, 115, 22, 0.25); }   // CHANGED: was hsl(var(--cooking)/0.35)
+  &--ready   { border-color: rgba(34, 197, 94, 0.2);   }   // CHANGED: was hsl(var(--ready)/0.35)
+
+  // Drag state modifiers
+  &--source         { opacity: 0.6; }
+  &--valid-target   {
+    border-color: rgba(34, 197, 94, 0.5);
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.25);
   }
+  &--invalid-target { opacity: 0.45; }
 
-  // Column variants
-  &--pending {
-    border-color: hsl(var(--muted-foreground) / 0.3);
-  }
+  // ── Header ──────────────────────────────────────────────────────────────────
 
-  &--cooking {
-    border-color: hsl(var(--cooking) / 0.5);
-  }
-
-  &--ready {
-    border-color: hsl(var(--ready) / 0.5);
-  }
-
-  // Column Header
   &__header {
     padding: 0.75rem;
     border-bottom: 1px solid hsl(var(--border) / 0.5);
@@ -62,9 +113,7 @@ overflow: hidden;
     align-items: center;
     justify-content: space-between;
 
-    @media (min-width: $breakpoint-sm) {
-      padding: 1rem;
-    }
+    @media (min-width: $breakpoint-sm) { padding: 1rem; }
   }
 
   &__title {
@@ -77,27 +126,18 @@ overflow: hidden;
     width: 1rem;
     height: 1rem;
 
-    @media (min-width: $breakpoint-sm) {
-      width: 1.25rem;
-      height: 1.25rem;
-    }
+    @media (min-width: $breakpoint-sm) { width: 1.25rem; height: 1.25rem; }
 
-    &--cooking {
-      color: hsl(var(--cooking));
-    }
-
-    &--ready {
-      color: hsl(var(--ready));
-    }
+    &--cooking { color: hsl(var(--cooking)); }
+    &--ready   { color: hsl(var(--ready));   }
+    &--pending { color: hsl(var(--muted-foreground)); }
   }
 
   &__label {
     font-weight: 600;
     font-size: 0.875rem;
 
-    @media (min-width: $breakpoint-sm) {
-      font-size: 1rem;
-    }
+    @media (min-width: $breakpoint-sm) { font-size: 1rem; }
   }
 
   &__badge {
@@ -106,27 +146,15 @@ overflow: hidden;
     font-size: 0.75rem;
     font-weight: 500;
 
-    @media (min-width: $breakpoint-sm) {
-      font-size: 0.875rem;
-    }
+    @media (min-width: $breakpoint-sm) { font-size: 0.875rem; }
 
-    &--cooking {
-      background-color: hsl(var(--cooking) / 0.2);
-      color: hsl(var(--cooking));
-    }
-
-    &--ready {
-      background-color: hsl(var(--ready) / 0.2);
-      color: hsl(var(--ready));
-    }
-
-    &--pending {
-      background-color: hsl(var(--muted));
-      color: hsl(var(--muted-foreground));
-    }
+    &--cooking { background-color: hsl(var(--cooking) / 0.2); color: hsl(var(--cooking)); }
+    &--ready   { background-color: hsl(var(--ready)   / 0.2); color: hsl(var(--ready));   }
+    &--pending { background-color: hsl(var(--muted));         color: hsl(var(--muted-foreground)); }
   }
 
-  // Column Content (Droppable area)
+  // ── Content (droppable) ─────────────────────────────────────────────────────
+
   &__content {
     flex: 1;
     overflow-y: auto;
@@ -134,7 +162,7 @@ overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    transition: background-color 0.2s;
+    transition: background-color 0.2s ease;
     max-height: 250px;
 
     @media (min-width: $breakpoint-sm) {
@@ -142,9 +170,9 @@ overflow: hidden;
       max-height: none;
     }
 
-    &--dragging {
-      background-color: hsl(var(--primary) / 0.05);
-    }
+    &--dragging-over { background-color: hsl(var(--primary) / 0.05); }
+    &--drop-valid    { background-color: rgba(34, 197, 94, 0.05); }
+    &--drop-invalid  { background-color: rgba(239, 68, 68, 0.04); }
   }
 
   &__empty {
@@ -156,56 +184,53 @@ overflow: hidden;
     color: hsl(var(--muted-foreground));
     font-size: 0.75rem;
 
-    @media (min-width: $breakpoint-sm) {
-      font-size: 0.875rem;
-    }
+    @media (min-width: $breakpoint-sm) { font-size: 0.875rem; }
   }
 }
 
-// Order Card
+// ─── Order Card (kanban variant) ─────────────────────────────────────────────
+
 .order-card {
   padding: 0.5rem;
   border-radius: 0.5rem;
   background-color: hsl(var(--secondary) / 0.5);
   border: 1px solid hsl(var(--border) / 0.5);
   cursor: grab;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   touch-action: manipulation;
 
-  @media (min-width: $breakpoint-sm) {
-    padding: 0.75rem;
-  }
+  @media (min-width: $breakpoint-sm) { padding: 0.75rem; }
 
-  &:active {
-    cursor: grabbing;
-  }
+  &:active { cursor: grabbing; }
 
   &--dragging {
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2), 0 10px 10px -5px rgba(0,0,0,0.1);
     outline: 2px solid hsl(var(--primary) / 0.5);
   }
 
-  // Priority variants
-  &--urgent {
-    border-left: 4px solid hsl(var(--urgent));
-    background-color: hsl(var(--urgent) / 0.05);
+  &--pending-api {
+    opacity: 0.5;
+    pointer-events: none;
   }
 
+  &--urgent {
+    border-left: 3px solid hsl(var(--urgent));
+    background-color: hsl(var(--urgent) / 0.05);
+  }
   &--high {
-    border-left: 4px solid hsl(var(--accent));
+    border-left: 3px solid hsl(var(--accent));
     background-color: hsl(var(--accent) / 0.05);
   }
 
-  // Order Header
+  // ── Card Header ─────────────────────────────────────────────────────────────
+
   &__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 0.375rem;
 
-    @media (min-width: $breakpoint-sm) {
-      margin-bottom: 0.5rem;
-    }
+    @media (min-width: $breakpoint-sm) { margin-bottom: 0.5rem; }
   }
 
   &__number {
@@ -213,9 +238,7 @@ overflow: hidden;
     font-weight: 700;
     font-size: 0.75rem;
 
-    @media (min-width: $breakpoint-sm) {
-      font-size: 0.875rem;
-    }
+    @media (min-width: $breakpoint-sm) { font-size: 0.875rem; }
   }
 
   &__meta {
@@ -223,9 +246,7 @@ overflow: hidden;
     align-items: center;
     gap: 0.25rem;
 
-    @media (min-width: $breakpoint-sm) {
-      gap: 0.5rem;
-    }
+    @media (min-width: $breakpoint-sm) { gap: 0.5rem; }
   }
 
   &__priority {
@@ -233,23 +254,22 @@ overflow: hidden;
     padding: 0.125rem 0.25rem;
     border-radius: 0.25rem;
 
-    @media (min-width: $breakpoint-sm) {
-      font-size: 0.75rem;
-      padding: 0.125rem 0.375rem;
-    }
+    @media (min-width: $breakpoint-sm) { font-size: 0.75rem; padding: 0.125rem 0.375rem; }
 
-    &--urgent {
-      background-color: hsl(var(--urgent) / 0.2);
-      color: hsl(var(--urgent));
-    }
-
-    &--high {
-      background-color: hsl(var(--accent) / 0.2);
-      color: hsl(var(--accent));
-    }
+    &--urgent { background-color: hsl(var(--urgent) / 0.2); color: hsl(var(--urgent)); }
+    &--high   { background-color: hsl(var(--accent) / 0.2); color: hsl(var(--accent)); }
   }
 
-  // Customer Info
+  &__countdown {
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: #22c55e;
+
+    &--urgent { color: #ef4444; animation: countdown-pulse 0.8s ease-in-out infinite; }
+  }
+
+  // ── Customer ────────────────────────────────────────────────────────────────
+
   &__customer {
     display: flex;
     align-items: center;
@@ -259,74 +279,45 @@ overflow: hidden;
     margin-bottom: 0.375rem;
     flex-wrap: wrap;
 
-    @media (min-width: $breakpoint-sm) {
-      gap: 0.375rem;
-      font-size: 0.75rem;
-      margin-bottom: 0.5rem;
-    }
+    @media (min-width: $breakpoint-sm) { gap: 0.375rem; font-size: 0.75rem; margin-bottom: 0.5rem; }
   }
 
-  &__customer-icon {
-    width: 0.75rem;
-    height: 0.75rem;
-    flex-shrink: 0;
-  }
+  &__customer-icon { width: 0.75rem; height: 0.75rem; flex-shrink: 0; }
 
   &__customer-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 80px;
-
-    @media (min-width: $breakpoint-sm) {
-      max-width: none;
-    }
+    @media (min-width: $breakpoint-sm) { max-width: none; }
   }
 
   &__separator {
     margin: 0 0.125rem;
     display: none;
-
-    @media (min-width: $breakpoint-xs) {
-      display: inline;
-      margin: 0 0.25rem;
-    }
-
-    @media (min-width: $breakpoint-sm) {
-      margin: 0 0.25rem;
-    }
+    @media (min-width: $breakpoint-xs) { display: inline; margin: 0 0.25rem; }
   }
 
   &__time-icon {
-    width: 0.75rem;
-    height: 0.75rem;
-    flex-shrink: 0;
+    width: 0.75rem; height: 0.75rem; flex-shrink: 0;
     display: none;
-
-    @media (min-width: $breakpoint-xs) {
-      display: inline;
-    }
+    @media (min-width: $breakpoint-xs) { display: inline; }
   }
 
   &__time {
     display: none;
-
-    @media (min-width: $breakpoint-xs) {
-      display: inline;
-    }
+    @media (min-width: $breakpoint-xs) { display: inline; }
   }
 
-  // Items List
+  // ── Items ───────────────────────────────────────────────────────────────────
+
   &__items {
     display: flex;
     flex-direction: column;
     gap: 0.125rem;
     margin-bottom: 0.375rem;
 
-    @media (min-width: $breakpoint-sm) {
-      gap: 0.25rem;
-      margin-bottom: 0.5rem;
-    }
+    @media (min-width: $breakpoint-sm) { gap: 0.25rem; margin-bottom: 0.5rem; }
   }
 
   &__item {
@@ -335,14 +326,10 @@ overflow: hidden;
     align-items: center;
     gap: 0.25rem;
 
-    @media (min-width: $breakpoint-sm) {
-      font-size: 0.75rem;
-    }
+    @media (min-width: $breakpoint-sm) { font-size: 0.75rem; }
   }
 
-  &__item-quantity {
-    font-weight: 500;
-  }
+  &__item-quantity { font-weight: 500; }
 
   &__item-name {
     color: hsl(var(--foreground) / 0.8);
@@ -354,43 +341,122 @@ overflow: hidden;
   &__items-more {
     font-size: 0.625rem;
     color: hsl(var(--muted-foreground));
-
-    @media (min-width: $breakpoint-sm) {
-      font-size: 0.75rem;
-    }
+    @media (min-width: $breakpoint-sm) { font-size: 0.75rem; }
   }
 
-  // Chef Select
+  // ── Chef select ─────────────────────────────────────────────────────────────
+
+  &__chef-row { margin-bottom: 0.375rem; }
+
   &__chef-select {
     height: 1.5rem;
     font-size: 0.625rem;
     background-color: hsl(var(--secondary) / 0.5);
+    width: 100%;
 
-    @media (min-width: $breakpoint-sm) {
-      height: 1.75rem;
-      font-size: 0.75rem;
+    @media (min-width: $breakpoint-sm) { height: 1.75rem; font-size: 0.75rem; }
+  }
+
+  // ── Chef badge (cooking, read-only) ─────────────────────────────────────────
+
+  &__chef-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    background: rgba(249, 115, 22, 0.08);
+    border: 1px solid rgba(249, 115, 22, 0.15);
+    border-radius: 0.375rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: #fb923c;
+    margin-bottom: 0.375rem;
+  }
+
+  &__chef-badge-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+
+  &__chef-badge-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  // ── Footer / action ─────────────────────────────────────────────────────────
+
+  &__footer { padding-top: 0.375rem; }
+
+  &__action {
+    all: unset;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.3rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-align: center;
+    cursor: pointer;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+
+    &:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
+    &:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    &--cooking {
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      &:hover:not(:disabled) { background: rgba(34, 197, 94, 0.22); }
+    }
+
+    &--ready {
+      background: rgba(100, 116, 139, 0.15);
+      color: #94a3b8;
+      border: 1px solid rgba(100, 116, 139, 0.2);
+      &:hover:not(:disabled) { background: rgba(100, 116, 139, 0.22); }
     }
   }
 }
 
-// Chef Option (in select dropdown)
+// ─── Chef option (in Select dropdown) ────────────────────────────────────────
+
 .chef-option {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  font-size: 0.75rem;
+
+  &--full { opacity: 0.5; }
 
   &__status {
-    width: 0.5rem;
-    height: 0.5rem;
+    width: 0.5rem; height: 0.5rem;
     border-radius: 9999px;
+    flex-shrink: 0;
+    &--available { background-color: hsl(var(--ready)); }
+    &--busy      { background-color: hsl(var(--accent)); }
+    &--full      { background-color: #ef4444; }
+  }
 
-    &--available {
-      background-color: hsl(var(--ready));
-    }
+  &__load {
+    margin-left: auto;
+    font-size: 0.65rem;
+    color: hsl(var(--muted-foreground));
+    &--full { color: #ef4444; }
+  }
 
-    &--busy {
-      background-color: hsl(var(--accent));
-    }
+  &__full-label {
+    font-size: 0.65rem;
+    color: #ef4444;
   }
 }
+
+// ─── Animations ───────────────────────────────────────────────────────────────
+
+@keyframes countdown-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
 }

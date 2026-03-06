@@ -1,121 +1,94 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, Plus, Zap, Turtle, Rabbit, AlertCircle } from 'lucide-react';
-import '../styles/Simulationcontrols.scss';
+import { Order } from '../../../kitchen-types/order';
+import { useOrderTimer, formatTime, formatElapsed } from '../../../kitchen-hooks/useOrderTimer';
+import { motion } from 'framer-motion';
+import { Timer, AlertTriangle } from 'lucide-react';
+import '../styles/Ordertimer.scss';
 
-interface SimulationControlsProps {
-  isSimulating: boolean;
-  setIsSimulating: (value: boolean) => void;
-  speed: 'slow' | 'normal' | 'fast';
-  setSpeed: (speed: 'slow' | 'normal' | 'fast') => void;
-  onAddOrder: () => void;
-  backendError?: string | null;
+interface OrderTimerProps {
+  order: Order;
+  compact?: boolean;
 }
 
-const SPEED_CONFIG = [
-  { value: 'slow'   as const, label: '0.5x', icon: Turtle, intervalSec: 25 },
-  { value: 'normal' as const, label: '1x',   icon: Zap,    intervalSec: 12 },
-  { value: 'fast'   as const, label: '2x',   icon: Rabbit, intervalSec: 5  },
-];
+export function OrderTimer({ order, compact = false }: OrderTimerProps) {
+  const { elapsed, remaining, isOverdue, progress } = useOrderTimer(order);
 
-export function SimulationControls({
-  isSimulating,
-  setIsSimulating,
-  speed,
-  setSpeed,
-  onAddOrder,
-  backendError,
-}: SimulationControlsProps) {
-  const currentSpeed = SPEED_CONFIG.find(s => s.value === speed)!;
+  // Don't show timer for completed or ready orders
+  if (order.status === 'completed' || order.status === 'ready') {
+    return null;
+  }
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="simulation-controls"
-    >
-      {/* Header */}
-      <div className="simulation-controls__header">
-        <h3 className="simulation-controls__title">Order Simulation</h3>
-        <div className="simulation-controls__status">
-          <motion.span
-            className={`simulation-controls__status-dot ${isSimulating ? 'active' : ''}`}
-            animate={isSimulating ? { scale: [1, 1.3, 1] } : { scale: 1 }}
-            transition={isSimulating ? { repeat: Infinity, duration: 1.5 } : {}}
-          />
-          <span className="simulation-controls__status-text">
-            {isSimulating
-              ? `Running · ~${currentSpeed.intervalSec}s/order`
-              : 'Paused'}
-          </span>
-        </div>
-      </div>
-
-      {/* Backend error badge */}
-      <AnimatePresence>
-        {backendError && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="simulation-controls__warning"
-          >
-            <AlertCircle size={12} />
-            <span>{backendError}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Main Buttons */}
-      <div className="simulation-controls__buttons">
-        <motion.button
-          whileTap={{ scale: 0.96 }}
-          className={`simulation-controls__btn simulation-controls__btn--main ${
-            isSimulating
-              ? 'simulation-controls__btn--secondary'
-              : 'simulation-controls__btn--primary'
-          }`}
-          onClick={() => setIsSimulating(!isSimulating)}
-        >
-          {isSimulating ? (
-            <><Pause className="simulation-controls__icon" /> Pause</>
+  // Compact view (used in smaller spaces)
+  if (compact) {
+    return (
+      <div className={`order-timer-compact ${isOverdue ? 'order-timer-compact--overdue' : ''}`}>
+        <Timer className="order-timer-compact__icon" />
+        {order.status === 'cooking' ? (
+          isOverdue ? (
+            <span className="order-timer-compact__text order-timer-compact__text--pulse">
+              +{formatElapsed(elapsed - order.estimatedPrepTime * 60)}
+            </span>
           ) : (
-            <><Play className="simulation-controls__icon" /> Start</>
+            <span className="order-timer-compact__text">
+              {formatTime(remaining)}
+            </span>
+          )
+        ) : (
+          <span className="order-timer-compact__text">
+            {order.estimatedPrepTime}m
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // Full view with progress bar
+  return (
+    <div className="order-timer">
+      {/* Timer Header */}
+      <div className="order-timer__header">
+        <span className="order-timer__label">
+          {order.status === 'pending' ? 'Est. time' : 'Cooking'}
+        </span>
+        <span className={`order-timer__time ${isOverdue ? 'order-timer__time--overdue' : ''}`}>
+          {order.status === 'cooking' ? (
+            isOverdue ? (
+              <span className="order-timer__overdue">
+                <AlertTriangle className="order-timer__overdue-icon" />
+                +{formatElapsed(elapsed - order.estimatedPrepTime * 60)} overdue
+              </span>
+            ) : (
+              formatTime(remaining)
+            )
+          ) : (
+            `${order.estimatedPrepTime} min`
           )}
-        </motion.button>
-
-        <motion.button
-          whileTap={{ scale: 0.96 }}
-          className="simulation-controls__btn simulation-controls__btn--main simulation-controls__btn--outline"
-          onClick={onAddOrder}
-        >
-          <Plus className="simulation-controls__icon" /> Add
-        </motion.button>
+        </span>
       </div>
 
-      {/* Speed Controls */}
-      <div className="simulation-controls__speed">
-        <span className="simulation-controls__speed-label">Speed:</span>
-        {SPEED_CONFIG.map(({ value, label, icon: Icon }) => (
-          <motion.button
-            key={value}
-            whileTap={{ scale: 0.92 }}
-            className={`simulation-controls__speed-btn ${
-              speed === value ? 'simulation-controls__speed-btn--active' : ''
+      {/* Progress Bar (only shown when cooking) */}
+      {order.status === 'cooking' && (
+        <div className="order-timer__progress">
+          <motion.div
+            className={`order-timer__progress-bar ${
+              isOverdue
+                ? 'order-timer__progress-bar--overdue'
+                : progress > 75
+                ? 'order-timer__progress-bar--warning'
+                : 'order-timer__progress-bar--normal'
             }`}
-            onClick={() => setSpeed(value)}
-            title={`${label} — orders every ~${SPEED_CONFIG.find(s => s.value === value)!.intervalSec}s`}
-          >
-            <Icon className="simulation-controls__speed-icon" />
-            <span className="simulation-controls__speed-text">{label}</span>
-          </motion.button>
-        ))}
-      </div>
-
-      {/* Keyboard hint */}
-      <p className="simulation-controls__hint">
-        💡 Press <kbd className="simulation-controls__kbd">N</kbd> to add order,{' '}
-        <kbd className="simulation-controls__kbd">S</kbd> to toggle simulation
-      </p>
-    </motion.div>
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.min(100, progress)}%` }}
+            transition={{ duration: 0.5 }}
+          />
+          {isOverdue && (
+            <motion.div
+              className="order-timer__progress-overlay"
+              animate={{ opacity: [0.3, 0.6, 0.3] }}
+              transition={{ duration: 1, repeat: Infinity }}
+            />
+          )}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,37 +1,50 @@
 // ============================================================
-// REPLACE: src/kitchen-types/order.ts
+// src/kitchen-types/order.ts
 // ============================================================
 
-export type OrderStatus = "queue" | "cooking" | "ready" | "completed";
+export type OrderStatus = 'pending' | 'cooking' | 'ready' | 'completed';
+export type OrderPriority = 'normal' | 'high' | 'urgent';
+
+// Full backend status enum — matches backend OrderStatus exactly
+export type BackendOrderStatus = 'PENDING' | 'COOKING' | 'READY' | 'COMPLETED';
 
 export interface OrderItem {
+  id: string;
   menuItemId: string;
   name: string;
   quantity: number;
+  prepTime: number;
+  notes?: string;
 }
 
 export interface Order {
   id: string;
+  orderNumber: string;
   customerName: string;
   items: OrderItem[];
   status: OrderStatus;
-  assignedStaffId: string | null;
-  createdAt: number;         // epoch ms — FIFO sort key
-  cookingStartedAt: number | null;
-  completedAt: number | null;
+  // Exact backend status — preserved so canTransition() works correctly
+  backendStatus?: BackendOrderStatus;
+  priority: OrderPriority;
+  pickupTime: string;
+  estimatedPrepTime: number;
+  elapsedMinutes: number;
+  assignedTo?: string;
+  assignedChefId?: string;
+  createdAt: Date;
+  startedAt?: Date;
+  completedAt?: Date;
 }
 
-// Derived snapshot — computed, never stored
 export interface CapacitySnapshot {
-  totalSlots: number;     // sum of slotCount for all active staff
-  cookingCount: number;   // orders currently in "cooking"
-  freeSlots: number;      // totalSlots - cookingCount  (never negative)
-  capacityPct: number;    // (cookingCount / totalSlots) * 100, capped 0–100
-  isOverloaded: boolean;  // queue non-empty AND capacityPct === 100
+  totalSlots: number;
+  cookingCount: number;
+  freeSlots: number;
+  capacityPct: number;
+  isOverloaded: boolean;
 }
 
 export interface AddOrderPayload {
-  id: string;
   customerName: string;
-  items: OrderItem[];
+  menuItemIds: string[];
 }

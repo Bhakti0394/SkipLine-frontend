@@ -1,87 +1,136 @@
 // ============================================================
-// REPLACE: src/components/KitchenDashboard/dashboard/CapacityMeter.tsx
-// Reads capacity from the store — never derives it locally.
+// CapacityMeter.tsx — File 1 look + File 2 backend
 // ============================================================
+//
+// KEPT from File 1: status thresholds (90/70 instead of 100/80),
+//                   status messages ("Ready for more orders" etc.),
+//                   Low/Optimal/High labels, h3 for title
+//
+// KEPT from File 2: CapacitySnapshot + StaffWorkloadDto props,
+//                   active/backup staff sections with Remove/Activate
+//                   buttons, pendingChefId loading state, memo(),
+//                   correct import paths, no internal hook calls
 
-import React, { memo } from "react";
-import {
-  useKitchenBoard,
-  selectCapacity,
-  selectStaff,
-} from "../../../kitchen-hooks/useKitchenBoard";
+import React, { memo } from 'react';
+import { CapacitySnapshot } from '../../../kitchen-types/order';
+import { StaffWorkloadDto } from '../../../kitchen-api/kitchenApi';
+import '../styles/CapacityMeter.scss';
 
-export const CapacityMeter: React.FC = memo(() => {
-  const cap   = useKitchenBoard(selectCapacity);
-  const staff = useKitchenBoard(selectStaff);
+interface CapacityMeterProps {
+  capacity:        CapacitySnapshot;
+  staff:           StaffWorkloadDto[];
+  onRemoveChef:    (chefId: string) => void;
+  onActivateChef:  (chefId: string) => void;
+  pendingChefId?:  string | null;
+}
 
-  const setActive = useKitchenBoard((s) => s.setStaffActive);
-  const setSlots  = useKitchenBoard((s) => s.setStaffSlots);
+export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
+  capacity,
+  staff,
+  onRemoveChef,
+  onActivateChef,
+  pendingChefId,
+}) => {
+  // File 1: thresholds at 90/70 (not 100/80)
+  const tier =
+    capacity.capacityPct >= 90 ? 'urgent'  :
+    capacity.capacityPct >= 70 ? 'warning' :
+    'normal';
 
-  const ringColor =
-    cap.capacityPct >= 100
-      ? "#ef4444"
-      : cap.capacityPct >= 80
-      ? "#f97316"
-      : "#22c55e";
+  // File 1: status messages
+  const getStatusMessage = () => {
+    if (capacity.capacityPct >= 90) return '⚠ At maximum capacity.';
+    if (capacity.capacityPct >= 70) return 'Kitchen running efficiently.';
+    return 'Ready for more orders.';
+  };
 
-  const circumference = 2 * Math.PI * 45; // r=45
-  const strokeDash = (cap.capacityPct / 100) * circumference;
+  const activeStaff = staff.filter(s => s.onShift);
+  const backupStaff = staff.filter(s => !s.onShift);
 
   return (
     <div className="capacity-meter">
-      {/* Ring */}
-      <svg width="120" height="120" className="capacity-meter__ring">
-        <circle cx="60" cy="60" r="45" fill="none" stroke="#e5e7eb" strokeWidth="10" />
-        <circle
-          cx="60" cy="60" r="45"
-          fill="none"
-          stroke={ringColor}
-          strokeWidth="10"
-          strokeDasharray={`${strokeDash} ${circumference}`}
-          strokeLinecap="round"
-          transform="rotate(-90 60 60)"
-          style={{ transition: "stroke-dasharray 0.4s ease" }}
+
+      {/* ── Header ── */}
+      <div className="capacity-meter__header">
+        {/* File 1: h3 tag */}
+        <h3 className="capacity-meter__title">Kitchen Capacity</h3>
+        <span className={`capacity-meter__percentage capacity-meter__percentage--${tier}`}>
+          {capacity.capacityPct}%
+        </span>
+      </div>
+
+      {/* ── Progress bar ── */}
+      <div className="capacity-meter__progress">
+        <div
+          className={`capacity-meter__progress-bar capacity-meter__progress-bar--${tier}`}
+          style={{ width: `${capacity.capacityPct}%` }}
         />
-        <text x="60" y="65" textAnchor="middle" fontSize="18" fontWeight="700" fill={ringColor}>
-          {cap.capacityPct}%
-        </text>
-      </svg>
+      </div>
 
-      <p className="capacity-meter__label">
-        {cap.cookingCount} / {cap.totalSlots} slots
-      </p>
+      {/* ── File 1: Low / Optimal / High labels ── */}
+      <div className="capacity-meter__labels">
+        <span>Low</span>
+        <span>Optimal</span>
+        <span>High</span>
+      </div>
 
-      {cap.isOverloaded && (
-        <div className="capacity-meter__overload-badge">⚠ OVERLOADED</div>
+      {/* ── File 1: status message style ── */}
+      <div className="capacity-meter__status">
+        <p className={`capacity-meter__status-text capacity-meter__status-text--${tier}`}>
+          {getStatusMessage()}
+        </p>
+      </div>
+
+      {/* ── File 2: Active staff section ── */}
+      {activeStaff.length > 0 && (
+        <div className="capacity-meter__staff-section">
+          <p className="capacity-meter__staff-heading">
+            ON SHIFT ({activeStaff.length})
+          </p>
+          {activeStaff.map(s => (
+            <div key={s.chefId} className="capacity-meter__staff-row capacity-meter__staff-row--active">
+              <span className="capacity-meter__staff-name">{s.name}</span>
+              <span className="capacity-meter__staff-slots">
+                {s.activeOrders}/{s.maxCapacity}
+              </span>
+              <button
+                className="capacity-meter__staff-btn capacity-meter__staff-btn--remove"
+                onClick={() => onRemoveChef(s.chefId)}
+                disabled={pendingChefId === s.chefId}
+                title="Remove from shift"
+              >
+                {pendingChefId === s.chefId ? '…' : 'Remove'}
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
-      {/* Staff list */}
-      <div className="capacity-meter__staff">
-        {staff.map((s) => (
-          <div key={s.id} className="capacity-meter__staff-row">
-            <span className={s.active ? "active" : "inactive"}>{s.name}</span>
+      {/* ── File 2: Backup staff section ── */}
+      {backupStaff.length > 0 && (
+        <div className="capacity-meter__staff-section">
+          <p className="capacity-meter__staff-heading">
+            BACKUP ({backupStaff.length})
+          </p>
+          {backupStaff.map(s => (
+            <div key={s.chefId} className="capacity-meter__staff-row capacity-meter__staff-row--backup">
+              <span className="capacity-meter__staff-name">{s.name}</span>
+              <span className="capacity-meter__staff-slots">
+                {s.maxCapacity} slots
+              </span>
+              <button
+                className="capacity-meter__staff-btn capacity-meter__staff-btn--activate"
+                onClick={() => onActivateChef(s.chefId)}
+                disabled={pendingChefId === s.chefId}
+                title="Activate chef"
+              >
+                {pendingChefId === s.chefId ? '…' : 'Activate'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
-            <label className="capacity-meter__toggle">
-              <input
-                type="checkbox"
-                checked={s.active}
-                onChange={(e) => setActive(s.id, e.target.checked)}
-              />
-              Active
-            </label>
-
-            <select
-              value={s.slotCount}
-              onChange={(e) => setSlots(s.id, Number(e.target.value))}
-              disabled={!s.active}
-            >
-              {[1, 2, 3, 4].map((n) => (
-                <option key={n} value={n}>{n} slots</option>
-              ))}
-            </select>
-          </div>
-        ))}
-      </div>
     </div>
   );
 });

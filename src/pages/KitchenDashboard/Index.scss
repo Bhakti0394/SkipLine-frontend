@@ -4,12 +4,6 @@
 // ============================================
 // DESIGN TOKENS - Using CSS Variables
 // ============================================
-// Colors will use existing CSS variables from your theme
-// No color overrides - respects your original theme
-
-// ============================================
-// BREAKPOINTS
-// ============================================
 $breakpoint-xs: 475px;
 $breakpoint-sm: 640px;
 $breakpoint-md: 768px;
@@ -21,75 +15,39 @@ $breakpoint-2xl: 1536px;
 // ANIMATIONS
 // ============================================
 @keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @keyframes slide-in-left {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes slide-in-right {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.7);
-  }
-  70% {
-    box-shadow: 0 0 0 10px hsl(var(--primary) / 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
-  }
+  0%   { box-shadow: 0 0 0 0    hsl(var(--primary) / 0.7); }
+  70%  { box-shadow: 0 0 0 10px hsl(var(--primary) / 0); }
+  100% { box-shadow: 0 0 0 0    hsl(var(--primary) / 0); }
 }
 
 @keyframes gradient-shift {
-  0%, 100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
+  0%, 100% { background-position: 0%   50%; }
+  50%       { background-position: 100% 50%; }
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: -1000px 0;
-  }
-  100% {
-    background-position: 1000px 0;
-  }
+  0%   { background-position: -1000px 0; }
+  100% { background-position:  1000px 0; }
 }
 
 // ============================================
@@ -129,22 +87,18 @@ $breakpoint-2xl: 1536px;
 // ============================================
 // DASHBOARD CONTAINER
 // ============================================
-
 .dashboard {
   min-height: 100vh;
   background: hsl(var(--background));
   position: relative;
-  overflow-x: clip;   // ← clip doesn't create a stacking context
+  overflow-x: clip;
 
-  // Animated background pattern
   &::before {
     content: '';
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-image: 
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background-image:
       radial-gradient(circle at 20% 30%, hsl(var(--primary) / 0.05) 0%, transparent 50%),
       radial-gradient(circle at 80% 70%, hsl(var(--primary) / 0.08) 0%, transparent 50%);
     pointer-events: none;
@@ -154,29 +108,19 @@ $breakpoint-2xl: 1536px;
   &__main {
     position: relative;
     z-index: 1;
-    padding: 1rem 0.75rem;
+    padding: 0.75rem 0.5rem;
 
-    @media (min-width: $breakpoint-sm) {
-      padding: 1.5rem;
-    }
-
-    @media (min-width: $breakpoint-lg) {
-      padding: 2rem;
-    }
+    @media (min-width: $breakpoint-sm) { padding: 1rem; }
+    @media (min-width: $breakpoint-lg) { padding: 1rem 1.25rem; }
   }
 
   &__container {
     max-width: 1920px;
     margin: 0 auto;
-    padding: 0 0.75rem;
+    padding: 0 0.5rem;
 
-    @media (min-width: $breakpoint-sm) {
-      padding: 0 1.5rem;
-    }
-
-    @media (min-width: $breakpoint-lg) {
-      padding: 0 2rem;
-    }
+    @media (min-width: $breakpoint-sm) { padding: 0 0.75rem; }
+    @media (min-width: $breakpoint-lg) { padding: 0 1rem; }
   }
 }
 
@@ -186,28 +130,25 @@ $breakpoint-2xl: 1536px;
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  gap: 0.375rem;
+  margin-bottom: 0.625rem;
   animation: fade-in-up 0.6s ease;
 
   @media (min-width: $breakpoint-sm) {
     grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
   }
 
   @media (min-width: $breakpoint-lg) {
     grid-template-columns: repeat(6, 1fr);
-    gap: 1.25rem;
-    margin-bottom: 2rem;
+    gap: 0.625rem;
+    margin-bottom: 0.875rem;
   }
 
-  // Stagger animation for cards
   .stat-card {
     @for $i from 1 through 6 {
-      &:nth-child(#{$i}) {
-        animation-delay: #{$i * 0.1}s;
-      }
+      &:nth-child(#{$i}) { animation-delay: #{$i * 0.1}s; }
     }
   }
 }
@@ -218,13 +159,9 @@ $breakpoint-2xl: 1536px;
 .content-layout {
   animation: fade-in 0.4s ease;
 
-  // Spacing between sections
   & > * + * {
-    margin-top: 1rem;
-
-    @media (min-width: $breakpoint-sm) {
-      margin-top: 1.5rem;
-    }
+    margin-top: 0.75rem;
+    @media (min-width: $breakpoint-sm) { margin-top: 1rem; }
   }
 }
 
@@ -232,41 +169,33 @@ $breakpoint-2xl: 1536px;
 .kanban-layout {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1rem;
+  gap: 0.75rem;
 
   @media (min-width: $breakpoint-lg) {
-    grid-template-columns: 1fr 320px;
-    gap: 1.5rem;
+    grid-template-columns: 1fr 300px;
+    gap: 1rem;
   }
 
   @media (min-width: $breakpoint-xl) {
-    grid-template-columns: 1fr 360px;
-    gap: 2rem;
+    grid-template-columns: 1fr 320px;
+    gap: 1.25rem;
   }
 
   &__main {
     order: 2;
     animation: slide-in-left 0.5s ease;
-
-    @media (min-width: $breakpoint-lg) {
-      order: 1;
-    }
+    @media (min-width: $breakpoint-lg) { order: 1; }
   }
 
   &__sidebar {
     order: 1;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
     animation: slide-in-right 0.5s ease;
 
-    @media (min-width: $breakpoint-sm) {
-      gap: 1.25rem;
-    }
-
-    @media (min-width: $breakpoint-lg) {
-      order: 2;
-    }
+    @media (min-width: $breakpoint-sm) { gap: 0.875rem; }
+    @media (min-width: $breakpoint-lg) { order: 2; }
   }
 }
 
@@ -274,40 +203,30 @@ $breakpoint-2xl: 1536px;
 .list-layout {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1rem;
+  gap: 0.75rem;
 
   @media (min-width: $breakpoint-lg) {
     grid-template-columns: 2fr 1fr;
-    gap: 1.5rem;
+    gap: 1rem;
   }
 
-  @media (min-width: $breakpoint-xl) {
-    gap: 2rem;
-  }
+  @media (min-width: $breakpoint-xl) { gap: 1.25rem; }
 
   &__main {
     order: 2;
     animation: slide-in-left 0.5s ease;
-
-    @media (min-width: $breakpoint-lg) {
-      order: 1;
-    }
+    @media (min-width: $breakpoint-lg) { order: 1; }
   }
 
   &__sidebar {
     order: 1;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
     animation: slide-in-right 0.5s ease;
 
-    @media (min-width: $breakpoint-sm) {
-      gap: 1.25rem;
-    }
-
-    @media (min-width: $breakpoint-lg) {
-      order: 2;
-    }
+    @media (min-width: $breakpoint-sm) { gap: 0.875rem; }
+    @media (min-width: $breakpoint-lg) { order: 2; }
   }
 }
 
@@ -315,40 +234,30 @@ $breakpoint-2xl: 1536px;
 .analytics-layout {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1rem;
+  gap: 0.75rem;
 
   @media (min-width: $breakpoint-lg) {
     grid-template-columns: 2fr 1fr;
-    gap: 1.5rem;
+    gap: 1rem;
   }
 
-  @media (min-width: $breakpoint-xl) {
-    gap: 2rem;
-  }
+  @media (min-width: $breakpoint-xl) { gap: 1.25rem; }
 
   &__main {
     order: 2;
     animation: slide-in-left 0.5s ease;
-
-    @media (min-width: $breakpoint-lg) {
-      order: 1;
-    }
+    @media (min-width: $breakpoint-lg) { order: 1; }
   }
 
   &__sidebar {
     order: 1;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
     animation: slide-in-right 0.5s ease;
 
-    @media (min-width: $breakpoint-sm) {
-      gap: 1.25rem;
-    }
-
-    @media (min-width: $breakpoint-lg) {
-      order: 2;
-    }
+    @media (min-width: $breakpoint-sm) { gap: 0.875rem; }
+    @media (min-width: $breakpoint-lg) { order: 2; }
   }
 }
 
@@ -358,19 +267,32 @@ $breakpoint-2xl: 1536px;
 }
 
 // ============================================
-// SIDEBAR GRID (for controls split on mobile)
+// SIDEBAR GRID
 // ============================================
+//
+// FIX: Previously repeat(2,1fr) from mobile upward — both panels
+// were ~160px wide, causing staff names to wrap across two lines.
+//
+// New behaviour:
+//   mobile (<md)  → 1 column  — each panel gets full width, names fit
+//   tablet (md+)  → 2 columns — enough horizontal room for side-by-side
+//   desktop (lg+) → 1 column  — sidebar itself is already 300-320px narrow,
+//                               so 2 columns would crush content again
+//
 .sidebar-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: 1fr;           // CHANGED: was repeat(2,1fr) — single col on mobile
 
-  @media (min-width: $breakpoint-sm) {
-    gap: 1rem;
+  gap: 0.5rem;
+
+  @media (min-width: $breakpoint-md) {
+    grid-template-columns: repeat(2, 1fr);  // wide enough between md–lg
+    gap: 0.75rem;
   }
 
   @media (min-width: $breakpoint-lg) {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr;             // back to 1 col inside narrow sidebar
+    gap: 0.5rem;
   }
 }
 
@@ -381,41 +303,31 @@ $breakpoint-2xl: 1536px;
   @include premium-card;
 
   &__header {
-    margin-bottom: 1rem;
-
-    @media (min-width: $breakpoint-sm) {
-      margin-bottom: 1.5rem;
-    }
+    margin-bottom: 0.75rem;
+    @media (min-width: $breakpoint-sm) { margin-bottom: 1rem; }
   }
 
   &__title {
-    font-size: 1.125rem;
+    font-size: 1rem;
     font-weight: 700;
     @include gradient-text;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.375rem;
 
     @media (min-width: $breakpoint-sm) {
-      font-size: 1.25rem;
-      margin-bottom: 0.75rem;
+      font-size: 1.125rem;
+      margin-bottom: 0.5rem;
     }
 
-    @media (min-width: $breakpoint-lg) {
-      font-size: 1.5rem;
-    }
+    @media (min-width: $breakpoint-lg) { font-size: 1.25rem; }
   }
 
   &__subtitle {
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     color: hsl(var(--muted-foreground));
-
-    @media (min-width: $breakpoint-sm) {
-      font-size: 0.9375rem;
-    }
+    @media (min-width: $breakpoint-sm) { font-size: 0.875rem; }
   }
 
-  &__content {
-    // Content styles
-  }
+  &__content {}
 }
 
 // ============================================
@@ -423,66 +335,37 @@ $breakpoint-2xl: 1536px;
 // ============================================
 .hidden-mobile {
   display: none;
-
-  @media (min-width: $breakpoint-sm) {
-    display: block;
-  }
+  @media (min-width: $breakpoint-sm) { display: block; }
 }
 
 .hidden-tablet {
   display: none;
-
-  @media (min-width: $breakpoint-lg) {
-    display: block;
-  }
+  @media (min-width: $breakpoint-lg) { display: block; }
 }
 
 .show-mobile-only {
   display: block;
-
-  @media (min-width: $breakpoint-sm) {
-    display: none;
-  }
+  @media (min-width: $breakpoint-sm) { display: none; }
 }
 
 // ============================================
 // SPACING UTILITIES
 // ============================================
-.space-y-1 {
-  & > * + * {
-    margin-top: 0.25rem;
-  }
-}
-
-.space-y-2 {
-  & > * + * {
-    margin-top: 0.5rem;
-  }
-}
-
-.space-y-3 {
-  & > * + * {
-    margin-top: 0.75rem;
-  }
-}
+.space-y-1 { & > * + * { margin-top: 0.25rem; } }
+.space-y-2 { & > * + * { margin-top: 0.5rem; } }
+.space-y-3 { & > * + * { margin-top: 0.75rem; } }
 
 .space-y-4 {
   & > * + * {
     margin-top: 1rem;
-
-    @media (min-width: $breakpoint-sm) {
-      margin-top: 1.25rem;
-    }
+    @media (min-width: $breakpoint-sm) { margin-top: 1.25rem; }
   }
 }
 
 .space-y-6 {
   & > * + * {
     margin-top: 1.25rem;
-
-    @media (min-width: $breakpoint-sm) {
-      margin-top: 1.5rem;
-    }
+    @media (min-width: $breakpoint-sm) { margin-top: 1.5rem; }
   }
 }
 
@@ -491,10 +374,8 @@ $breakpoint-2xl: 1536px;
 // ============================================
 .loading-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
   background: hsl(var(--background) / 0.9);
   backdrop-filter: blur(10px);
   display: flex;
@@ -504,8 +385,7 @@ $breakpoint-2xl: 1536px;
   animation: fade-in 0.3s ease;
 
   &__spinner {
-    width: 4rem;
-    height: 4rem;
+    width: 4rem; height: 4rem;
     border: 4px solid hsl(var(--secondary));
     border-top-color: hsl(var(--primary));
     border-radius: 50%;
@@ -520,11 +400,7 @@ $breakpoint-2xl: 1536px;
   }
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 // ============================================
 // SCROLLBAR STYLING
@@ -534,27 +410,17 @@ $breakpoint-2xl: 1536px;
   scrollbar-color: hsl(var(--primary) / 0.3) transparent;
 }
 
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+*::-webkit-scrollbar       { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
   background: hsl(var(--primary) / 0.3);
   border-radius: 4px;
   transition: background 0.3s ease;
-
-  &:hover {
-    background: hsl(var(--primary) / 0.5);
-  }
+  &:hover { background: hsl(var(--primary) / 0.5); }
 }
 
 // ============================================
-// FOCUS VISIBLE STATES
+// FOCUS & SELECTION
 // ============================================
 *:focus-visible {
   outline: 2px solid hsl(var(--primary));
@@ -562,46 +428,26 @@ $breakpoint-2xl: 1536px;
   border-radius: 0.25rem;
 }
 
-// ============================================
-// SELECTION STYLING
-// ============================================
-::selection {
-  background: hsl(var(--primary) / 0.3);
-  color: hsl(var(--primary-foreground));
-}
+::selection      { background: hsl(var(--primary) / 0.3); color: hsl(var(--primary-foreground)); }
+::-moz-selection { background: hsl(var(--primary) / 0.3); color: hsl(var(--primary-foreground)); }
 
-::-moz-selection {
-  background: hsl(var(--primary) / 0.3);
-  color: hsl(var(--primary-foreground));
-}
+// ============================================
+// SONNER TOASTS
+// ============================================
 [data-sonner-toaster] {
   position: fixed !important;
-  z-index: 99999 !important;
+  z-index: 999999 !important;
   bottom: 24px !important;
   right: 24px !important;
   left: auto !important;
   top: auto !important;
   transform: translateZ(0);
-}
-
-[data-sonner-toast] {
-  z-index: 99999 !important;
-  pointer-events: auto !important;
-}
-// ─── ADD THIS TO BOTTOM OF src/pages/KitchenDashboard/Index.scss ─────────────
-
-// Sonner toast visual overrides
-[data-sonner-toaster] {
-  position: fixed !important;
-  bottom: 24px !important;
-  right: 24px !important;
-  left: auto !important;
-  top: auto !important;
-  z-index: 999999 !important;
   width: 320px !important;
 }
 
 [data-sonner-toast] {
+  z-index: 999999 !important;
+  pointer-events: auto !important;
   background: #111118 !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-top: 3px solid #ef4444 !important;
@@ -614,28 +460,12 @@ $breakpoint-2xl: 1536px;
   flex-direction: column !important;
   gap: 4px !important;
 
-  // Success — green top border
-  &[data-type="success"] {
-    border-top-color: #10b981 !important;
-  }
-
-  // Warning — amber top border
-  &[data-type="warning"] {
-    border-top-color: #f59e0b !important;
-  }
-
-  // Info — blue top border
-  &[data-type="info"] {
-    border-top-color: #3b82f6 !important;
-  }
-
-  // Error/urgent — red top border (default already set above)
-  &[data-type="error"] {
-    border-top-color: #ef4444 !important;
-  }
+  &[data-type="success"] { border-top-color: #10b981 !important; }
+  &[data-type="warning"] { border-top-color: #f59e0b !important; }
+  &[data-type="info"]    { border-top-color: #3b82f6 !important; }
+  &[data-type="error"]   { border-top-color: #ef4444 !important; }
 }
 
-// Toast title
 [data-sonner-toast] [data-title] {
   color: #ffffff !important;
   font-size: 0.875rem !important;
@@ -644,7 +474,6 @@ $breakpoint-2xl: 1536px;
   margin: 0 !important;
 }
 
-// Toast description
 [data-sonner-toast] [data-description] {
   color: rgba(255, 255, 255, 0.55) !important;
   font-size: 0.775rem !important;
@@ -653,13 +482,10 @@ $breakpoint-2xl: 1536px;
   margin: 0 !important;
 }
 
-// Close button
 [data-sonner-toast] [data-close-button] {
   position: absolute !important;
-  top: 10px !important;
-  right: 10px !important;
-  width: 20px !important;
-  height: 20px !important;
+  top: 10px !important; right: 10px !important;
+  width: 20px !important; height: 20px !important;
   background: transparent !important;
   border: none !important;
   color: rgba(255, 255, 255, 0.4) !important;
@@ -677,7 +503,4 @@ $breakpoint-2xl: 1536px;
   }
 }
 
-// Remove default sonner icon
-[data-sonner-toast] [data-icon] {
-  display: none !important;
-}
+[data-sonner-toast] [data-icon] { display: none !important; }
