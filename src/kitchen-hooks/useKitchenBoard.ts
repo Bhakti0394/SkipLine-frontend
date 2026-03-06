@@ -1,5 +1,5 @@
 // ============================================================
-// src/kitchen-hooks/useKitchenBoard.ts  —  FIXED
+// src/kitchen-hooks/useKitchenBoard.ts
 // ============================================================
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -21,8 +21,6 @@ import {
   SimulationResult,
 } from '../kitchen-api/kitchenApi';
 import { Order, OrderStatus, CapacitySnapshot, BackendOrderStatus } from '../kitchen-types/order';
-
-// ─── Re-export for consumers ──────────────────────────────────────────────────
 
 export type BackendStatus = BackendOrderStatus;
 
@@ -92,7 +90,6 @@ function toFrontendOrder(dto: OrderCardDto): Order {
   return {
     id:                dto.id,
     orderNumber:       dto.orderRef,
-    // FIX: customerName now comes from backend (set during simulation via createOrder)
     customerName:      dto.customerName ?? dto.orderRef,
     status:            statusMap[dto.status as BackendStatus] ?? 'pending',
     backendStatus:     dto.status as BackendOrderStatus,
@@ -114,18 +111,15 @@ function toFrontendOrder(dto: OrderCardDto): Order {
 }
 
 // ─── Capacity selector ────────────────────────────────────────────────────────
-// FIX: isOverloaded was: pendingCount > 0 && capacityPct === 100
-// This was wrong — it flagged overloaded even when the queue still had room.
-// Correct definition: cooking slots are full AND pending queue is also full.
 
 export function selectCapacity(boardData: KanbanBoardResponse | null): CapacitySnapshot {
   if (!boardData) {
     return { totalSlots: 0, cookingCount: 0, freeSlots: 0, capacityPct: 0, isOverloaded: false };
   }
 
-  const onShiftStaff = boardData.staff.filter(s => s.onShift);
-  const totalSlots   = onShiftStaff.reduce((sum, s) => sum + s.maxCapacity, 0);
-  const maxQueueDepth = Math.max(totalSlots * 2, 10); // mirrors backend heuristic
+  const onShiftStaff  = boardData.staff.filter(s => s.onShift);
+  const totalSlots    = onShiftStaff.reduce((sum, s) => sum + s.maxCapacity, 0);
+  const maxQueueDepth = Math.max(totalSlots * 2, 10);
 
   const cookingCount = (boardData.columns.COOKING ?? []).length;
   const pendingCount = (boardData.columns.PENDING  ?? []).length;
@@ -135,9 +129,8 @@ export function selectCapacity(boardData: KanbanBoardResponse | null): CapacityS
     ? Math.min(100, Math.round((cookingCount / totalSlots) * 100))
     : 0;
 
-  // FIX: Kitchen is truly overloaded only when BOTH cooking AND queue are full
-  const cookingFull = cookingCount >= totalSlots && totalSlots > 0;
-  const queueFull   = pendingCount >= maxQueueDepth;
+  const cookingFull  = cookingCount >= totalSlots && totalSlots > 0;
+  const queueFull    = pendingCount >= maxQueueDepth;
   const isOverloaded = cookingFull && queueFull;
 
   return { totalSlots, cookingCount, freeSlots, capacityPct, isOverloaded };
@@ -160,23 +153,18 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
   const [error, setError]                     = useState<string | null>(null);
   const [menuItems, setMenuItems]             = useState<MenuItemDto[]>([]);
 
-  // Simulation
   const [isSimulating, setIsSimulating]               = useState(false);
   const [simulationSpeed, setSimulationSpeed]         = useState<'slow' | 'normal' | 'fast'>('normal');
   const [simulationError, setSimulationError]         = useState<string | null>(null);
   const [isSimTriggerPending, setIsSimTriggerPending] = useState(false);
 
-  // Staff removal flow
   const [removalTargetId, setRemovalTargetId]         = useState<string | null>(null);
   const [removalValidation, setRemovalValidation]     = useState<StaffRemovalValidationDto | null>(null);
   const [isValidatingRemoval, setIsValidatingRemoval] = useState(false);
   const [isConfirmingRemoval, setIsConfirmingRemoval] = useState(false);
 
-  // Chef activation
   const [activatingChefId, setActivatingChefId] = useState<string | null>(null);
-
-  // Countdown display: { orderId → secondsRemaining }
-  const [readyCountdowns, setReadyCountdowns] = useState<Record<string, number>>({});
+  const [readyCountdowns, setReadyCountdowns]   = useState<Record<string, number>>({});
 
   const simIntervalRef   = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoCompleteRefs = useRef<Record<string, AutoCompleteEntry>>({});
@@ -191,7 +179,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
   const backupStaff                = useMemo(() => staff.filter(s => !s.onShift), [staff]);
   const backupStaffCount           = backupStaff.length;
 
-  // ── Counts — single source of truth from boardData ─────────────────────────
   const counts = useMemo(() => ({
     pending:   (boardData?.columns.PENDING   ?? []).length,
     cooking:   (boardData?.columns.COOKING   ?? []).length,
@@ -227,13 +214,12 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
-  // ── Polling ────────────────────────────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(loadBoard, pollingIntervalMs);
     return () => clearInterval(id);
   }, [loadBoard, pollingIntervalMs]);
 
-  // ── cancelAutoComplete ─────────────────────────────────────────────────────
+  // ── Auto-complete timers ───────────────────────────────────────────────────
   const cancelAutoComplete = useCallback((orderId: string) => {
     const entry = autoCompleteRefs.current[orderId];
     if (entry) {
@@ -248,7 +234,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     }
   }, []);
 
-  // ── scheduleAutoComplete ───────────────────────────────────────────────────
   const scheduleAutoComplete = useCallback((order: Order) => {
     if (autoCompleteRefs.current[order.id]) return;
 
@@ -283,7 +268,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     autoCompleteRefs.current[order.id] = { timeout, interval };
   }, [loadBoard]);
 
-  // ── Watch orders — schedule/cancel auto-complete timers ───────────────────
   useEffect(() => {
     const readyIds = new Set(orders.filter(o => o.status === 'ready').map(o => o.id));
     for (const id of Object.keys(autoCompleteRefs.current)) {
@@ -296,7 +280,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     }
   }, [orders, cancelAutoComplete, scheduleAutoComplete]);
 
-  // ── Cleanup timers on unmount ──────────────────────────────────────────────
   useEffect(() => {
     return () => {
       for (const id of Object.keys(autoCompleteRefs.current)) {
@@ -332,6 +315,7 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
 
     try {
       await changeOrderStatus(orderId, toBackend);
+      // Reload so backend auto-assignment is reflected (backend assigns chef on COOKING transition)
       await loadBoard();
     } catch (err: any) {
       setOrders(previousOrders);
@@ -341,26 +325,10 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
   }, [orders, loadBoard, cancelAutoComplete]);
 
   // ── assignChef ─────────────────────────────────────────────────────────────
+  // FIX: removed optimistic status update — don't set status:'cooking' before
+  // both API calls confirm. Let loadBoard() sync the real state after both complete.
   const assignChef = useCallback(async (orderId: string, chefId: string) => {
     const order = orders.find(o => o.id === orderId);
-    const chef  = staff.find(s => s.chefId === chefId);
-
-    const previousOrders = orders;
-
-    setOrders(prev =>
-      prev.map(o =>
-        o.id === orderId
-          ? {
-              ...o,
-              assignedTo:     chef?.name ?? chefId,
-              assignedChefId: chefId,
-              status:         'cooking',
-              backendStatus:  'COOKING',
-            }
-          : o
-      )
-    );
-
     try {
       await assignChefApi(orderId, chefId);
       if (order?.status === 'pending') {
@@ -368,11 +336,10 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
       }
       await loadBoard();
     } catch (err: any) {
-      setOrders(previousOrders);
       await loadBoard();
       throw err;
     }
-  }, [orders, staff, loadBoard]);
+  }, [orders, loadBoard]);
 
   // ── addOrder ───────────────────────────────────────────────────────────────
   const addOrder = useCallback(async (orderRef: string, menuItemIds: string[]): Promise<string> => {
@@ -382,9 +349,7 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     return id;
   }, [loadBoard]);
 
-  // ── stopSimulation — cleans up state fully ────────────────────────────────
-  // FIX: setIsSimulating(false) alone left simulationError on screen.
-  // Now exported as a dedicated function so the UI calls this instead of raw setter.
+  // ── stopSimulation ────────────────────────────────────────────────────────
   const stopSimulation = useCallback(() => {
     setIsSimulating(false);
     setSimulationError(null);
@@ -394,7 +359,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
   const runSimulationTick = useCallback(async () => {
     if (menuItems.length === 0) { setSimulationError('No menu items loaded'); return; }
 
-    // FIX: re-check capacity using latest board data before firing
     if (capacity.isOverloaded) {
       setSimulationError('Kitchen is at full capacity — simulation paused');
       setIsSimulating(false);
@@ -406,7 +370,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
       const result: SimulationResult = await triggerSimulation(1, menuItems);
       if (result.rejected > 0 && result.reason) {
         setSimulationError(result.reason);
-        // Auto-stop if kitchen signals it's full
         if (result.reason.includes('full capacity') || result.reason.includes('at full capacity')) {
           setIsSimulating(false);
         }
@@ -505,14 +468,11 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
   }, []);
 
   // ── triggerBurst ───────────────────────────────────────────────────────────
-  // FIX: Now checks isOverloaded BEFORE hitting the backend, same as the tick.
   const triggerBurst = useCallback(async (count: number): Promise<SimulationResult> => {
     if (menuItems.length === 0) throw new Error('No menu items loaded — cannot simulate');
-
     if (capacity.isOverloaded) {
       return { generated: 0, rejected: count, reason: 'Kitchen is at full capacity' };
     }
-
     setIsSimTriggerPending(true);
     try {
       const result = await triggerSimulation(count, menuItems);
@@ -565,7 +525,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     isConfirmingRemoval,
 
     isSimulating,
-    // FIX: expose stopSimulation instead of raw setIsSimulating
     setIsSimulating,
     stopSimulation,
     simulationSpeed,

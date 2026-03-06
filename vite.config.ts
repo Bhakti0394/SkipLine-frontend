@@ -16,6 +16,16 @@ export default defineConfig(({ mode }) => ({
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
+        cookieDomainRewrite: 'localhost',
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            // Explicitly forward cookies so auth_token reaches JwtAuthFilter
+            // on all request methods including PATCH/POST
+            if (req.headers.cookie) {
+              proxyReq.setHeader('Cookie', req.headers.cookie);
+            }
+          });
+        },
       },
     },
   },

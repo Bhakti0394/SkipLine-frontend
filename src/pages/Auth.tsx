@@ -117,6 +117,13 @@ const Auth = () => {
         throw new Error(data.message || "Invalid or expired OTP");
       }
 
+      // FIX: Store the JWT in localStorage so kitchenApi.ts can send it
+      // as Authorization: Bearer on all PATCH/POST requests.
+      // Cookies alone fail on PATCH requests due to browser SameSite rules.
+      if (data.token) {
+        localStorage.setItem("auth_token", data.token);
+      }
+
       window.location.href = "/kitchen-dashboard";
 
     } catch (error: any) {

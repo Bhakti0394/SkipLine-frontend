@@ -1,11 +1,11 @@
 // ============================================================
-// KanbanBoard.tsx — File 1 look + File 2 backend logic (merged)
+// KanbanBoard.tsx
 // ============================================================
 
 import React, { useMemo, useCallback, useState } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult, DragStart } from '@hello-pangea/dnd';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, ChefHat, CheckCircle2, User, Flame, AlertTriangle, AlertCircle, X } from 'lucide-react';
+import { Clock, ChefHat, CheckCircle2, User, AlertCircle, X } from 'lucide-react';
 import { OrderTimer } from './OrderTimer';
 import { Order, OrderStatus } from '../../../kitchen-types/order';
 import { StaffWorkloadDto } from '../../../kitchen-api/kitchenApi';
@@ -32,7 +32,7 @@ function isValidDrop(from: OrderStatus, to: OrderStatus): boolean {
   return canTransition(toBackend[from], toBackend[to]);
 }
 
-// ─── Column definitions (File 1 style — no completed column) ─────────────────
+// ─── Column definitions ───────────────────────────────────────────────────────
 
 const columns: { status: OrderStatus; label: string; icon: React.ElementType; color: string }[] = [
   { status: 'pending', label: 'Queue',   icon: Clock,        color: 'pending' },
@@ -86,7 +86,6 @@ export const KanbanBoard = React.memo(function KanbanBoard({
 
   const safeOrders = orders ?? [];
 
-  // Pending API state (from File 2)
   const [pendingOrderIds, setPendingOrderIds] = useState<Set<string>>(new Set());
   const setOrderPending = useCallback((id: string, val: boolean) => {
     setPendingOrderIds(prev => {
@@ -96,18 +95,17 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     });
   }, []);
 
-  // Drag error state (from File 2)
   const [dragError, setDragError]         = useState<string | null>(null);
   const dismissError                      = useCallback(() => setDragError(null), []);
   const [draggingOrder, setDraggingOrder] = useState<Order | null>(null);
 
-  // Assignable chefs (from File 2)
+  // Only show chefs that are on shift — full chefs are kept so the select
+  // can show them as disabled (user sees capacity state, not a confusing empty list)
   const assignableChefs = useMemo(
     () => (staff ?? []).filter(s => s.onShift),
     [staff],
   );
 
-  // Orders grouped + sorted (from File 2)
   const ordersByStatus = useMemo(() => {
     const map: Record<OrderStatus, Order[]> = {
       pending: [], cooking: [], ready: [], completed: [],
@@ -127,7 +125,6 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     return map;
   }, [safeOrders]);
 
-  // Drag handlers (from File 2)
   const handleDragStart = useCallback((start: DragStart) => {
     setDragError(null);
     setDraggingOrder(safeOrders.find(o => o.id === start.draggableId) ?? null);
@@ -142,12 +139,11 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     const order     = safeOrders.find(o => o.id === orderId);
 
     if (!order || order.status === newStatus) return;
-    if (!isValidDrop(order.status, newStatus)) return;
 
-    if (order.status === 'pending' && newStatus === 'cooking' && !order.assignedChefId) {
-      setDragError('Assign a chef before moving this order to cooking.');
-      return;
-    }
+    // FIX: removed the chef-required guard here.
+    // The backend's transition() auto-assigns a chef when moving to COOKING,
+    // so we just call onStatusChange and let the backend handle it.
+    if (!isValidDrop(order.status, newStatus)) return;
 
     setOrderPending(orderId, true);
     try {
@@ -162,7 +158,6 @@ export const KanbanBoard = React.memo(function KanbanBoard({
   return (
     <div className="kanban-wrapper">
 
-      {/* Error banner (from File 2) */}
       <AnimatePresence>
         {dragError && (
           <DragErrorBanner key="drag-error" message={dragError} onDismiss={dismissError} />
@@ -170,7 +165,6 @@ export const KanbanBoard = React.memo(function KanbanBoard({
       </AnimatePresence>
 
       <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        {/* File 1 layout: kanban-board with kanban-column */}
         <div className="kanban-board">
           {columns.map((column) => {
             const columnOrders  = ordersByStatus[column.status];
@@ -191,7 +185,6 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                   isInvalid     ? 'kanban-column--invalid-target' : '',
                 ].filter(Boolean).join(' ')}
               >
-                {/* Column Header — File 1 structure */}
                 <div className="kanban-column__header">
                   <div className="kanban-column__title">
                     <Icon className={`kanban-column__icon kanban-column__icon--${column.status}`} />
@@ -202,7 +195,6 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                   </span>
                 </div>
 
-                {/* Droppable Area */}
                 <Droppable droppableId={column.status} isDropDisabled={isDragActive && isInvalid}>
                   {(provided, snapshot) => (
                     <div
@@ -210,18 +202,17 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                       {...provided.droppableProps}
                       className={[
                         'kanban-column__content',
-                        snapshot.isDraggingOver  ? 'kanban-column__content--dragging'      : '',
-                        isInvalid               ? 'kanban-column__content--drop-invalid'  : '',
-                        isValidTarget           ? 'kanban-column__content--drop-valid'    : '',
+                        snapshot.isDraggingOver ? 'kanban-column__content--dragging'     : '',
+                        isInvalid              ? 'kanban-column__content--drop-invalid' : '',
+                        isValidTarget          ? 'kanban-column__content--drop-valid'   : '',
                       ].filter(Boolean).join(' ')}
                     >
                       <AnimatePresence>
                         {columnOrders.map((order, index) => {
-                          const isPending      = pendingOrderIds.has(order.id);
-                          const countdown      = readyCountdowns[order.id];
+                          const isPending       = pendingOrderIds.has(order.id);
+                          const countdown       = readyCountdowns[order.id];
                           const countdownUrgent = countdown !== undefined && countdown <= 5;
 
-                          // Action button logic (from File 2)
                           const nextStatusMap: Partial<Record<OrderStatus, OrderStatus>> = {
                             cooking: 'ready',
                             ready:   'completed',
@@ -263,12 +254,12 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                                   {...provided.dragHandleProps}
                                   className={[
                                     'order-card',
-                                    snapshot.isDragging   ? 'order-card--dragging'    : '',
+                                    snapshot.isDragging ? 'order-card--dragging'    : '',
                                     `order-card--${order.priority}`,
-                                    isPending             ? 'order-card--pending-api' : '',
+                                    isPending           ? 'order-card--pending-api' : '',
                                   ].filter(Boolean).join(' ')}
                                 >
-                                  {/* Order Header — File 1 structure */}
+                                  {/* Header */}
                                   <div className="order-card__header">
                                     <span className="order-card__number">{order.orderNumber}</span>
                                     <div className="order-card__meta">
@@ -277,7 +268,6 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                                           {order.priority === 'urgent' ? '🔥' : '⚡'}
                                         </span>
                                       )}
-                                      {/* Ready countdown (from File 2) */}
                                       {order.status === 'ready' && countdown !== undefined && (
                                         <span
                                           className={[
@@ -293,7 +283,7 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                                     </div>
                                   </div>
 
-                                  {/* Customer — File 1 structure */}
+                                  {/* Customer */}
                                   <div className="order-card__customer">
                                     <User className="order-card__customer-icon" />
                                     <span className="order-card__customer-name">{order.customerName}</span>
@@ -302,7 +292,7 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                                     <span className="order-card__time">{order.pickupTime}</span>
                                   </div>
 
-                                  {/* Items — File 1 structure */}
+                                  {/* Items */}
                                   <div className="order-card__items">
                                     {order.items.slice(0, 2).map((item) => (
                                       <div key={item.id} className="order-card__item">
@@ -317,8 +307,7 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                                     )}
                                   </div>
 
-                                  {/* Chef assign — pending column uses staff workload (File 2 data),
-                                      cooking column shows select like File 1 */}
+                                  {/* Queue column: chef assign select */}
                                   {column.status === 'pending' && (
                                     <div className="order-card__chef-row">
                                       <Select
@@ -354,41 +343,54 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                                     </div>
                                   )}
 
-                                  {/* Cooking column: show assign select (File 1 style) */}
+                                  {/* Cooking column:
+                                      - chef assigned → read-only badge (normal flow)
+                                      - no chef assigned → select (auto-assign failed fallback) */}
                                   {column.status === 'cooking' && (
-                                    <Select
-                                      value={order.assignedChefId ?? order.assignedTo ?? ''}
-                                      onValueChange={handleChefChange}
-                                      disabled={isPending}
-                                    >
-                                      <SelectTrigger className="order-card__chef-select">
-                                        <SelectValue placeholder="Assign chef..." />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {assignableChefs.length === 0 ? (
-                                          <SelectItem value="__none__" disabled>No staff on shift</SelectItem>
-                                        ) : (
-                                          assignableChefs.map((chef) => {
-                                            const isFull = chef.activeOrders >= chef.maxCapacity;
-                                            return (
-                                              <SelectItem key={chef.chefId} value={chef.chefId} disabled={isFull}>
-                                                <span className={`chef-option${isFull ? ' chef-option--full' : ''}`}>
-                                                  <span className={`chef-option__status chef-option__status--${chef.status}`} />
-                                                  {chef.name}
-                                                  {isFull && <span className="chef-option__full-label">(Full)</span>}
-                                                  <span className={`chef-option__load${isFull ? ' chef-option__load--full' : ''}`}>
-                                                    {chef.activeOrders}/{chef.maxCapacity}
-                                                  </span>
-                                                </span>
-                                              </SelectItem>
-                                            );
-                                          })
-                                        )}
-                                      </SelectContent>
-                                    </Select>
+                                    order.assignedChefId || order.assignedTo ? (
+                                      <div className="order-card__chef-badge">
+                                        <span className="order-card__chef-badge-dot" />
+                                        <span className="order-card__chef-badge-name">
+                                          {order.assignedTo ?? order.assignedChefId}
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <div className="order-card__chef-row">
+                                        <Select
+                                          value=""
+                                          onValueChange={handleChefChange}
+                                          disabled={isPending}
+                                        >
+                                          <SelectTrigger className="order-card__chef-select">
+                                            <SelectValue placeholder="Assign chef…" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {assignableChefs.length === 0 ? (
+                                              <SelectItem value="__none__" disabled>No staff on shift</SelectItem>
+                                            ) : (
+                                              assignableChefs.map((chef) => {
+                                                const isFull = chef.activeOrders >= chef.maxCapacity;
+                                                return (
+                                                  <SelectItem key={chef.chefId} value={chef.chefId} disabled={isFull}>
+                                                    <span className={`chef-option${isFull ? ' chef-option--full' : ''}`}>
+                                                      <span className={`chef-option__status chef-option__status--${chef.status}`} />
+                                                      {chef.name}
+                                                      {isFull && <span className="chef-option__full-label">(Full)</span>}
+                                                      <span className={`chef-option__load${isFull ? ' chef-option__load--full' : ''}`}>
+                                                        {chef.activeOrders}/{chef.maxCapacity}
+                                                      </span>
+                                                    </span>
+                                                  </SelectItem>
+                                                );
+                                              })
+                                            )}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                    )
                                   )}
 
-                                  {/* Action footer (from File 2) */}
+                                  {/* Action footer */}
                                   {nextStatus && actionLabel && (
                                     <div className="order-card__footer">
                                       <button
@@ -400,6 +402,7 @@ export const KanbanBoard = React.memo(function KanbanBoard({
                                       </button>
                                     </div>
                                   )}
+
                                 </div>
                               )}
                             </Draggable>

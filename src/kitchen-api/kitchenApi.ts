@@ -1,16 +1,25 @@
 // ============================================================
-// src/kitchen-api/kitchenApi.ts  —  FIXED
+// src/kitchen-api/kitchenApi.ts
 // ============================================================
 
 const BASE_URL = '/api/kitchen';
 
-// ─── Auth helper ──────────────────────────────────────────────────────────────
-// Reads JWT from localStorage (set by AuthContext on login).
+// FIX: Auth uses the JWT stored in localStorage after login.
+// The token is saved there by the login page when verify-otp succeeds.
+// We send it as Authorization: Bearer on every request — this is reliable
+// for all HTTP methods (GET, PATCH, POST) unlike cookies which have
+// SameSite restrictions that block PATCH/POST in some browser contexts.
 function authHeaders(): HeadersInit {
-  const token = localStorage.getItem('token');
-  return token
-    ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-    : { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem('auth_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function authHeadersNoBody(): HeadersInit {
+  const token = localStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // ─── DTOs ─────────────────────────────────────────────────────────────────────
@@ -104,14 +113,10 @@ export interface SimulationResult {
 }
 
 // ─── Unique orderRef generator ────────────────────────────────────────────────
-// FIX: Old code used Date.now() which collides on rapid bursts.
-// Now uses crypto.randomUUID() prefix so every ref is guaranteed unique.
 let _simCounter = 0;
 function generateOrderRef(customerName: string): string {
   _simCounter = (_simCounter + 1) % 10000;
   const uid = crypto.randomUUID().slice(0, 8).toUpperCase();
-  // Format: SIM-<CustomerFirstName><Counter>-<uid>
-  // e.g.  SIM-Priya0042-A3F1C9D2
   const firstName = customerName.split(' ')[0];
   return `SIM-${firstName}${String(_simCounter).padStart(4, '0')}-${uid}`;
 }
@@ -133,7 +138,7 @@ function randomCustomerName(): string {
 export async function fetchBoard(): Promise<KanbanBoardResponse> {
   const res = await fetch(`${BASE_URL}/board`, {
     credentials: 'include',
-    headers: authHeaders(),
+    headers: authHeadersNoBody(),
   });
   if (!res.ok) throw new Error(`Failed to fetch board: ${res.status}`);
   return res.json();
@@ -144,7 +149,7 @@ export async function fetchBoard(): Promise<KanbanBoardResponse> {
 export async function fetchMenuItems(): Promise<MenuItemDto[]> {
   const res = await fetch(`${BASE_URL}/menu-items`, {
     credentials: 'include',
-    headers: authHeaders(),
+    headers: authHeadersNoBody(),
   });
   if (!res.ok) throw new Error(`Failed to fetch menu items: ${res.status}`);
   return res.json();
@@ -155,7 +160,7 @@ export async function fetchMenuItems(): Promise<MenuItemDto[]> {
 export async function fetchStaff(): Promise<StaffWorkloadDto[]> {
   const res = await fetch(`${BASE_URL}/staff`, {
     credentials: 'include',
-    headers: authHeaders(),
+    headers: authHeadersNoBody(),
   });
   if (!res.ok) throw new Error(`Failed to fetch staff: ${res.status}`);
   return res.json();
@@ -179,7 +184,7 @@ export async function activateChef(chefId: string): Promise<StaffWorkloadDto[]> 
   const res = await fetch(`${BASE_URL}/staff/${chefId}/activate`, {
     method: 'PATCH',
     credentials: 'include',
-    headers: authHeaders(),
+    headers: authHeadersNoBody(),
   });
   if (!res.ok) {
     const error = await res.text();
@@ -191,7 +196,7 @@ export async function activateChef(chefId: string): Promise<StaffWorkloadDto[]> 
 export async function validateRemoval(chefId: string): Promise<StaffRemovalValidationDto> {
   const res = await fetch(`${BASE_URL}/staff/${chefId}/validate-removal`, {
     credentials: 'include',
-    headers: authHeaders(),
+    headers: authHeadersNoBody(),
   });
   if (!res.ok) {
     const error = await res.text();
@@ -204,7 +209,7 @@ export async function removeChefFromShift(chefId: string): Promise<StaffWorkload
   const res = await fetch(`${BASE_URL}/staff/${chefId}/remove-from-shift`, {
     method: 'PATCH',
     credentials: 'include',
-    headers: authHeaders(),
+    headers: authHeadersNoBody(),
   });
   if (!res.ok) {
     const error = await res.text();
@@ -246,7 +251,7 @@ export async function changeOrderStatus(
     method: 'PATCH',
     credentials: 'include',
     headers: authHeaders(),
-    body: JSON.stringify({ targetStatus }),
+    body: JSON.stringify({ targetStatus: targetStatus.toUpperCase() }),
   });
   if (!res.ok) {
     const error = await res.text();
@@ -271,15 +276,15 @@ export async function assignChef(orderId: string, chefId: string): Promise<void>
 
 export async function fetchMetrics(date?: string): Promise<KitchenMetricsDto> {
   const url = date ? `${BASE_URL}/metrics?date=${date}` : `${BASE_URL}/metrics`;
-  const res = await fetch(url, { credentials: 'include', headers: authHeaders() });
+  const res = await fetch(url, {
+    credentials: 'include',
+    headers: authHeadersNoBody(),
+  });
   if (!res.ok) throw new Error(`Failed to fetch metrics: ${res.status}`);
   return res.json();
 }
 
 // ── Simulation ────────────────────────────────────────────────────────────────
-// FIX 1: Each order now gets a guaranteed-unique orderRef via crypto.randomUUID()
-// FIX 2: customerName is passed so orders don't display as "Order SIM-..."
-// FIX 3: Stops immediately on capacity-full, doesn't hammer the backend
 
 export async function triggerSimulation(
   count: number,
@@ -306,7 +311,6 @@ export async function triggerSimulation(
     } catch (err: any) {
       rejected++;
       lastRejectionReason = err.message;
-      // Stop immediately on capacity-full — no point hammering the backend
       if (err.message?.includes('full capacity') || err.message?.includes('at full capacity')) {
         break;
       }
@@ -329,7 +333,7 @@ export interface ServerTimeDto {
 export async function fetchServerTime(): Promise<ServerTimeDto> {
   const res = await fetch(`${BASE_URL}/server-time`, {
     credentials: 'include',
-    headers: authHeaders(),
+    headers: authHeadersNoBody(),
   });
   if (!res.ok) throw new Error(`Failed to fetch server time: ${res.status}`);
   return res.json();
