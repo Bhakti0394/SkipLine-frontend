@@ -1,22 +1,21 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ArrowLeft, 
-  Clock, 
-  MapPin, 
-  CreditCard, 
-  Banknote, 
-  Trash2, 
-  Plus, 
-  Minus, 
-  Loader2, 
-  ChefHat, 
-  Zap 
+import {
+  ArrowLeft,
+  Clock,
+  CreditCard,
+  Banknote,
+  Trash2,
+  Plus,
+  Minus,
+  Loader2,
+  ChefHat,
+  Zap
 } from 'lucide-react';
 import { DashboardLayout } from '../../components/CustomerDashboard/layout/DashboardLayout';
 import { Button } from '../../components/ui/button';
-import { usePrepline } from '../../customer-context/PreplineContext';
+import { useSkipLine } from '../../customer-context/SkipLineContext';
 import { mockTimeSlots } from '../../customer-data/mockData';
 import '../../components/CustomerDashboard/styles/Checkout.scss';
 
@@ -24,15 +23,15 @@ type PaymentMethod = 'upi' | 'cash';
 
 export default function Checkout() {
   const navigate = useNavigate();
-  const { 
-    cart, 
-    cartTotal, 
-    removeFromCart, 
-    updateCartItem, 
-    clearCart, 
-    addOrder 
-  } = usePrepline();
-  
+  const {
+    cart,
+    cartTotal,
+    removeFromCart,
+    updateCartItem,
+    clearCart,
+    addOrder
+  } = useSkipLine();
+
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethod>('upi');
   const [isProcessing, setIsProcessing] = useState(false);
   const [upiId, setUpiId] = useState('');
@@ -78,6 +77,7 @@ export default function Checkout() {
         specialInstructions: item.specialInstructions,
         timeSaved,
         kitchenQueuePosition,
+        orderType: item.orderType ?? 'normal', // 🆕 carry through from cart item
       };
 
       addOrder(orderData);
@@ -87,20 +87,19 @@ export default function Checkout() {
     clearCart();
     setIsProcessing(false);
 
-    // ✅ Fixed: was '/order-success' — must be nested under customer-dashboard
-    navigate('/customer-dashboard/order-success', { 
-      state: { 
+    navigate('/customer-dashboard/order-success', {
+      state: {
         orders: createdOrders,
         paymentMethod: selectedPayment,
         total: cartTotal,
-      } 
+      }
     });
   };
 
   if (cart.length === 0) {
     return (
       <DashboardLayout>
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="empty-cart"
@@ -112,8 +111,7 @@ export default function Checkout() {
           <p className="empty-cart__description">
             Add some delicious meals to get started!
           </p>
-          <Button 
-            // ✅ Fixed: was '/browse' — must be nested under customer-dashboard
+          <Button
             onClick={() => navigate('/customer-dashboard/browse')}
             className="empty-cart__button"
           >
@@ -151,7 +149,7 @@ export default function Checkout() {
       <div className="checkout-grid">
         {/* Left Column */}
         <div className="checkout-grid__main">
-          
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -162,7 +160,7 @@ export default function Checkout() {
               <ChefHat className="icon" />
               Your Order
             </h2>
-            
+
             <div className="cart-items">
               {cart.map((item, index) => (
                 <motion.div
@@ -177,11 +175,11 @@ export default function Checkout() {
                     alt={item.meal.name}
                     className="cart-item__image"
                   />
-                  
+
                   <div className="cart-item__details">
                     <h3 className="cart-item__name">{item.meal.name}</h3>
                     <p className="cart-item__restaurant">{item.meal.restaurant}</p>
-                    
+
                     <div className="cart-item__pickup-time">
                       <Clock className="icon" />
                       <span>Pickup: {item.pickupTime}</span>
@@ -198,7 +196,7 @@ export default function Checkout() {
                     <span className="cart-item__price">
                       ₹{((item.meal.price + item.addOns.reduce((s, a) => s + a.price, 0)) * item.quantity).toFixed(0)}
                     </span>
-                    
+
                     <div className="quantity-controls">
                       <motion.button
                         whileTap={{ scale: 0.9 }}
@@ -207,9 +205,9 @@ export default function Checkout() {
                       >
                         <Minus className="icon" />
                       </motion.button>
-                      
+
                       <span className="quantity-controls__value">{item.quantity}</span>
-                      
+
                       <motion.button
                         whileTap={{ scale: 0.9 }}
                         onClick={() => handleQuantityChange(item.id, 1)}
@@ -217,7 +215,7 @@ export default function Checkout() {
                       >
                         <Plus className="icon" />
                       </motion.button>
-                      
+
                       <motion.button
                         whileTap={{ scale: 0.9 }}
                         onClick={() => removeFromCart(item.id)}
@@ -361,7 +359,7 @@ export default function Checkout() {
             </Button>
 
             <p className="order-summary__footer-text">
-              {selectedPayment === 'upi' 
+              {selectedPayment === 'upi'
                 ? 'Secure payment powered by UPI'
                 : 'Pay with cash when you pick up your order'
               }

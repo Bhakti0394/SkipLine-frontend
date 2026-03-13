@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { MealFeedback } from '@/types/dashboard';
 
-const STORAGE_KEY = 'prepline_feedback';
+const STORAGE_KEY = 'SkipLine_feedback';
 
 // Demo feedback data
 const demoFeedback: MealFeedback[] = [

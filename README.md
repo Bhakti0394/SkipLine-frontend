@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Welcome to your Lovable project
 
 ## Project info
@@ -71,3 +72,8 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+=======
+# QLess-frontend
+A smart pre-order &amp; kitchen scheduling system that eliminates lunch queues using pickup slots and real-time capacity optimization.
+>>>>>>> a27d71b982fa717857b4e97da3a55ee7b7416746
+

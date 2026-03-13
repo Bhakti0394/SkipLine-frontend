@@ -69,7 +69,7 @@ export function Header({
 
   const userProfile = {
     name: 'Jordan Davis',
-    email: 'jordan.davis@prepline.com',
+    email: 'jordan.davis@SkipLine.com',
     role: 'Kitchen Manager',
     initials: 'JD',
   };
@@ -119,10 +119,10 @@ export function Header({
                     style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'transparent' }}
                   >
                     <div className="header__logo-icon header__logo-icon--mobile">
-                      <span className="header__logo-text">P</span>
+                      <span className="header__logo-text">S</span>
                     </div>
                     <div className="header__mobile-brand">
-                      <span className="header__brand-name">Prepline</span>
+                      <span className="header__brand-name">SkipLine</span>
                       <span className="header__brand-subtitle">Kitchen Control</span>
                     </div>
                   </SheetTitle>
@@ -227,10 +227,10 @@ export function Header({
           {/* Logo */}
           <div className="header__logo">
             <div className="header__logo-icon header__logo-icon--glow">
-              <span className="header__logo-text">P</span>
+              <span className="header__logo-text">S</span>
             </div>
             <div className="header__brand">
-              <h1 className="header__brand-name">Prepline</h1>
+              <h1 className="header__brand-name">SkipLine</h1>
               <p className="header__brand-subtitle">Kitchen Control</p>
             </div>
           </div>
@@ -296,3 +296,4 @@ export function Header({
     </header>
   );
 }
+

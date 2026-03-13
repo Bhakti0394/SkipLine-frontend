@@ -1,12 +1,12 @@
 import React from 'react';
-import { Order } from '@/types/order';
+import { Order } from '../../../kitchen-types/order';         // FIX 1: was '@/types/order' — build crash
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from '@/components/ui/button';
+// FIX: removed unused Button import
 import { OrderTimer } from './OrderTimer';
 import { Clock, User, ChefHat, CheckCircle2, Flame, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -16,7 +16,7 @@ interface OrderDetailsModalProps {
   order: Order | null;
   open: boolean;
   onClose: () => void;
-  onStatusChange: (orderId: string, status: Order['status']) => void;
+  onStatusChange: (orderId: string, status: Order['status']) => Promise<void>; // FIX 4: was void
 }
 
 const statusFlow: Order['status'][] = ['pending', 'cooking', 'ready', 'completed'];
@@ -33,47 +33,29 @@ export function OrderDetailsModal({
   const nextStatus = statusFlow[currentStatusIndex + 1];
 
   const priorityConfig = {
-    urgent: { 
-      label: 'Urgent', 
-      icon: Flame, 
-      className: 'urgent' 
-    },
-    high: { 
-      label: 'High Priority', 
-      icon: AlertTriangle, 
-      className: 'high' 
-    },
-    normal: { 
-      label: 'Normal', 
-      icon: null, 
-      className: 'normal' 
-    },
-  };
+    urgent: { label: 'Urgent',        icon: Flame,         className: 'urgent' },
+    high:   { label: 'High Priority', icon: AlertTriangle, className: 'high'   },
+    normal: { label: 'Normal',        icon: null,          className: 'normal' },
+  } as const;
 
-  const priority = priorityConfig[order.priority];
+  // FIX 2: was priorityConfig[order.priority] — runtime crash when priority is
+  // undefined (seeded orders don't always have it set). Fallback to 'normal'.
+  const priority = priorityConfig[order.priority ?? 'normal'] ?? priorityConfig.normal;
 
   const getStatusIconClass = (status: string, index: number) => {
-    const isActive = index <= currentStatusIndex;
+    const isActive  = index <= currentStatusIndex;
     const isCurrent = status === order.status;
-    
     let className = 'status-icon';
-    className += isActive ? ' active' : ' inactive';
+    className += isActive  ? ' active'  : ' inactive';
     className += isCurrent ? ' current' : '';
-    
     return className;
   };
 
   const getActionButtonClass = (status: string) => {
     let className = 'action-btn';
-    
-    if (status === 'pending') {
-      className += ' status-pending';
-    } else if (status === 'cooking') {
-      className += ' status-cooking';
-    } else if (status === 'ready') {
-      className += ' status-ready';
-    }
-    
+    if      (status === 'pending') className += ' status-pending';
+    else if (status === 'cooking') className += ' status-cooking';
+    else if (status === 'ready')   className += ' status-ready';
     return className;
   };
 
@@ -111,28 +93,21 @@ export function OrderDetailsModal({
           {/* Status Progress */}
           <div className="status-progress">
             {statusFlow.slice(0, -1).map((status, index) => {
-              const isActive = index <= currentStatusIndex;
+              const isActive  = index <= currentStatusIndex;
               const isCurrent = status === order.status;
-              
               return (
                 <div key={status} className="status-step">
                   <motion.div
                     initial={false}
-                    animate={{
-                      scale: isCurrent ? 1.1 : 1,
-                    }}
+                    animate={{ scale: isCurrent ? 1.1 : 1 }}
                     className={getStatusIconClass(status, index)}
                   >
                     {status === 'pending' && <Clock />}
                     {status === 'cooking' && <ChefHat />}
-                    {status === 'ready' && <CheckCircle2 />}
+                    {status === 'ready'   && <CheckCircle2 />}
                   </motion.div>
                   {index < 2 && (
-                    <div 
-                      className={`status-connector ${
-                        index < currentStatusIndex ? 'active' : 'inactive'
-                      }`} 
-                    />
+                    <div className={`status-connector ${index < currentStatusIndex ? 'active' : 'inactive'}`} />
                   )}
                 </div>
               );
@@ -160,7 +135,11 @@ export function OrderDetailsModal({
                       )}
                     </div>
                   </div>
-                  <span className="prep-time">{item.prepTime}m</span>
+                  {/* FIX 3: was always rendering "{item.prepTime}m" — backend doesn't
+                      send prepTime per-item so this showed "undefinedm". Hide if absent. */}
+                  {item.prepTime != null && (
+                    <span className="prep-time">{item.prepTime}m</span>
+                  )}
                 </motion.div>
               ))}
             </div>
@@ -169,10 +148,7 @@ export function OrderDetailsModal({
           {/* Actions */}
           {nextStatus && (
             <div className="modal-actions">
-              <button
-                className="close-btn"
-                onClick={onClose}
-              >
+              <button className="close-btn" onClick={onClose}>
                 Close
               </button>
               <button
@@ -184,7 +160,7 @@ export function OrderDetailsModal({
               >
                 {order.status === 'pending' && '🍳 Start Cooking'}
                 {order.status === 'cooking' && '✅ Mark Ready'}
-                {order.status === 'ready' && '🎉 Complete'}
+                {order.status === 'ready'   && '🎉 Complete'}
               </button>
             </div>
           )}

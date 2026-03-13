@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-import PreplineLogo from "./PreplineLogo";
+import SkipLineLogo from "./SkipLineLogo";
 import "../../styles/Navbar.scss";
 
 const Navbar = () => {
@@ -29,8 +29,8 @@ const Navbar = () => {
         <div className="navbar__wrapper">
           {/* Logo */}
           <Link to="/" className="navbar__logo">
-            <PreplineLogo size="sm" />
-            <span className="navbar__brand">Prepline</span>
+            <SkipLineLogo size="sm" />
+            <span className="navbar__brand">SkipLine</span>
           </Link>
 
           {/* Desktop menu */}

@@ -3,7 +3,7 @@ import { useInView } from "framer-motion";
 import { useRef } from "react";
 import { ArrowRight, Github, Twitter, Linkedin, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import PreplineLogo from "./PreplineLogo";
+import SkipLineLogo from "./SkipLineLogo";
 import "../../styles/Cta.scss";
 
 const CTA = () => {
@@ -36,7 +36,7 @@ const CTA = () => {
               transition={{ duration: 0.5, delay: 0.2 }}
               className="cta-section__logo-wrapper"
             >
-              <PreplineLogo size="xl" className="cta-section__logo" />
+              <SkipLineLogo size="xl" className="cta-section__logo" />
             </motion.div>
 
             <h2 className="cta-section__heading">
@@ -95,9 +95,9 @@ const CTA = () => {
             {/* Top row - Logo and links */}
             <div className="cta-section__footer-content">
               <div className="cta-section__footer-brand">
-                <PreplineLogo size="sm" className="cta-section__footer-logo" />
+                <SkipLineLogo size="sm" className="cta-section__footer-logo" />
                 <div className="cta-section__footer-text">
-                  <span className="cta-section__footer-title">Prepline</span>
+                  <span className="cta-section__footer-title">SkipLine</span>
                   <span className="cta-section__footer-copyright">© 2024 All rights reserved</span>
                 </div>
               </div>

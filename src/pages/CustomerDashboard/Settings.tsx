@@ -124,7 +124,7 @@ export default function Settings() {
               <span className="settings__title-grad">Settings</span>
             </h1>
             <p className="settings__subtitle">
-              Personalize your Prepline experience
+              Personalize your SkipLine experience
             </p>
           </motion.div>
         </div>

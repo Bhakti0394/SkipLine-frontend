@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { ChefHat, TrendingUp, Clock, Flame, AlertCircle } from 'lucide-react';
-import { usePrepline } from '../../../customer-context/PreplineContext';
+import { useSkipLine } from '../../../customer-context/SkipLineContext';
 import '../overview-styles/Kitchenglance.scss';
 
 interface KitchenGlanceProps {
@@ -11,7 +11,7 @@ interface KitchenGlanceProps {
 }
 
 export function KitchenGlance({ topDish, busiestHour, avgPrepTime, bottleneck }: KitchenGlanceProps) {
-  const { orders, kitchenState } = usePrepline();
+  const { orders, kitchenState } = useSkipLine();
   
   const activeCount = kitchenState.activeOrders.length;
   const queuedCount = kitchenState.queuedOrders.length;

@@ -1,3 +1,10 @@
+// ============================================================
+// src/customer-types/dashboard.ts
+// ============================================================
+
+// Order type — derived from how the customer placed the order
+export type OrderType = 'express' | 'normal' | 'scheduled';
+
 export interface Order {
   id: string;
   meal: string;
@@ -16,7 +23,10 @@ export interface Order {
   spiceLevel: string;
   specialInstructions: string;
   createdAt: number;
-  timeSaved: number; // minutes saved by pre-ordering
+  timeSaved: number;
+  orderType?: OrderType;       // optional so existing demo orders don't break
+  isScheduled?: boolean;       // optional
+  scheduledDate?: string;      // optional
 }
 
 export interface CartItem {
@@ -28,6 +38,9 @@ export interface CartItem {
   specialInstructions: string;
   pickupSlotId: string;
   pickupTime: string;
+  orderType?: OrderType;       // optional — set by OrderModal
+  isScheduled?: boolean;       // optional
+  scheduledDate?: string;      // optional
 }
 
 export interface AddOn {
@@ -46,6 +59,7 @@ export interface Meal {
   prepTime: number;
   rating: number;
   category: string;
+  isExpress?: boolean;
 }
 
 export interface TimeSlot {
@@ -62,19 +76,19 @@ export interface UserMetrics {
   activeOrders: number;
   ordersThisMonth: number;
   streak: number;
-  foodWasteReduced: number; // kg of food waste prevented
-  queueTimesSaved: number; // total queue time saved
+  foodWasteReduced: number;
+  queueTimesSaved: number;
 }
 
 export interface KitchenState {
-  activeOrders: string[]; // order IDs currently being prepared (max 3)
-  queuedOrders: string[]; // orders waiting to be prepared
+  activeOrders: string[];
+  queuedOrders: string[];
 }
 
 export interface MealFeedback {
   id: string;
   mealId: string;
-  rating: number; // 1-5 stars
+  rating: number;
   comment: string;
   userName: string;
   createdAt: number;

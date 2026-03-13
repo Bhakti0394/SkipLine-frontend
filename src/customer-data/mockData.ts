@@ -1,4 +1,4 @@
-import { Order, Meal, TimeSlot, UserMetrics } from '@/types/dashboard';
+import { Order, Meal, TimeSlot, UserMetrics } from '../customer-types/dashboard';
 
 export const mockOrders: Order[] = [
   {
@@ -107,12 +107,12 @@ export const mockMeals: Meal[] = [
 ];
 
 export const mockTimeSlots: TimeSlot[] = [
-  { id: '1', time: '11:30 AM', queueLevel: 'low', availableSlots: 8, estimatedWait: 0 },
-  { id: '2', time: '12:00 PM', queueLevel: 'medium', availableSlots: 4, estimatedWait: 3 },
-  { id: '3', time: '12:30 PM', queueLevel: 'high', availableSlots: 1, estimatedWait: 8 },
-  { id: '4', time: '1:00 PM', queueLevel: 'medium', availableSlots: 5, estimatedWait: 2 },
-  { id: '5', time: '1:30 PM', queueLevel: 'low', availableSlots: 10, estimatedWait: 0 },
-  { id: '6', time: '2:00 PM', queueLevel: 'low', availableSlots: 12, estimatedWait: 0 },
+  { id: '1', time: '11:30 AM', queueLevel: 'low',    availableSlots: 8,  estimatedWait: 0 },
+  { id: '2', time: '12:00 PM', queueLevel: 'medium', availableSlots: 4,  estimatedWait: 3 },
+  { id: '3', time: '12:30 PM', queueLevel: 'high',   availableSlots: 1,  estimatedWait: 8 },
+  { id: '4', time: '1:00 PM',  queueLevel: 'medium', availableSlots: 5,  estimatedWait: 2 },
+  { id: '5', time: '1:30 PM',  queueLevel: 'low',    availableSlots: 10, estimatedWait: 0 },
+  { id: '6', time: '2:00 PM',  queueLevel: 'low',    availableSlots: 12, estimatedWait: 0 },
 ];
 
 export const mockUserMetrics: UserMetrics = {

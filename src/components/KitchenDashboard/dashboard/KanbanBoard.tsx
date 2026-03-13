@@ -1,38 +1,485 @@
 // ============================================================
-// KanbanBoard.tsx
+// src/components/KitchenDashboard/dashboard/KanbanBoard.tsx
 // ============================================================
 
-import React, { useMemo, useCallback, useState } from 'react';
-import { DragDropContext, Droppable, Draggable, DropResult, DragStart } from '@hello-pangea/dnd';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, ChefHat, CheckCircle2, User, AlertCircle, X } from 'lucide-react';
+import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
+import {
+  DragDropContext, Droppable, Draggable,
+  DropResult, DragStart,
+} from '@hello-pangea/dnd';
+import { AnimatePresence } from 'framer-motion';
+import { Clock, ChefHat, CheckCircle2, User, Lock, Calendar, AlertTriangle } from 'lucide-react';
 import { OrderTimer } from './OrderTimer';
-import { Order, OrderStatus } from '../../../kitchen-types/order';
+import {
+  Order, OrderStatus, OrderType,
+  ORDER_TYPE_WEIGHT, ORDER_TYPE_BADGE,
+} from '../../../kitchen-types/order';
 import { StaffWorkloadDto } from '../../../kitchen-api/kitchenApi';
 import { canTransition, BackendOrderStatus } from '../../../kitchen-hooks/Capacityengine';
+import { useOrderTimer } from '../../../kitchen-hooks/useOrderTimer';
+import { toast } from 'sonner';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import '../styles/Kanbanboard.scss';
 
-// ─── Status transition helpers ────────────────────────────────────────────────
+// ── Keyframe animations ────────────────────────────────────────────────────────
+
+const KEYFRAMES = `
+  @keyframes dotPulse {
+    0%, 100% { opacity: 1;   transform: scale(1);    }
+    50%       { opacity: 0.4; transform: scale(0.65); }
+  }
+  @keyframes scheduledGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(110, 231, 183, 0.0); }
+    50%       { box-shadow: 0 0 0 3px rgba(110, 231, 183, 0.15); }
+  }
+  @keyframes overduePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.0); }
+    50%       { box-shadow: 0 0 0 4px rgba(220,38,38,0.18); }
+  }
+`;
+
+// ── Toast dedup ────────────────────────────────────────────────────────────────
+
+const TOAST_ID = 'kitchen-drag-error';
+let _lastMsg = '';
+let _lastAt  = 0;
+
+function fireToast(message: string, title = 'Invalid move') {
+  const now = Date.now();
+  if (_lastMsg === message && now - _lastAt < 2000) return;
+  _lastMsg = message; _lastAt = now;
+  toast.error(title, { id: TOAST_ID, description: message, duration: 2500 });
+}
+
+// ── Transition helpers ─────────────────────────────────────────────────────────
 
 const toBackend: Record<OrderStatus, BackendOrderStatus> = {
-  pending:   'PENDING',
-  cooking:   'COOKING',
-  ready:     'READY',
-  completed: 'COMPLETED',
+  pending: 'PENDING', cooking: 'COOKING', ready: 'READY', completed: 'COMPLETED',
 };
 
 function isValidDrop(from: OrderStatus, to: OrderStatus): boolean {
   return canTransition(toBackend[from], toBackend[to]);
 }
 
-// ─── Column definitions ───────────────────────────────────────────────────────
+function getTransitionError(from: OrderStatus, to: OrderStatus): string {
+  if (from === 'pending'   && to === 'ready')   return 'Orders must go through Cooking before Ready.';
+  if (from === 'ready'     && to === 'cooking') return 'Ready orders cannot move backwards.';
+  if (from === 'ready'     && to === 'pending') return 'Ready orders cannot return to Queue.';
+  if (from === 'cooking'   && to === 'pending') return 'Cooking orders cannot return to Queue.';
+  if (from === 'completed')                     return 'Completed orders cannot be moved.';
+  return 'That move is not allowed.';
+}
+
+function isScheduledAndLocked(order: Order): boolean {
+  return (
+    order.orderType === 'scheduled' &&
+    order.status    === 'pending'   &&
+    !order.assignedChefId           &&
+    !order.assignedTo
+  );
+}
+
+// ── Shared sub-components ──────────────────────────────────────────────────────
+
+function OrderTypeBadge({ orderType }: { orderType: OrderType }) {
+  const cfg = ORDER_TYPE_BADGE[orderType] ?? ORDER_TYPE_BADGE.normal;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: '0.18rem',
+      padding: '0.1rem 0.32rem', borderRadius: '4px',
+      fontSize: '0.56rem', fontWeight: 700, letterSpacing: '0.04em',
+      textTransform: 'uppercase' as const,
+      background: cfg.bg, border: cfg.border, color: cfg.color,
+      whiteSpace: 'nowrap' as const, flexShrink: 0, userSelect: 'none' as const,
+    }}>
+      <span style={{ fontSize: '0.58rem', lineHeight: 1 }}>{cfg.emoji}</span>
+      {cfg.label}
+    </span>
+  );
+}
+
+function ScheduledLockBadge() {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: '0.22rem',
+      padding: '0.1rem 0.35rem', borderRadius: '4px',
+      fontSize: '0.56rem', fontWeight: 700, letterSpacing: '0.04em',
+      textTransform: 'uppercase' as const,
+      background: 'rgba(16,185,129,0.08)',
+      border: '1px solid rgba(16,185,129,0.25)', color: '#6ee7b7',
+      whiteSpace: 'nowrap' as const, flexShrink: 0, userSelect: 'none' as const,
+    }}>
+      <Lock style={{ width: '0.55rem', height: '0.55rem', flexShrink: 0 }} />
+      Pre-booked
+    </span>
+  );
+}
+
+function ScheduledInfoBanner({ pickupTime }: { pickupTime: string }) {
+  // Resolve a human-readable pickup label:
+  // TBD / empty → "tomorrow" (scheduled = placed today, pickup tomorrow)
+  // Any real time string → show it directly
+  const pickupLabel = (!pickupTime || pickupTime === 'TBD' || pickupTime === '—')
+    ? 'tomorrow'
+    : pickupTime;
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: '0.4rem',
+      padding: '0.35rem 0.5rem', borderRadius: '0.375rem',
+      background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.20)',
+      fontSize: '0.64rem', color: 'rgba(110,231,183,0.75)', lineHeight: 1.4,
+    }}>
+      <Calendar style={{ width: '0.7rem', height: '0.7rem', flexShrink: 0, marginTop: '0.05rem' }} />
+      <span>
+        Pre-booked for <strong style={{ color: '#6ee7b7' }}>{pickupLabel}</strong>.
+        Assign a chef to release into cooking.
+      </span>
+    </div>
+  );
+}
+
+// ── CookingState ───────────────────────────────────────────────────────────────
+
+type CookingState = 'cooking' | 'overdue';
+
+const COOKING_CARD_STYLE: Record<CookingState, React.CSSProperties> = {
+  cooking: {
+    background:  'rgba(245,158,11,0.06)',
+    border:      '1.5px solid rgba(245,158,11,0.22)',
+    borderLeft:  '3px solid #d97706',
+  },
+  overdue: {
+    background:  'rgba(220,38,38,0.08)',
+    border:      '2px solid rgba(220,38,38,0.50)',
+    borderLeft:  '4px solid #dc2626',
+    boxShadow:   '0 0 0 1px rgba(220,38,38,0.12)',
+    animation:   'overduePulse 2s ease-in-out infinite',
+  },
+};
+
+const COOKING_CHEF_STYLE: Record<CookingState, React.CSSProperties> = {
+  cooking: {
+    background: 'rgba(245,158,11,0.08)',
+    border:     '1px solid rgba(245,158,11,0.18)',
+    color:      '#a16207',
+  },
+  overdue: {
+    background: 'rgba(220,38,38,0.08)',
+    border:     '1px solid rgba(220,38,38,0.22)',
+    color:      '#991b1b',
+  },
+};
+
+// ── CookingCardInner ───────────────────────────────────────────────────────────
+
+interface CookingCardInnerProps {
+  order:           Order;
+  isPending:       boolean;
+  assignableChefs: StaffWorkloadDto[];
+  onAction:        () => void;
+  onChefChange:    (value: string) => void;
+  onStateChange:   (orderId: string, state: CookingState | undefined) => void;
+}
+
+function CookingCardInner({
+  order, isPending, assignableChefs, onAction, onChefChange, onStateChange,
+}: CookingCardInnerProps) {
+  const { isOverdue, eta } = useOrderTimer(order);
+
+  const state: CookingState = isOverdue ? 'overdue' : 'cooking';
+
+  useEffect(() => {
+    onStateChange(order.id, state);
+    return () => { onStateChange(order.id, undefined); };
+  }, [state, order.id, onStateChange]);
+
+  const cardStyle = COOKING_CARD_STYLE[state];
+  const chefStyle = COOKING_CHEF_STYLE[state];
+
+  const hasChef = !!(order.assignedChefId || order.assignedTo);
+
+  // FIX: Block "Mark Ready" rules:
+  //   1. Always blocked during API call (isPending)
+  //   2. Blocked when no chef assigned — nobody cooked it
+  //   3. Blocked while timer is still counting down (eta > 0, cookingState === 'cooking')
+  //      → enabled only when timer expires (isOverdue) = food is actually done
+  const isStillCooking   = !isOverdue && eta > 0;
+  const isButtonBlocked  = isPending || !hasChef || isStillCooking;
+
+  const btnStyle: React.CSSProperties = (() => {
+    if (isPending) return {
+      background: 'rgba(100,116,139,0.12)',
+      color:      'rgba(148,163,184,0.50)',
+      border:     '1px solid rgba(100,116,139,0.20)',
+      fontWeight: 600, cursor: 'not-allowed',
+    };
+    if (!hasChef) return {
+      background: 'rgba(239,68,68,0.08)',
+      color:      'rgba(248,113,113,0.60)',
+      border:     '1px solid rgba(239,68,68,0.20)',
+      fontWeight: 600, cursor: 'not-allowed',
+    };
+    if (isStillCooking) return {
+      // Cooking — timer still running, button locked
+      background: 'rgba(100,116,139,0.10)',
+      color:      'rgba(148,163,184,0.40)',
+      border:     '1px solid rgba(100,116,139,0.15)',
+      fontWeight: 600, cursor: 'not-allowed',
+    };
+    // Overdue — timer expired, button active
+    return {
+      background: '#dc2626',
+      color:      '#ffffff',
+      border:     'none',
+      fontWeight: 700,
+      boxShadow:  '0 2px 8px rgba(220,38,38,0.30)',
+      cursor:     'pointer',
+    };
+  })();
+
+  const btnLabel = isPending
+    ? 'Updating…'
+    : !hasChef
+    ? '⚠ Assign a chef first'
+    : isStillCooking
+    ? `⏳ Cooking… wait for timer`
+    : '⚠ Mark Ready Now';
+
+  return (
+    <div
+      className={`ck-card ck-card--${state}`}
+      style={{
+        ...cardStyle,
+        borderRadius:  '0.5rem',
+        padding:       '0.60rem 0.70rem',
+        display:       'flex',
+        flexDirection: 'column',
+        gap:           '0.38rem',
+        minWidth:      0,
+      }}
+    >
+      {/* Row 1: Order number + type badge */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+        <span
+          style={{
+            fontFamily:  'monospace', fontWeight: 700, fontSize: '0.75rem',
+            overflow:    'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            flex:        '1 1 0', minWidth: 0, color: 'rgba(241,245,249,0.95)',
+          }}
+          title={order.orderNumber}
+        >
+          {order.orderNumber}
+        </span>
+        <OrderTypeBadge orderType={order.orderType ?? 'normal'} />
+      </div>
+
+      {/* Row 2: Customer • Pickup time — always visible */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '0.22rem',
+        fontSize: '0.66rem', color: 'rgba(148,163,184,0.85)', minWidth: 0,
+      }}>
+        <User style={{ width: '0.65rem', height: '0.65rem', flexShrink: 0 }} />
+        <span style={{
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          fontWeight: 500, flex: '1 1 0', minWidth: 0,
+        }}>
+          {order.customerName}
+        </span>
+        <span style={{ opacity: 0.30, flexShrink: 0, margin: '0 0.08rem' }}>•</span>
+        <Clock style={{ width: '0.6rem', height: '0.6rem', flexShrink: 0, opacity: 0.55 }} />
+        {order.pickupTime === 'ASAP' ? (
+          <span style={{ whiteSpace: 'nowrap', flexShrink: 0, fontSize: '0.60rem', fontWeight: 700, color: '#fb923c', letterSpacing: '0.03em' }}>ASAP</span>
+        ) : order.pickupTime === 'TBD' || !order.pickupTime ? (
+          <span style={{ whiteSpace: 'nowrap', flexShrink: 0, fontSize: '0.60rem', fontWeight: 600,
+            color: order.orderType === 'scheduled' ? '#6ee7b7' : 'rgba(148,163,184,0.50)' }}>
+            {order.orderType === 'scheduled' ? 'Tomorrow' : 'TBD'}
+          </span>
+        ) : (
+          <span style={{ whiteSpace: 'nowrap', flexShrink: 0, fontSize: '0.64rem' }}>{order.pickupTime}</span>
+        )}
+      </div>
+
+      {/* Row 3: Items (max 3) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.14rem' }}>
+        {order.items.slice(0, 3).map((item) => (
+          <div key={item.id} style={{
+            display: 'flex', alignItems: 'baseline', gap: '0.28rem',
+            fontSize: '0.72rem', minWidth: 0,
+          }}>
+            <span style={{
+              fontWeight: 600, flexShrink: 0,
+              color: 'rgba(148,163,184,0.60)', minWidth: '1rem',
+            }}>
+              {item.quantity}×
+            </span>
+            <span style={{
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              color: 'rgba(241,245,249,0.90)', minWidth: 0,
+            }}>
+              {item.name}
+            </span>
+          </div>
+        ))}
+        {order.items.length > 3 && (
+          <span style={{ fontSize: '0.60rem', color: 'rgba(148,163,184,0.50)' }}>
+            +{order.items.length - 3} more
+          </span>
+        )}
+      </div>
+
+      {/* Row 4: Chef chip OR warning + assign dropdown (if no chef) */}
+      {hasChef ? (
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: '0.28rem',
+          padding: '0.18rem 0.45rem', borderRadius: '0.3rem',
+          fontSize: '0.65rem', fontWeight: 500,
+          ...chefStyle,
+          alignSelf: 'flex-start', maxWidth: '100%', overflow: 'hidden',
+        }}>
+          <ChefHat style={{ width: '0.6rem', height: '0.6rem', flexShrink: 0, opacity: 0.75 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {order.assignedTo ?? order.assignedChefId}
+          </span>
+        </div>
+      ) : (
+        // No chef in cooking state — show assign dropdown (edge case / race condition)
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.22rem' }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: '0.28rem',
+            padding: '0.18rem 0.45rem', borderRadius: '0.3rem',
+            fontSize: '0.65rem', fontWeight: 600,
+            background: 'rgba(220,38,38,0.10)',
+            border: '1px solid rgba(220,38,38,0.30)',
+            color: '#f87171',
+            alignSelf: 'flex-start',
+          }}>
+            <AlertTriangle style={{ width: '0.6rem', height: '0.6rem', flexShrink: 0 }} />
+            No chef assigned — assign to enable Mark Ready
+          </div>
+          {/* Allow assigning chef even in cooking state to unblock the order */}
+          {assignableChefs.length > 0 && (
+            <Select value="" onValueChange={(val) => { if (val && val !== '__none__') onChefChange(val); }}>
+              <SelectTrigger style={{
+                height: '1.6rem', fontSize: '0.65rem',
+                background: 'rgba(220,38,38,0.06)',
+                border: '1px solid rgba(220,38,38,0.25)',
+                width: '100%',
+              }} disabled={isPending}>
+                <SelectValue placeholder="Assign chef to continue…" />
+              </SelectTrigger>
+              <SelectContent>
+                {assignableChefs.map((chef) => {
+                  const isFull = chef.activeOrders >= chef.maxCapacity;
+                  return (
+                    <SelectItem key={chef.chefId} value={chef.chefId} disabled={isFull}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem' }}>
+                        <span style={{
+                          width: '0.45rem', height: '0.45rem', borderRadius: '9999px', flexShrink: 0,
+                          background: chef.status === 'available' ? '#34d399' : chef.status === 'busy' ? '#fbbf24' : '#ef4444',
+                        }} />
+                        {chef.name}
+                        <span style={{ marginLeft: 'auto', fontSize: '0.62rem', color: isFull ? '#ef4444' : '#94a3b8' }}>
+                          {chef.activeOrders}/{chef.maxCapacity}{isFull ? ' (Full)' : ''}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      )}
+
+      {/* Row 5: Timer */}
+      <OrderTimer order={order} />
+
+      {/* Row 6: Mark Ready button */}
+      <button
+        title={!hasChef ? 'Assign a chef before marking ready' : undefined}
+        style={{
+          width:          '100%',
+          padding:        '0.38rem 0',
+          borderRadius:   '0.32rem',
+          fontSize:       '0.72rem',
+          letterSpacing:  '0.02em',
+          textAlign:      'center' as const,
+          opacity:        isButtonBlocked ? (isPending ? 0.55 : 0.65) : 1,
+          transition:     'opacity 0.15s, transform 0.1s',
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'center',
+          gap:            '0.28rem',
+          flexShrink:     0,
+          marginTop:      '0.06rem',
+          ...btnStyle,
+        }}
+        onClick={isButtonBlocked ? undefined : onAction}
+        disabled={isButtonBlocked}
+        onMouseEnter={e => { if (!isButtonBlocked) e.currentTarget.style.opacity = '0.82'; }}
+        onMouseLeave={e => { if (!isButtonBlocked) e.currentTarget.style.opacity = '1'; }}
+      >
+        {btnLabel}
+      </button>
+    </div>
+  );
+}
+
+// ── CookingDraggableCard ───────────────────────────────────────────────────────
+
+interface CookingDraggableCardProps {
+  order:           Order;
+  index:           number;
+  isPending:       boolean;
+  assignableChefs: StaffWorkloadDto[];
+  onAction:        () => void;
+  onChefChange:    (value: string) => void;
+  onStateChange:   (orderId: string, state: CookingState | undefined) => void;
+}
+
+function CookingDraggableCard({
+  order, index, isPending, assignableChefs, onAction, onChefChange, onStateChange,
+}: CookingDraggableCardProps) {
+  return (
+    <Draggable
+      key={order.id}
+      draggableId={order.id}
+      index={index}
+      isDragDisabled={isPending}
+    >
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+          style={{
+            ...provided.draggableProps.style,
+            opacity: snapshot.isDragging ? 0.88 : 1,
+          }}
+          className={[
+            snapshot.isDragging ? 'order-card--dragging'    : '',
+            isPending           ? 'order-card--pending-api' : '',
+          ].filter(Boolean).join(' ')}
+        >
+          <CookingCardInner
+            order={order}
+            isPending={isPending}
+            assignableChefs={assignableChefs}
+            onStateChange={onStateChange}
+            onAction={onAction}
+            onChefChange={onChefChange}
+          />
+        </div>
+      )}
+    </Draggable>
+  );
+}
+
+// ── Column definitions ─────────────────────────────────────────────────────────
 
 const columns: { status: OrderStatus; label: string; icon: React.ElementType; color: string }[] = [
   { status: 'pending', label: 'Queue',   icon: Clock,        color: 'pending' },
@@ -40,71 +487,99 @@ const columns: { status: OrderStatus; label: string; icon: React.ElementType; co
   { status: 'ready',   label: 'Ready',   icon: CheckCircle2, color: 'ready'   },
 ];
 
-const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, normal: 2 };
-
-// ─── Props ────────────────────────────────────────────────────────────────────
+// ── KanbanBoard props ──────────────────────────────────────────────────────────
 
 export interface KanbanBoardProps {
   orders:           Order[];
   staff:            StaffWorkloadDto[];
   readyCountdowns?: Record<string, number>;
   onStatusChange:   (orderId: string, status: OrderStatus) => Promise<void>;
-  onChefAssign:     (orderId: string, chefId: string) => Promise<void>;
+  onChefAssign:     (orderId: string, chefId: string)       => Promise<void>;
+  columnRefs?:      Partial<Record<OrderStatus, React.RefObject<HTMLDivElement>>>;
 }
 
-// ─── DragErrorBanner ─────────────────────────────────────────────────────────
+const MAX_PENDING_MS = 15_000;
 
-const DragErrorBanner = React.memo(function DragErrorBanner({
-  message, onDismiss,
-}: { message: string; onDismiss: () => void }) {
-  return (
-    <motion.div
-      className="kanban-error-banner"
-      initial={{ opacity: 0, y: -12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      transition={{ duration: 0.2 }}
-    >
-      <AlertCircle className="kanban-error-banner__icon" />
-      <span className="kanban-error-banner__message">{message}</span>
-      <button className="kanban-error-banner__dismiss" onClick={onDismiss} aria-label="Dismiss">
-        <X size={14} />
-      </button>
-    </motion.div>
-  );
-});
-
-// ─── KanbanBoard ─────────────────────────────────────────────────────────────
+// ── KanbanBoard ────────────────────────────────────────────────────────────────
 
 export const KanbanBoard = React.memo(function KanbanBoard({
-  orders,
-  staff,
-  readyCountdowns = {},
-  onStatusChange,
-  onChefAssign,
+  orders, staff, readyCountdowns = {}, onStatusChange, onChefAssign, columnRefs = {},
 }: KanbanBoardProps) {
-
   const safeOrders = orders ?? [];
 
+  // ── Pending API set ──────────────────────────────────────────────────────────
+  const pendingIdsRef    = useRef<Set<string>>(new Set());
+  const pendingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [pendingOrderIds, setPendingOrderIds] = useState<Set<string>>(new Set());
+
   const setOrderPending = useCallback((id: string, val: boolean) => {
-    setPendingOrderIds(prev => {
-      const next = new Set(prev);
-      val ? next.add(id) : next.delete(id);
-      return next;
-    });
+    if (val) {
+      pendingIdsRef.current.add(id);
+      if (pendingTimersRef.current[id]) clearTimeout(pendingTimersRef.current[id]);
+      pendingTimersRef.current[id] = setTimeout(() => {
+        if (pendingIdsRef.current.has(id)) {
+          pendingIdsRef.current.delete(id);
+          delete pendingTimersRef.current[id];
+          setPendingOrderIds(new Set(pendingIdsRef.current));
+        }
+      }, MAX_PENDING_MS);
+    } else {
+      pendingIdsRef.current.delete(id);
+      if (pendingTimersRef.current[id]) {
+        clearTimeout(pendingTimersRef.current[id]);
+        delete pendingTimersRef.current[id];
+      }
+    }
+    setPendingOrderIds(new Set(pendingIdsRef.current));
   }, []);
 
-  const [dragError, setDragError]         = useState<string | null>(null);
-  const dismissError                      = useCallback(() => setDragError(null), []);
+  useEffect(() => {
+    const orderIdSet = new Set(safeOrders.map(o => o.id));
+    let changed = false;
+    for (const id of pendingIdsRef.current) {
+      if (!orderIdSet.has(id)) {
+        pendingIdsRef.current.delete(id);
+        if (pendingTimersRef.current[id]) {
+          clearTimeout(pendingTimersRef.current[id]);
+          delete pendingTimersRef.current[id];
+        }
+        changed = true;
+      }
+    }
+    if (changed) setPendingOrderIds(new Set(pendingIdsRef.current));
+  }, [safeOrders]);
+
+  useEffect(() => {
+    return () => {
+      for (const id of Object.keys(pendingTimersRef.current)) {
+        clearTimeout(pendingTimersRef.current[id]);
+      }
+      pendingTimersRef.current = {};
+    };
+  }, []);
+
+  // ── Drag tracking ────────────────────────────────────────────────────────────
   const [draggingOrder, setDraggingOrder] = useState<Order | null>(null);
 
-  // Only show chefs that are on shift — full chefs are kept so the select
-  // can show them as disabled (user sees capacity state, not a confusing empty list)
-  const assignableChefs = useMemo(
-    () => (staff ?? []).filter(s => s.onShift),
-    [staff],
-  );
+  // ── Cooking state tracking ───────────────────────────────────────────────────
+  const cookingStateRef = useRef<Record<string, CookingState>>({});
+
+  useEffect(() => {
+    const cookingIds = new Set(
+      safeOrders.filter(o => o.status === 'cooking').map(o => o.id)
+    );
+    for (const id of Object.keys(cookingStateRef.current)) {
+      if (!cookingIds.has(id)) delete cookingStateRef.current[id];
+    }
+  }, [safeOrders]);
+
+  const handleCookingStateChange = useCallback((orderId: string, state: CookingState | undefined) => {
+    if (state === undefined) delete cookingStateRef.current[orderId];
+    else cookingStateRef.current[orderId] = state;
+  }, []);
+
+  // ── Derived data ─────────────────────────────────────────────────────────────
+  const assignableChefs = useMemo(() => (staff ?? []).filter(s => s.onShift), [staff]);
 
   const ordersByStatus = useMemo(() => {
     const map: Record<OrderStatus, Order[]> = {
@@ -115,18 +590,18 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     }
     for (const status of Object.keys(map) as OrderStatus[]) {
       map[status].sort((a, b) => {
-        const p = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
-        if (p !== 0) return p;
-        const t = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        if (t !== 0) return t;
-        return a.pickupTime.localeCompare(b.pickupTime);
+        const tw = (ORDER_TYPE_WEIGHT[a.orderType] ?? 1) - (ORDER_TYPE_WEIGHT[b.orderType] ?? 1);
+        if (tw !== 0) return tw;
+        const aMs = a.pickupSlotMs ?? new Date(a.createdAt).getTime();
+        const bMs = b.pickupSlotMs ?? new Date(b.createdAt).getTime();
+        return aMs - bMs;
       });
     }
     return map;
   }, [safeOrders]);
 
+  // ── Drag handlers ────────────────────────────────────────────────────────────
   const handleDragStart = useCallback((start: DragStart) => {
-    setDragError(null);
     setDraggingOrder(safeOrders.find(o => o.id === start.draggableId) ?? null);
   }, [safeOrders]);
 
@@ -137,291 +612,330 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     const orderId   = result.draggableId;
     const newStatus = result.destination.droppableId as OrderStatus;
     const order     = safeOrders.find(o => o.id === orderId);
-
     if (!order || order.status === newStatus) return;
 
-    // FIX: removed the chef-required guard here.
-    // The backend's transition() auto-assigns a chef when moving to COOKING,
-    // so we just call onStatusChange and let the backend handle it.
-    if (!isValidDrop(order.status, newStatus)) return;
+    if (order.status === 'cooking' && newStatus === 'ready') {
+      const liveState   = cookingStateRef.current[orderId];
+      const hasPrepTime = (order.estimatedPrepTime ?? 0) > 0;
+      if (liveState === 'cooking' && hasPrepTime) {
+        toast.warning('Still cooking', {
+          description: 'Prep time not fully elapsed — marking ready anyway.',
+          duration: 2000,
+        });
+      }
+    }
+
+    if (!isValidDrop(order.status, newStatus)) {
+      fireToast(getTransitionError(order.status, newStatus), 'Invalid move');
+      return;
+    }
 
     setOrderPending(orderId, true);
     try {
       await onStatusChange(orderId, newStatus);
     } catch (err: any) {
-      setDragError(err?.message ?? 'Status update failed. Please try again.');
+      fireToast(err?.message ?? 'Status update failed.', 'Update failed');
     } finally {
       setOrderPending(orderId, false);
     }
   }, [safeOrders, onStatusChange, setOrderPending]);
 
+  // ── Card action handlers ─────────────────────────────────────────────────────
+  const handleCardAction = useCallback(async (orderId: string, newStatus: OrderStatus) => {
+    setOrderPending(orderId, true);
+    try {
+      await onStatusChange(orderId, newStatus);
+    } catch (err: any) {
+      fireToast(err?.message ?? 'Status update failed.', 'Update failed');
+    } finally {
+      setOrderPending(orderId, false);
+    }
+  }, [onStatusChange, setOrderPending]);
+
+  const handleChefAssign = useCallback(async (orderId: string, chefId: string) => {
+    setOrderPending(orderId, true);
+    try {
+      await onChefAssign(orderId, chefId);
+    } catch (err: any) {
+      fireToast(err?.message ?? 'Chef assignment failed.', 'Assignment failed');
+    } finally {
+      setOrderPending(orderId, false);
+    }
+  }, [onChefAssign, setOrderPending]);
+
+  // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="kanban-wrapper">
+    <>
+      <style>{KEYFRAMES}</style>
+      <div className="kanban-wrapper">
+        <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <div className="kanban-board">
+            {columns.map((column) => {
+              const columnOrders     = ordersByStatus[column.status];
+              const Icon             = column.icon;
+              const isDragActive     = draggingOrder !== null;
+              const isSource         = isDragActive && draggingOrder!.status === column.status;
+              const draggingIsLocked = isDragActive && isScheduledAndLocked(draggingOrder!);
+              const isValidTarget    = isDragActive && !isSource && !draggingIsLocked
+                && isValidDrop(draggingOrder!.status, column.status);
+              const isInvalid        = isDragActive && !isSource
+                && (draggingIsLocked || !isValidTarget);
 
-      <AnimatePresence>
-        {dragError && (
-          <DragErrorBanner key="drag-error" message={dragError} onDismiss={dismissError} />
-        )}
-      </AnimatePresence>
-
-      <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="kanban-board">
-          {columns.map((column) => {
-            const columnOrders  = ordersByStatus[column.status];
-            const Icon          = column.icon;
-            const isDragActive  = draggingOrder !== null;
-            const isSource      = isDragActive && draggingOrder!.status === column.status;
-            const isValidTarget = isDragActive && !isSource && isValidDrop(draggingOrder!.status, column.status);
-            const isInvalid     = isDragActive && !isSource && !isValidTarget;
-
-            return (
-              <div
-                key={column.status}
-                className={[
-                  'kanban-column',
-                  `kanban-column--${column.color}`,
-                  isSource      ? 'kanban-column--source'         : '',
-                  isValidTarget ? 'kanban-column--valid-target'   : '',
-                  isInvalid     ? 'kanban-column--invalid-target' : '',
-                ].filter(Boolean).join(' ')}
-              >
-                <div className="kanban-column__header">
-                  <div className="kanban-column__title">
-                    <Icon className={`kanban-column__icon kanban-column__icon--${column.status}`} />
-                    <h3 className="kanban-column__label">{column.label}</h3>
+              return (
+                <div
+                  key={column.status}
+                  ref={columnRefs[column.status]}
+                  className={[
+                    'kanban-column',
+                    `kanban-column--${column.color}`,
+                    isSource      ? 'kanban-column--source'         : '',
+                    isValidTarget ? 'kanban-column--valid-target'   : '',
+                    isInvalid     ? 'kanban-column--invalid-target' : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  <div className="kanban-column__header">
+                    <div className="kanban-column__title">
+                      <Icon className={`kanban-column__icon kanban-column__icon--${column.status}`} />
+                      <h3 className="kanban-column__label">{column.label}</h3>
+                    </div>
+                    <span className={`kanban-column__badge kanban-column__badge--${column.status}`}>
+                      {columnOrders.length}
+                    </span>
                   </div>
-                  <span className={`kanban-column__badge kanban-column__badge--${column.status}`}>
-                    {columnOrders.length}
-                  </span>
-                </div>
 
-                <Droppable droppableId={column.status} isDropDisabled={isDragActive && isInvalid}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      className={[
-                        'kanban-column__content',
-                        snapshot.isDraggingOver ? 'kanban-column__content--dragging'     : '',
-                        isInvalid              ? 'kanban-column__content--drop-invalid' : '',
-                        isValidTarget          ? 'kanban-column__content--drop-valid'   : '',
-                      ].filter(Boolean).join(' ')}
-                    >
-                      <AnimatePresence>
-                        {columnOrders.map((order, index) => {
-                          const isPending       = pendingOrderIds.has(order.id);
-                          const countdown       = readyCountdowns[order.id];
-                          const countdownUrgent = countdown !== undefined && countdown <= 5;
+                  <Droppable droppableId={column.status}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.droppableProps}
+                        className={[
+                          'kanban-column__content',
+                          snapshot.isDraggingOver ? 'kanban-column__content--dragging'     : '',
+                          isInvalid               ? 'kanban-column__content--drop-invalid' : '',
+                          isValidTarget           ? 'kanban-column__content--drop-valid'   : '',
+                        ].filter(Boolean).join(' ')}
+                      >
+                        <AnimatePresence>
+                          {columnOrders.map((order, index) => {
+                            const isPending = pendingOrderIds.has(order.id);
 
-                          const nextStatusMap: Partial<Record<OrderStatus, OrderStatus>> = {
-                            cooking: 'ready',
-                            ready:   'completed',
-                          };
-                          const actionLabelMap: Partial<Record<OrderStatus, string>> = {
-                            cooking: 'Mark Ready',
-                            ready:   'Complete',
-                          };
-                          const nextStatus  = nextStatusMap[order.status];
-                          const actionLabel = actionLabelMap[order.status];
+                            // ── COOKING COLUMN ────────────────────────────────
+                            if (column.status === 'cooking') {
+                              return (
+                                <CookingDraggableCard
+                                  key={order.id}
+                                  order={order}
+                                  index={index}
+                                  isPending={isPending}
+                                  assignableChefs={assignableChefs}
+                                  onStateChange={handleCookingStateChange}
+                                  onAction={() => handleCardAction(order.id, 'ready')}
+                                  onChefChange={(value) => {
+                                    if (!value || value === '__none__') return;
+                                    handleChefAssign(order.id, value);
+                                  }}
+                                />
+                              );
+                            }
 
-                          const handleAction = async () => {
-                            if (!nextStatus) return;
-                            setOrderPending(order.id, true);
-                            try { await onStatusChange(order.id, nextStatus); }
-                            catch (err) { console.error('[KanbanBoard] Status change failed:', err); }
-                            finally { setOrderPending(order.id, false); }
-                          };
+                            // ── QUEUE & READY COLUMNS ─────────────────────────
+                            const countdown       = readyCountdowns[order.id];
+                            const countdownUrgent = countdown !== undefined && countdown <= 5;
 
-                          const handleChefChange = async (value: string) => {
-                            if (!value || value === '__none__') return;
-                            setOrderPending(order.id, true);
-                            try { await onChefAssign(order.id, value); }
-                            catch (err) { console.error('[KanbanBoard] Chef assign failed:', err); }
-                            finally { setOrderPending(order.id, false); }
-                          };
+                            const nextStatusMap: Partial<Record<OrderStatus, OrderStatus>> = {
+                              pending: 'cooking',
+                              ready:   'completed',
+                            };
+                            const actionLabelMap: Partial<Record<OrderStatus, string>> = {
+                              pending: 'Start Cooking',
+                              ready:   'Complete',
+                            };
+                            const nextStatus      = nextStatusMap[order.status];
+                            const actionLabel     = actionLabelMap[order.status];
+                            const scheduledLocked = isScheduledAndLocked(order);
 
-                          return (
-                            <Draggable
-                              key={order.id}
-                              draggableId={order.id}
-                              index={index}
-                              isDragDisabled={isPending}
-                            >
-                              {(provided, snapshot) => (
-                                <div
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  {...provided.dragHandleProps}
-                                  className={[
-                                    'order-card',
-                                    snapshot.isDragging ? 'order-card--dragging'    : '',
-                                    `order-card--${order.priority}`,
-                                    isPending           ? 'order-card--pending-api' : '',
-                                  ].filter(Boolean).join(' ')}
-                                >
-                                  {/* Header */}
-                                  <div className="order-card__header">
-                                    <span className="order-card__number">{order.orderNumber}</span>
-                                    <div className="order-card__meta">
-                                      {order.priority !== 'normal' && (
-                                        <span className={`order-card__priority order-card__priority--${order.priority}`}>
-                                          {order.priority === 'urgent' ? '🔥' : '⚡'}
+                            return (
+                              <Draggable
+                                key={order.id}
+                                draggableId={order.id}
+                                index={index}
+                                isDragDisabled={isPending || scheduledLocked}
+                              >
+                                {(provided, snapshot) => (
+                                  <div
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    {...provided.dragHandleProps}
+                                    style={{
+                                      ...provided.draggableProps.style,
+                                      ...(scheduledLocked ? {
+                                        animation: 'scheduledGlow 3s ease-in-out infinite',
+                                        cursor: 'default',
+                                      } : {}),
+                                    }}
+                                    className={[
+                                      'order-card',
+                                      snapshot.isDragging   ? 'order-card--dragging'        : '',
+                                      `order-card--${order.orderType}`,
+                                      isPending             ? 'order-card--pending-api'      : '',
+                                      scheduledLocked       ? 'order-card--scheduled-locked' : '',
+                                    ].filter(Boolean).join(' ')}
+                                  >
+                                    <div className="order-card__header">
+                                      <div className="order-card__header-left">
+                                        <span className="order-card__number" title={order.orderNumber}>
+                                          {order.orderNumber}
                                         </span>
-                                      )}
-                                      {order.status === 'ready' && countdown !== undefined && (
-                                        <span
-                                          className={[
+                                        <OrderTypeBadge orderType={order.orderType ?? 'normal'} />
+                                        {scheduledLocked && <ScheduledLockBadge />}
+                                      </div>
+                                      <div className="order-card__meta">
+                                        {order.status === 'ready' && countdown !== undefined && (
+                                          <span className={[
                                             'order-card__countdown',
                                             countdownUrgent ? 'order-card__countdown--urgent' : '',
-                                          ].filter(Boolean).join(' ')}
-                                          title="Auto-completes when timer reaches 0"
-                                        >
-                                          ✓ {countdown}s
+                                          ].filter(Boolean).join(' ')}>
+                                            ✓ {countdown}s
+                                          </span>
+                                        )}
+                                        <OrderTimer order={order} compact />
+                                      </div>
+                                    </div>
+
+                                    {/* FIX: Pickup time always visible — removed display:none media queries */}
+                                    <div className="order-card__customer">
+                                      <User className="order-card__customer-icon" />
+                                      <span className="order-card__customer-name">
+                                        {order.customerName}
+                                      </span>
+                                      <span className="order-card__separator">•</span>
+                                      <Clock className="order-card__time-icon" />
+                                      {order.pickupTime === 'ASAP' ? (
+                                        <span className="order-card__time" style={{ color: '#fb923c', fontWeight: 700 }}>ASAP</span>
+                                      ) : order.pickupTime === 'TBD' || !order.pickupTime ? (
+                                        <span className="order-card__time" style={{ color: '#6ee7b7', fontWeight: 600 }}>
+                                          {order.orderType === 'scheduled' ? 'Tomorrow' : 'TBD'}
+                                        </span>
+                                      ) : (
+                                        <span className="order-card__time">{order.pickupTime}</span>
+                                      )}
+                                    </div>
+
+                                    {scheduledLocked && (
+                                      <ScheduledInfoBanner pickupTime={order.pickupTime} />
+                                    )}
+
+                                    <div className="order-card__items">
+                                      {order.items.slice(0, 2).map((item) => (
+                                        <div key={item.id} className="order-card__item">
+                                          <span className="order-card__item-quantity">
+                                            {item.quantity}×
+                                          </span>
+                                          <span className="order-card__item-name">{item.name}</span>
+                                        </div>
+                                      ))}
+                                      {order.items.length > 2 && (
+                                        <span className="order-card__items-more">
+                                          +{order.items.length - 2} more
                                         </span>
                                       )}
-                                      <OrderTimer order={order} compact />
                                     </div>
-                                  </div>
 
-                                  {/* Customer */}
-                                  <div className="order-card__customer">
-                                    <User className="order-card__customer-icon" />
-                                    <span className="order-card__customer-name">{order.customerName}</span>
-                                    <span className="order-card__separator">•</span>
-                                    <Clock className="order-card__time-icon" />
-                                    <span className="order-card__time">{order.pickupTime}</span>
-                                  </div>
-
-                                  {/* Items */}
-                                  <div className="order-card__items">
-                                    {order.items.slice(0, 2).map((item) => (
-                                      <div key={item.id} className="order-card__item">
-                                        <span className="order-card__item-quantity">{item.quantity}×</span>
-                                        <span className="order-card__item-name">{item.name}</span>
-                                      </div>
-                                    ))}
-                                    {order.items.length > 2 && (
-                                      <span className="order-card__items-more">
-                                        +{order.items.length - 2} more
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {/* Queue column: chef assign select */}
-                                  {column.status === 'pending' && (
-                                    <div className="order-card__chef-row">
-                                      <Select
-                                        value={order.assignedChefId ?? ''}
-                                        onValueChange={handleChefChange}
-                                        disabled={isPending}
-                                      >
-                                        <SelectTrigger className="order-card__chef-select">
-                                          <SelectValue placeholder={order.assignedTo ?? 'Assign chef…'} />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {assignableChefs.length === 0 ? (
-                                            <SelectItem value="__none__" disabled>No staff on shift</SelectItem>
-                                          ) : (
-                                            assignableChefs.map((chef) => {
-                                              const isFull = chef.activeOrders >= chef.maxCapacity;
-                                              return (
-                                                <SelectItem key={chef.chefId} value={chef.chefId} disabled={isFull}>
-                                                  <span className={`chef-option${isFull ? ' chef-option--full' : ''}`}>
-                                                    <span className={`chef-option__status chef-option__status--${chef.status}`} />
-                                                    {chef.name}
-                                                    {isFull && <span className="chef-option__full-label">(Full)</span>}
-                                                    <span className={`chef-option__load${isFull ? ' chef-option__load--full' : ''}`}>
-                                                      {chef.activeOrders}/{chef.maxCapacity}
-                                                    </span>
-                                                  </span>
-                                                </SelectItem>
-                                              );
-                                            })
-                                          )}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  )}
-
-                                  {/* Cooking column:
-                                      - chef assigned → read-only badge (normal flow)
-                                      - no chef assigned → select (auto-assign failed fallback) */}
-                                  {column.status === 'cooking' && (
-                                    order.assignedChefId || order.assignedTo ? (
-                                      <div className="order-card__chef-badge">
-                                        <span className="order-card__chef-badge-dot" />
-                                        <span className="order-card__chef-badge-name">
-                                          {order.assignedTo ?? order.assignedChefId}
-                                        </span>
-                                      </div>
-                                    ) : (
+                                    {column.status === 'pending' && (
                                       <div className="order-card__chef-row">
-                                        <Select
-                                          value=""
-                                          onValueChange={handleChefChange}
-                                          disabled={isPending}
-                                        >
-                                          <SelectTrigger className="order-card__chef-select">
-                                            <SelectValue placeholder="Assign chef…" />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {assignableChefs.length === 0 ? (
-                                              <SelectItem value="__none__" disabled>No staff on shift</SelectItem>
-                                            ) : (
-                                              assignableChefs.map((chef) => {
+                                        {(order.assignedTo || order.assignedChefId) ? (
+                                          <div style={{
+                                            display: 'inline-flex', alignItems: 'center',
+                                            gap: '0.3rem', padding: '0.2rem 0.5rem',
+                                            borderRadius: '0.3rem', fontSize: '0.68rem',
+                                            fontWeight: 500,
+                                            background: 'rgba(99,102,241,0.10)',
+                                            border: '1px solid rgba(99,102,241,0.25)',
+                                            color: '#a5b4fc',
+                                          }}>
+                                            <ChefHat style={{ width: '0.65rem', height: '0.65rem', flexShrink: 0 }} />
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                              {order.assignedTo ?? 'Chef assigned'}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <Select
+                                            value=""
+                                            onValueChange={(value) => {
+                                              if (!value || value === '__none__') return;
+                                              handleChefAssign(order.id, value);
+                                            }}
+                                          >
+                                            <SelectTrigger
+                                              className="order-card__chef-select"
+                                              disabled={isPending}
+                                            >
+                                              <SelectValue
+                                                placeholder={isPending ? 'Updating…' : 'Assign chef…'}
+                                              />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {assignableChefs.length === 0 ? (
+                                                <SelectItem value="__none__" disabled>
+                                                  No staff on shift
+                                                </SelectItem>
+                                              ) : assignableChefs.map((chef) => {
                                                 const isFull = chef.activeOrders >= chef.maxCapacity;
                                                 return (
-                                                  <SelectItem key={chef.chefId} value={chef.chefId} disabled={isFull}>
+                                                  <SelectItem
+                                                    key={chef.chefId}
+                                                    value={chef.chefId}
+                                                    disabled={isFull}
+                                                  >
                                                     <span className={`chef-option${isFull ? ' chef-option--full' : ''}`}>
                                                       <span className={`chef-option__status chef-option__status--${chef.status}`} />
                                                       {chef.name}
-                                                      {isFull && <span className="chef-option__full-label">(Full)</span>}
+                                                      {isFull && (
+                                                        <span className="chef-option__full-label">(Full)</span>
+                                                      )}
                                                       <span className={`chef-option__load${isFull ? ' chef-option__load--full' : ''}`}>
                                                         {chef.activeOrders}/{chef.maxCapacity}
                                                       </span>
                                                     </span>
                                                   </SelectItem>
                                                 );
-                                              })
-                                            )}
-                                          </SelectContent>
-                                        </Select>
+                                              })}
+                                            </SelectContent>
+                                          </Select>
+                                        )}
                                       </div>
-                                    )
-                                  )}
+                                    )}
 
-                                  {/* Action footer */}
-                                  {nextStatus && actionLabel && (
-                                    <div className="order-card__footer">
-                                      <button
-                                        className={`order-card__action order-card__action--${order.status}`}
-                                        onClick={handleAction}
-                                        disabled={isPending}
-                                      >
-                                        {isPending ? 'Updating…' : actionLabel}
-                                      </button>
-                                    </div>
-                                  )}
-
-                                </div>
-                              )}
-                            </Draggable>
-                          );
-                        })}
-                      </AnimatePresence>
-                      {provided.placeholder}
-
-                      {columnOrders.length === 0 && !snapshot.isDraggingOver && (
-                        <div className="kanban-column__empty">No orders</div>
-                      )}
-                    </div>
-                  )}
-                </Droppable>
-              </div>
-            );
-          })}
-        </div>
-      </DragDropContext>
-    </div>
+                                    {nextStatus && actionLabel && (
+                                      <div className="order-card__footer">
+                                        <button
+                                          className={`order-card__action order-card__action--${order.status}`}
+                                          onClick={() => !isPending && !scheduledLocked && handleCardAction(order.id, nextStatus)}
+                                          disabled={isPending || scheduledLocked}
+                                        >
+                                          {isPending ? 'Updating…' : actionLabel}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </Draggable>
+                            );
+                          })}
+                        </AnimatePresence>
+                        {provided.placeholder}
+                        {columnOrders.length === 0 && !snapshot.isDraggingOver && (
+                          <div className="kanban-column__empty">No orders</div>
+                        )}
+                      </div>
+                    )}
+                  </Droppable>
+                </div>
+              );
+            })}
+          </div>
+        </DragDropContext>
+      </div>
+    </>
   );
 });

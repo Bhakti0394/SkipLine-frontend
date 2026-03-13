@@ -1,95 +1,60 @@
 // ============================================================
 // src/kitchen-hooks/useOrderTimer.ts
-//
-// SLA-accurate timer engine for kitchen order cards.
-//
-// DESIGN PRINCIPLES:
-//
-// 1. SINGLE GLOBAL TICK — one setInterval at module level drives all timers.
-//    No per-card interval. 50 cooking orders = 1 interval, not 50.
-//
-// 2. SERVER CLOCK SYNCHRONIZATION — on first use, the hook fetches
-//    GET /api/kitchen/server-time and computes a clientOffset (ms).
-//    All elapsed/remaining calculations use:
-//      serverNow = Date.now() + clientOffset
-//    This makes SLA match the backend's Instant.now() exactly.
-//    Tab visibility changes trigger a re-sync to correct throttled drift.
-//
-// 3. BACKEND TIMESTAMPS ONLY — uses cookingStartedAt for cooking SLA,
-//    createdAt for pending wait time. Never falls back to client time for
-//    the start anchor — only for the "current time" component.
-//
-// 4. PER-PHASE SLA — each OrderStatus phase has its own SLA budget:
-//    PENDING:  warn after pendingSlaMinutes (default 5 min)
-//    COOKING:  warn after totalPrepTimeMinutes (from backend Order.totalPrepTimeMinutes)
-//    READY:    warn after readySlaMinutes (default 10 min — order going cold)
-//
-// 5. NO RE-RENDERS FOR INACTIVE PHASES — completed/cancelled orders return
-//    a stable frozen snapshot; the global tick does not cause them to re-render.
-//
-// 6. VISIBILITY-AWARE — on tab show, re-syncs server clock and recomputes
-//    elapsed to fix throttle-caused drift.
-//
-// 7. WEBSOCKET-READY — serverOffset is stored in a module-level ref, not
-//    React state. When a WebSocket event updates an order's timestamps,
-//    the next tick will automatically pick up the new anchor — no special
-//    handling needed.
+// ============================================================
+// FLOW:
+//   PENDING  → pickup slot countdown / SLA urgency
+//   COOKING  → NORMAL: elapsed since cookingStartedAt (↑)
+//              EXPRESS: deadline countdown (↓), overdue (↑)
+//   READY    → elapsed since readyAt (↑)
+//   COMPLETED → frozen
 // ============================================================
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Order, OrderStatus } from '../kitchen-types/order';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Order } from '../kitchen-types/order';
 
 // ─── Server clock sync ────────────────────────────────────────────────────────
 
-/**
- * Difference between server clock and browser clock in milliseconds.
- * Positive = server is ahead of browser.
- * Initialised to 0 (assume clocks match) until first sync completes.
- */
+const SERVER_TIME_URL =
+  (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/kitchen/server-time';
+
 let serverClockOffsetMs = 0;
 let clockSyncPending    = false;
 let clockSyncDone       = false;
 
-/**
- * Fetches GET /api/kitchen/server-time and computes the offset.
- * Called once on first hook mount, and again on tab visibility restore.
- *
- * The endpoint returns: { serverTimeMs: number } (epoch milliseconds).
- * Round-trip latency is halved and subtracted from the offset so we
- * account for network delay in both directions.
- */
+function getAuthHeader(): HeadersInit {
+  const token = localStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function syncServerClock(): Promise<void> {
   if (clockSyncPending) return;
   clockSyncPending = true;
   try {
     const t0  = Date.now();
-    const res = await fetch('/api/kitchen/server-time', { credentials: 'include' });
+    const res = await fetch(SERVER_TIME_URL, {
+      credentials: 'include',
+      headers: getAuthHeader(),
+    });
     const t1  = Date.now();
-    if (!res.ok) return; // Graceful degradation — use browser clock if endpoint absent
+    if (!res.ok) return;
     const { serverTimeMs }: { serverTimeMs: number } = await res.json();
-    const roundTripMs   = t1 - t0;
-    const estimatedNow  = t0 + roundTripMs / 2;   // midpoint of request window
-    serverClockOffsetMs = serverTimeMs - estimatedNow;
-    clockSyncDone       = true;
+    serverClockOffsetMs = serverTimeMs - (t0 + (t1 - t0) / 2);
+    clockSyncDone = true;
   } catch {
-    // Endpoint not yet implemented or network error — fall back to browser clock
     serverClockOffsetMs = 0;
-    clockSyncDone       = true;
+    clockSyncDone = true;
   } finally {
     clockSyncPending = false;
   }
 }
 
-/** Returns current time anchored to server clock. */
-function serverNow(): number {
+export function serverNow(): number {
   return Date.now() + serverClockOffsetMs;
 }
 
-// ─── Global tick ─────────────────────────────────────────────────────────────
-// One interval drives all hooks. Subscribers register a callback;
-// the interval fires it every second. No per-component interval.
+// ─── Global tick ──────────────────────────────────────────────────────────────
 
-type TickCallback = () => void;
+type TickCallback = (nowMs: number) => void;
 const tickSubscribers = new Set<TickCallback>();
 let   globalInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -97,7 +62,8 @@ function subscribeToTick(cb: TickCallback): () => void {
   tickSubscribers.add(cb);
   if (!globalInterval) {
     globalInterval = setInterval(() => {
-      tickSubscribers.forEach(fn => fn());
+      const now = serverNow();
+      tickSubscribers.forEach(fn => fn(now));
     }, 1000);
   }
   return () => {
@@ -109,221 +75,420 @@ function subscribeToTick(cb: TickCallback): () => void {
   };
 }
 
-// ─── SLA configuration ────────────────────────────────────────────────────────
+// ─── SLA config ───────────────────────────────────────────────────────────────
 
 interface SlaBudgets {
-  /** Minutes an order may sit PENDING before flagged overdue. Default 5. */
-  pendingSlaMinutes: number;
-  /** Minutes an order may sit READY (going cold) before flagged. Default 10. */
-  readySlaMinutes: number;
+  expressPendingSlaMinutes: number;
+  readySlaMinutes:          number;
 }
-
 const DEFAULT_SLA: SlaBudgets = {
-  pendingSlaMinutes: 5,
-  readySlaMinutes:   10,
+  expressPendingSlaMinutes: 2,
+  readySlaMinutes:          10,
 };
 
-// ─── Timer state ─────────────────────────────────────────────────────────────
+// ─── TimerState ───────────────────────────────────────────────────────────────
 
 export interface TimerState {
-  /** Seconds elapsed since the phase-appropriate start timestamp. */
-  elapsed: number;
-  /** Seconds remaining until SLA deadline. 0 when overdue. */
-  remaining: number;
-  /** True when elapsed has exceeded the SLA budget for this phase. */
-  isOverdue: boolean;
-  /**
-   * 0–100 progress toward SLA deadline.
-   * Exceeds 100 when overdue (used for overdue severity display).
-   * e.g. 150 = 50% past deadline.
-   */
-  progress: number;
-  /**
-   * Seconds past the SLA deadline. 0 when not overdue.
-   * Use this for "+Xm Ys overdue" display — more precise than deriving from progress.
-   */
-  overdueBy: number;
-  /**
-   * The SLA budget in seconds for the current phase.
-   * Exposed so the UI can display "X min SLA" without hardcoding.
-   */
-  slaBudgetSeconds: number;
+  elapsed:                number;
+  orderAge:               number;
+  cookingElapsed:         number;
+  cookingDisplay:         string;
+  isOverdue:              boolean;
+  overdueBySeconds:       number;
+  overdueDisplay:         string;
+  expressDeadlineMs:      number | null;
+  cookingTime:            number;
+  eta:                    number;
+  queuedTime:             number;
+  remaining:              number;
+  progress:               number;
+  overdueBy:              number;
+  slaBudgetSeconds:       number;
+  pickupCountdownSeconds: number | null;
+  isPendingUrgent:        boolean;
 }
 
-// Stable frozen state for orders that don't need a live timer
 const FROZEN_COMPLETE: TimerState = {
-  elapsed: 0, remaining: 0, isOverdue: false,
-  progress: 100, overdueBy: 0, slaBudgetSeconds: 0,
+  elapsed: 0, orderAge: 0,
+  cookingElapsed: 0, cookingDisplay: '0s',
+  isOverdue: false, overdueBySeconds: 0, overdueDisplay: '',
+  expressDeadlineMs: null,
+  cookingTime: 0, eta: 0, queuedTime: 0,
+  remaining: 0, progress: 100, overdueBy: 0,
+  slaBudgetSeconds: 0, pickupCountdownSeconds: null, isPendingUrgent: false,
 };
 
-// ─── Phase anchor selector ────────────────────────────────────────────────────
-/**
- * Returns the backend timestamp (ms) that should anchor the timer for the
- * current order status. Uses backend-set timestamps only — never client time.
- *
- *   PENDING:   placedAt (= Order.placedAt / createdAt)
- *   COOKING:   cookingStartedAt (= Order.cookingStartedAt) — NOT createdAt
- *   READY:     readyAt (= Order.readyAt)
- *   COMPLETED: N/A — no live timer
- */
-function getPhaseAnchorMs(order: Order): number | null {
-  switch (order.status) {
-    case 'pending':
-      return order.createdAt?.getTime() ?? null;
-    case 'cooking':
-      // cookingStartedAt is the correct SLA anchor for the cooking phase.
-      // Falling back to createdAt would inflate elapsed time by queue wait.
-      return order.startedAt?.getTime() ?? order.createdAt?.getTime() ?? null;
-    case 'ready':
-      // readyAt marks when cooking finished — SLA here is "time to pickup"
-      return (order as any).readyAt instanceof Date
-        ? (order as any).readyAt.getTime()
-        : order.createdAt?.getTime() ?? null;
-    default:
-      return null;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function toMs(val: unknown): number | null {
+  if (!val) return null;
+  if (val instanceof Date)  return isNaN(val.getTime()) ? null : val.getTime();
+  if (typeof val === 'number' && val > 0)
+    return val < 1_000_000_000_000 ? val * 1000 : val;
+  if (typeof val === 'string' && val.trim()) {
+    const ms = new Date(val).getTime();
+    return isNaN(ms) ? null : ms;
   }
+  return null;
 }
 
-/**
- * Returns the SLA budget in seconds for the current phase.
- *   PENDING: pendingSlaMinutes × 60
- *   COOKING: Order.totalPrepTimeMinutes × 60 (from backend — never hardcoded)
- *   READY:   readySlaMinutes × 60
- */
-function getPhaseSlaSeconds(order: Order, sla: SlaBudgets): number {
-  switch (order.status) {
-    case 'pending':
-      return sla.pendingSlaMinutes * 60;
-    case 'cooking':
-      return (order.estimatedPrepTime ?? 0) * 60;
-    case 'ready':
-      return sla.readySlaMinutes * 60;
-    default:
-      return 0;
+function resolveCookingStartMs(order: Order): number | null {
+  const o = order as any;
+  return (
+    toMs(o.startedAt)        ??
+    toMs(o.cookingStartedAt) ??
+    toMs(o.cookStartedAt)    ??
+    toMs(o.startTime)        ??
+    null
+  );
+}
+
+// FIX: resolveExpressDeadlineMs now respects cookingStartedAt.
+//
+// OLD (broken):
+//   Fallback = createdAt + EXPRESS_MAX_MS (15min, hardcoded).
+//   Example: order placed at 11:33 AM → deadline = 11:48 AM.
+//   But simulation queues orders and only promotes them later — cooking may
+//   start AT 11:48 AM, exactly when the deadline expires → instantly overdue.
+//   Result: every express order showed "+Xm overdue" the moment it hit Cooking.
+//
+// NEW:
+//   1. If order.pickupSlotMs is set (computed by toFrontendOrder with the
+//      cookStart+2min buffer), use it — this is the pre-corrected value.
+//   2. If not, apply the same buffer logic inline:
+//      deadline = max(createdAt + EXPRESS_MAX_MS, cookStart + MIN_COOK_BUFFER_MS)
+//      This guarantees at least MIN_COOK_BUFFER_MS (2min) of cook time before
+//      the order is considered overdue, regardless of when it was placed.
+//
+// The cookingStartMs parameter is passed in (already resolved by the caller)
+// so we don't re-resolve it here — avoids double Date object construction.
+const EXPRESS_MAX_MS       = 15 * 60 * 1000; // 15 min from placement
+const MIN_COOK_BUFFER_MS   =  2 * 60 * 1000; // at least 2 min after cook start
+
+function resolveExpressDeadlineMs(order: Order, cookingStartMs: number | null): number | null {
+  if (order.orderType !== 'express') return null;
+  const o = order as any;
+
+  const fromDeadline = toMs(o.pickupDeadlineAt);
+  if (fromDeadline !== null) return fromDeadline;
+
+  // FIX: read pickupSlotMs first — toFrontendOrder already applied the
+  // cookStart+2min buffer when computing this field.
+  const fromSlot = toMs(o.pickupSlotMs) ?? toMs(o.expressPickupSlotMs);
+  if (fromSlot !== null) return fromSlot;
+
+  // Fallback: compute with buffer so order isn't instantly overdue.
+  const anchor = toMs(order.createdAt);
+  if (anchor === null) return null;
+
+  const fromPlacement = anchor + EXPRESS_MAX_MS;
+
+  // If we know when cooking started, guarantee at least MIN_COOK_BUFFER_MS
+  // of cook time so the order isn't overdue the moment it enters Cooking.
+  if (cookingStartMs !== null) {
+    return Math.max(fromPlacement, cookingStartMs + MIN_COOK_BUFFER_MS);
   }
+
+  return fromPlacement;
+}
+
+function resolvePickupSlotMs(order: Order): number | null {
+  const o   = order as any;
+  const raw = toMs(o.pickupSlotMs) ?? toMs(o.pickupSlot);
+  if (raw) return raw;
+
+  const display = order.pickupTime;
+  if (!display || display === 'TBD' || display === 'ASAP') return null;
+
+  if (display.includes('T') || display.includes('-')) {
+    const ms = new Date(display).getTime();
+    if (!isNaN(ms)) return ms;
+  }
+
+  const parsed = new Date(`${new Date().toDateString()} ${display}`);
+  return isNaN(parsed.getTime()) ? null : parsed.getTime();
+}
+
+function resolveReadyAnchorMs(order: Order, mountTimeMs: number): number {
+  const o       = order as any;
+  const readyAt = toMs(o.readyAt);
+  if (readyAt !== null) return readyAt;
+  const placedAtMs = toMs(order.createdAt);
+  const prepMs     = (order.estimatedPrepTime ?? 0) * 60 * 1000;
+  if (placedAtMs !== null && prepMs > 0) return placedAtMs + prepMs;
+  return mountTimeMs;
+}
+
+// ─── Format utilities (exported for OrderTimer.tsx) ───────────────────────────
+
+export function formatElapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60), r = s % 60;
+  return r > 0 ? `${m}m ${r}s` : `${m}m`;
+}
+
+export function formatMinutes(seconds: number): string {
+  return formatElapsed(seconds);
+}
+
+export function formatCountdown(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return r > 0 ? `${m}m ${r}s` : `${m}m`;
+  return `${r}s`;
+}
+
+export function formatTime(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+}
+
+export function formatOverdue(overdueBySeconds: number): string {
+  return `+${formatElapsed(overdueBySeconds)}`;
 }
 
 // ─── Core hook ────────────────────────────────────────────────────────────────
 
-/**
- * useOrderTimer
- *
- * Returns a live TimerState derived from backend timestamps and the
- * server-synchronised clock. Does not create its own setInterval.
- *
- * @param order   The frontend Order object (must have Date objects for timestamps)
- * @param sla     Optional SLA overrides. Defaults to DEFAULT_SLA.
- */
-export function useOrderTimer(
-  order: Order,
-  sla: SlaBudgets = DEFAULT_SLA
-): TimerState {
-
-  // ── Skip live timer for terminal states ───────────────────────────────────
+export function useOrderTimer(order: Order, sla: SlaBudgets = DEFAULT_SLA): TimerState {
   const isTerminal = order.status === 'completed';
 
-  // ── Force re-render on each global tick ───────────────────────────────────
-  // Using a counter rather than storing `now` avoids the stale-closure problem
-  // and means we always read serverNow() fresh inside compute().
-  const [tick, setTick] = useState(0);
-  const mountedRef = useRef(true);
+  const [nowMs, setNowMs] = useState<number>(() => serverNow());
+
+  const mountedRef   = useRef(true);
+  const mountTimeRef = useRef<number>(serverNow());
 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
-  // Subscribe to global tick — unsubscribes automatically on unmount
-  useEffect(() => {
-    if (isTerminal) return; // Don't tick completed orders
-
-    // Ensure server clock is synced before first render
-    if (!clockSyncDone) syncServerClock();
-
-    const unsubscribe = subscribeToTick(() => {
-      if (mountedRef.current) setTick(t => t + 1);
-    });
-    return unsubscribe;
-  }, [isTerminal]);
-
-  // ── Tab visibility re-sync ────────────────────────────────────────────────
   useEffect(() => {
     if (isTerminal) return;
+    if (!clockSyncDone) syncServerClock();
+    return subscribeToTick((ts) => {
+      if (mountedRef.current) setNowMs(ts);
+    });
+  }, [isTerminal]);
 
-    const handleVisibilityChange = () => {
+  useEffect(() => {
+    if (isTerminal) return;
+    const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        // Tab restored — re-sync server clock to fix throttle-caused drift,
-        // then force immediate re-render with corrected elapsed value.
         syncServerClock().then(() => {
-          if (mountedRef.current) setTick(t => t + 1);
+          if (mountedRef.current) setNowMs(serverNow());
         });
       }
     };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [isTerminal]);
 
-  // ── Compute timer state ───────────────────────────────────────────────────
-  // Memoized on [tick, order.status, order.id] — recomputes only when the
-  // global clock ticks or the order's phase/identity changes.
-  const timerState = useMemo<TimerState>(() => {
+  // Resolve stable primitive values outside useMemo so they can be deps.
+  // FIX: cookingStartMs is resolved here and passed into resolveExpressDeadlineMs
+  // so the deadline calculation has the cook-start buffer without needing a
+  // second call to resolveCookingStartMs inside the memo.
+  const cookingStartMs = resolveCookingStartMs(order);
+  const pickupSlotMs   = (order as any).pickupSlotMs as number | undefined;
+
+  // FIX: expressDeadlineMs is now resolved INSIDE useMemo (not outside) and
+  // added to the deps array.
+  //
+  // OLD (broken): resolveExpressDeadlineMs(order) was called outside useMemo,
+  // its return value was used inside the memo but NOT listed as a dep.
+  // The memo never invalidated when the deadline changed (e.g. after cookingStartMs
+  // was set on the first COOKING poll), so it kept showing stale overdue state.
+  //
+  // NEW: computed inside memo → always fresh when any dep changes.
+  // cookingStartMs is in deps → any change to startedAt/cookingStartedAt
+  // re-runs the memo and picks up the buffered deadline.
+
+  return useMemo<TimerState>(() => {
     if (isTerminal) return FROZEN_COMPLETE;
 
-    const anchorMs = getPhaseAnchorMs(order);
-    if (anchorMs === null) {
-      return { elapsed: 0, remaining: 0, isOverdue: false, progress: 0, overdueBy: 0, slaBudgetSeconds: 0 };
+    const now          = nowMs;
+    const orderType    = order.orderType ?? 'normal';
+    const isExpress    = orderType === 'express';
+    const createdAtMs  = toMs(order.createdAt);
+    const prepTimeSecs = (order.estimatedPrepTime ?? 0) * 60;
+    const createdAge   = createdAtMs !== null
+      ? Math.max(0, Math.floor((now - createdAtMs) / 1000))
+      : 0;
+
+    // ─── PENDING ──────────────────────────────────────────────────────────────
+    if (order.status === 'pending') {
+      const pickupMs = resolvePickupSlotMs(order);
+
+      if (isExpress && pickupMs === null) {
+        const slaBudgetSecs    = sla.expressPendingSlaMinutes * 60;
+        const remaining        = Math.max(0, slaBudgetSecs - createdAge);
+        const isOverdue        = createdAge > slaBudgetSecs;
+        const overdueBySeconds = isOverdue ? createdAge - slaBudgetSecs : 0;
+        return {
+          elapsed: createdAge, orderAge: createdAge,
+          cookingElapsed: 0, cookingDisplay: '0s',
+          isOverdue, overdueBySeconds,
+          overdueDisplay: isOverdue ? formatOverdue(overdueBySeconds) : '',
+          expressDeadlineMs: null,
+          cookingTime: 0, eta: 0, queuedTime: 0,
+          remaining,
+          progress: Math.min(100, Math.round((createdAge / slaBudgetSecs) * 100)),
+          overdueBy: overdueBySeconds,
+          slaBudgetSeconds: slaBudgetSecs,
+          pickupCountdownSeconds: remaining,
+          isPendingUrgent: isOverdue || remaining <= 30,
+        };
+      }
+
+      if (pickupMs !== null) {
+        const pcs             = Math.floor((pickupMs - now) / 1000);
+        const releaseWinSecs  = prepTimeSecs + 5 * 60;
+        const isPendingUrgent =
+          (pcs <= releaseWinSecs && pcs > 0) ||
+          (isExpress && pcs <= sla.expressPendingSlaMinutes * 60 && pcs > 0);
+        const totalWindow     = createdAtMs ? pickupMs - createdAtMs : 3_600_000;
+        const elapsed2        = createdAtMs ? now - createdAtMs : 0;
+        const clamped         = Math.max(0, pcs);
+        const isOverdue       = pcs < 0;
+        const overdueBySeconds = isOverdue ? Math.abs(pcs) : 0;
+        return {
+          elapsed: createdAge, orderAge: createdAge,
+          cookingElapsed: 0, cookingDisplay: '0s',
+          isOverdue, overdueBySeconds,
+          overdueDisplay: isOverdue ? formatOverdue(overdueBySeconds) : '',
+          expressDeadlineMs: null,
+          cookingTime: 0, eta: 0, queuedTime: 0,
+          remaining: clamped,
+          progress: Math.min(100, Math.round((elapsed2 / totalWindow) * 100)),
+          overdueBy: overdueBySeconds,
+          slaBudgetSeconds: 0, pickupCountdownSeconds: clamped, isPendingUrgent,
+        };
+      }
+
+      return {
+        elapsed: createdAge, orderAge: createdAge,
+        cookingElapsed: 0, cookingDisplay: '0s',
+        isOverdue: false, overdueBySeconds: 0, overdueDisplay: '',
+        expressDeadlineMs: null,
+        cookingTime: 0, eta: 0, queuedTime: 0,
+        remaining: 0, progress: 0, overdueBy: 0,
+        slaBudgetSeconds: 0, pickupCountdownSeconds: null, isPendingUrgent: false,
+      };
     }
 
-    const now            = serverNow(); // server-synchronised current time
-    const elapsed        = Math.max(0, Math.floor((now - anchorMs) / 1000));
-    const slaBudgetSecs  = getPhaseSlaSeconds(order, sla);
+    // ─── COOKING ──────────────────────────────────────────────────────────────
+    if (order.status === 'cooking') {
 
-    if (slaBudgetSecs === 0) {
-      // No SLA defined for this phase — show elapsed only, no deadline
-      return { elapsed, remaining: 0, isOverdue: false, progress: 0, overdueBy: 0, slaBudgetSeconds: 0 };
+      if (isExpress) {
+        // FIX: resolveExpressDeadlineMs now takes cookingStartMs so the fallback
+        // applies the MIN_COOK_BUFFER_MS floor, preventing instant-overdue.
+        const deadlineMs = resolveExpressDeadlineMs(order, cookingStartMs);
+        if (deadlineMs !== null) {
+          const secsRemaining    = Math.floor((deadlineMs - now) / 1000);
+          const isOverdue        = secsRemaining <= 0;
+          const overdueBySeconds = isOverdue ? Math.abs(secsRemaining) : 0;
+
+          const windowSecs = createdAtMs
+            ? Math.max(1, Math.floor((deadlineMs - createdAtMs) / 1000))
+            : prepTimeSecs;
+          const elapsed = createdAtMs
+            ? Math.max(0, Math.floor((now - createdAtMs) / 1000))
+            : 0;
+          const progress = Math.min(100, Math.round((elapsed / windowSecs) * 100));
+          const cookingElapsed = isOverdue ? overdueBySeconds : Math.max(0, secsRemaining);
+          const cookingDisplay = isOverdue
+            ? formatOverdue(overdueBySeconds)
+            : formatCountdown(secsRemaining);
+
+          return {
+            elapsed: cookingElapsed, orderAge: createdAge,
+            cookingElapsed, cookingDisplay,
+            isOverdue, overdueBySeconds,
+            overdueDisplay: isOverdue ? formatOverdue(overdueBySeconds) : '',
+            expressDeadlineMs: deadlineMs,
+            cookingTime: cookingElapsed,
+            eta: isOverdue ? 0 : secsRemaining,
+            queuedTime: cookingStartMs && createdAtMs
+              ? Math.max(0, Math.floor((cookingStartMs - createdAtMs) / 1000))
+              : 0,
+            remaining: isOverdue ? 0 : secsRemaining,
+            progress, overdueBy: overdueBySeconds,
+            slaBudgetSeconds: windowSecs,
+            pickupCountdownSeconds: isOverdue ? 0 : secsRemaining,
+            isPendingUrgent: false,
+          };
+        }
+      }
+
+      // NORMAL / SCHEDULED: elapsed ↑, overdue when elapsed > prepTime
+      const anchorMs       = cookingStartMs ?? now;
+      const cookingElapsed = Math.max(0, Math.floor((now - anchorMs) / 1000));
+      const eta            = prepTimeSecs > 0 ? Math.max(0, prepTimeSecs - cookingElapsed) : 0;
+      const isOverdue      = prepTimeSecs > 0 && cookingElapsed > prepTimeSecs;
+      const overdueBySeconds = isOverdue ? cookingElapsed - prepTimeSecs : 0;
+
+      return {
+        elapsed: cookingElapsed, orderAge: createdAge,
+        cookingElapsed,
+        cookingDisplay: formatElapsed(cookingElapsed),
+        isOverdue, overdueBySeconds,
+        overdueDisplay: isOverdue ? formatOverdue(overdueBySeconds) : '',
+        expressDeadlineMs: null,
+        cookingTime: cookingElapsed,
+        eta,
+        queuedTime: cookingStartMs && createdAtMs
+          ? Math.max(0, Math.floor((cookingStartMs - createdAtMs) / 1000))
+          : 0,
+        remaining: eta,
+        progress: prepTimeSecs > 0
+          ? Math.min(100, Math.round((cookingElapsed / prepTimeSecs) * 100))
+          : 0,
+        overdueBy: overdueBySeconds,
+        slaBudgetSeconds: prepTimeSecs,
+        pickupCountdownSeconds: null,
+        isPendingUrgent: false,
+      };
     }
 
-    const remaining  = Math.max(0, slaBudgetSecs - elapsed);
-    const isOverdue  = elapsed > slaBudgetSecs;
-    const overdueBy  = isOverdue ? elapsed - slaBudgetSecs : 0;
-    // Progress can exceed 100 — UI uses this for overdue severity colouring
-    const progress   = Math.round((elapsed / slaBudgetSecs) * 100);
+    // ─── READY ────────────────────────────────────────────────────────────────
+    if (order.status === 'ready') {
+      const readyAnchorMs    = resolveReadyAnchorMs(order, mountTimeRef.current);
+      const slaBudgetSecs    = sla.readySlaMinutes * 60;
+      const elapsed          = Math.max(0, Math.floor((now - readyAnchorMs) / 1000));
+      const remaining        = Math.max(0, slaBudgetSecs - elapsed);
+      const isOverdue        = elapsed > slaBudgetSecs;
+      const overdueBySeconds = isOverdue ? elapsed - slaBudgetSecs : 0;
 
-    return { elapsed, remaining, isOverdue, progress, overdueBy, slaBudgetSeconds: slaBudgetSecs };
+      return {
+        elapsed, orderAge: elapsed,
+        cookingElapsed: 0, cookingDisplay: '0s',
+        isOverdue, overdueBySeconds,
+        overdueDisplay: isOverdue ? formatOverdue(overdueBySeconds) : '',
+        expressDeadlineMs: null,
+        cookingTime: 0, eta: 0, queuedTime: 0,
+        remaining,
+        progress: Math.min(100, Math.round((elapsed / slaBudgetSecs) * 100)),
+        overdueBy: overdueBySeconds,
+        slaBudgetSeconds: slaBudgetSecs,
+        pickupCountdownSeconds: null, isPendingUrgent: false,
+      };
+    }
 
-  // tick drives recalculation every second; order.id + order.status ensure
-  // we recompute immediately on status change without waiting for next tick.
+    return FROZEN_COMPLETE;
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, order.id, order.status, order.startedAt, order.createdAt, order.estimatedPrepTime, sla]);
-
-  return timerState;
-}
-
-// ─── Format utilities ─────────────────────────────────────────────────────────
-// Pure functions — no state, no side effects. Safe to call anywhere.
-
-/** Formats seconds as M:SS (e.g. "4:07"). Used for countdown display. */
-export function formatTime(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const mins = Math.floor(s / 60);
-  const secs = s % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-/** Formats an elapsed duration as a human-readable string (e.g. "4m 7s", "45s"). */
-export function formatElapsed(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  if (s < 60) return `${s}s`;
-  const mins = Math.floor(s / 60);
-  const secs = s % 60;
-  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-}
-
-/**
- * Formats an overdue duration for display (e.g. "+4m 7s overdue").
- * Uses overdueBy from TimerState — never recomputes elapsed here.
- */
-export function formatOverdue(overdueBySeconds: number): string {
-  return `+${formatElapsed(overdueBySeconds)} overdue`;
+  }, [
+    nowMs,
+    order.id, order.status, order.orderType,
+    cookingStartMs,  // FIX: resolveExpressDeadlineMs now uses this — must be dep
+    pickupSlotMs,    // FIX: pickupSlotMs from toFrontendOrder buffered value
+    order.createdAt, order.estimatedPrepTime, order.pickupTime,
+    (order as any).readyAt,
+    (order as any).pickupDeadlineAt,
+    (order as any).expressPickupSlotMs,
+    sla,
+  ]);
 }

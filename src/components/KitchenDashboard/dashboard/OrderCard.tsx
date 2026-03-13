@@ -1,14 +1,16 @@
 // ============================================================
-// OrderCard.tsx — File 1 look (inline styles + Tailwind) + File 2 backend
+// src/components/KitchenDashboard/dashboard/OrderCard.tsx
 // ============================================================
 
 import { useState, useCallback } from 'react';
-import { Order, OrderStatus } from '../../../kitchen-types/order';
+import { Order, OrderStatus, ORDER_TYPE_BADGE } from '../../../kitchen-types/order';
 import { StaffWorkloadDto } from '../../../kitchen-api/kitchenApi';
 import {
   Clock, User, ChefHat, CheckCircle2,
-  AlertTriangle, Flame, ChevronDown,
+  AlertTriangle, ChevronDown, PartyPopper,
 } from 'lucide-react';
+import { OrderTimer } from './OrderTimer';
+import { useOrderTimer } from '../../../kitchen-hooks/useOrderTimer';
 
 interface OrderCardProps {
   order:          Order;
@@ -18,7 +20,136 @@ interface OrderCardProps {
   countdown?:     number;
 }
 
-// ─── Status styles (File 1) ───────────────────────────────────────────────────
+// ─── Cooking state ────────────────────────────────────────────────────────────
+// Three visual states for cooking cards:
+//
+//  'cooking'  → amber  (still on track, has remaining prep time)
+//  'done'     → green  (prep time elapsed, ready to plate — but NOT yet overdue)
+//  'overdue'  → red    (past prep time SLA with a pickup deadline missed)
+//
+// FIX: 'done' state only fires when estimatedPrepTime > 0 AND eta === 0.
+// Orders with unknown prep time (totalPrepMinutes === 0) have eta === 0
+// from the start — without this guard they would immediately show the green
+// "Ready to plate" banner before the chef had done anything.
+
+type CookingState = 'cooking' | 'done' | 'overdue';
+
+function getCookingState(
+  eta:           number,
+  isOverdue:     boolean,
+  estimatedPrep: number,   // 0 means unknown — skip 'done' state
+): CookingState {
+  if (isOverdue) return 'overdue';
+  if (estimatedPrep > 0 && eta === 0) return 'done';
+  return 'cooking';
+}
+
+// ─── Card styles per cooking state ───────────────────────────────────────────
+
+const cookingCardStyles: Record<CookingState, React.CSSProperties> = {
+  cooking: {
+    background: 'rgba(245, 158, 11, 0.10)',
+    border:     '1px solid rgba(245, 158, 11, 0.40)',
+  },
+  done: {
+    background: 'rgba(16, 185, 129, 0.18)',
+    border:     '2px solid rgba(16, 185, 129, 0.80)',
+    boxShadow:  '0 0 0 1px rgba(16,185,129,0.30), 0 0 20px rgba(16,185,129,0.18)',
+  },
+  overdue: {
+    background: 'rgba(239, 68, 68, 0.16)',
+    border:     '2px solid rgba(239, 68, 68, 0.80)',
+    boxShadow:  '0 0 0 1px rgba(239,68,68,0.25), 0 0 20px rgba(239,68,68,0.14)',
+  },
+};
+
+// ─── Banner per cooking state (done / overdue only) ───────────────────────────
+
+const cookingBanners: Record<'done' | 'overdue', {
+  style: React.CSSProperties;
+  text:  string;
+}> = {
+  done: {
+    style: {
+      background:    'rgba(16, 185, 129, 0.25)',
+      border:        '1px solid rgba(16, 185, 129, 0.60)',
+      color:         '#34d399',
+      borderRadius:  '0.375rem',
+      padding:       '0.375rem 0.625rem',
+      display:       'flex',
+      alignItems:    'center',
+      gap:           '0.375rem',
+      fontSize:      '0.75rem',
+      fontWeight:    700,
+      letterSpacing: '0.01em',
+    },
+    text: '✓ Ready to plate — Mark Ready now!',
+  },
+  overdue: {
+    style: {
+      background:    'rgba(239, 68, 68, 0.22)',
+      border:        '1px solid rgba(239, 68, 68, 0.65)',
+      color:         '#fca5a5',
+      borderRadius:  '0.375rem',
+      padding:       '0.375rem 0.625rem',
+      display:       'flex',
+      alignItems:    'center',
+      gap:           '0.375rem',
+      fontSize:      '0.75rem',
+      fontWeight:    700,
+      letterSpacing: '0.01em',
+      animation:     'pulse 1.5s ease-in-out infinite',
+    },
+    text: '⚠ Overdue — needs immediate attention!',
+  },
+};
+
+// ─── Badge per cooking state ──────────────────────────────────────────────────
+
+const cookingBadgeStyles: Record<CookingState, React.CSSProperties> = {
+  cooking: { background: 'rgba(245, 158, 11, 0.20)', color: '#fbbf24' },
+  done:    { background: 'rgba(16, 185, 129, 0.30)', color: '#34d399' },
+  overdue: { background: 'rgba(239, 68, 68, 0.25)',  color: '#f87171' },
+};
+
+const cookingBadgeLabels: Record<CookingState, string> = {
+  cooking: 'Cooking',
+  done:    '✓ Done!',
+  overdue: '⚠ Overdue',
+};
+
+// ─── Action button per cooking state ─────────────────────────────────────────
+
+const cookingActionStyles: Record<CookingState, React.CSSProperties> = {
+  cooking: {
+    background: 'rgba(245, 158, 11, 0.22)',
+    color:      '#fbbf24',
+    border:     '1px solid rgba(245, 158, 11, 0.50)',
+    fontWeight: 600,
+  },
+  done: {
+    background: '#10b981',
+    color:      '#ffffff',
+    border:     'none',
+    fontWeight: 700,
+    boxShadow:  '0 0 12px rgba(16,185,129,0.50)',
+  },
+  overdue: {
+    background: '#ef4444',
+    color:      '#ffffff',
+    border:     'none',
+    fontWeight: 700,
+    boxShadow:  '0 0 12px rgba(239,68,68,0.50)',
+  },
+};
+
+const cookingActionLabels: Record<CookingState, string> = {
+  cooking: 'Mark Ready',
+  done:    '✓ Mark Ready',
+  overdue: '⚠ Mark Ready Now',
+};
+
+// ─── Non-cooking status styles ────────────────────────────────────────────────
 
 const statusStyles: Record<string, {
   cardStyle:  React.CSSProperties;
@@ -27,94 +158,29 @@ const statusStyles: Record<string, {
   icon:       React.ElementType;
 }> = {
   pending: {
-    cardStyle: {
-      background:   'rgba(100, 116, 139, 0.12)',
-      borderColor:  'rgba(100, 116, 139, 0.35)',
-      borderWidth:  '1px',
-      borderStyle:  'solid',
-    },
+    cardStyle:  { background: 'rgba(100, 116, 139, 0.12)', border: '1px solid rgba(100, 116, 139, 0.35)' },
     badgeStyle: { background: 'rgba(100, 116, 139, 0.25)', color: '#94a3b8' },
     label: 'Pending',
     icon:  Clock,
   },
-  cooking: {
-    cardStyle: {
-      background:   'rgba(245, 158, 11, 0.10)',
-      borderColor:  'rgba(245, 158, 11, 0.40)',
-      borderWidth:  '1px',
-      borderStyle:  'solid',
-    },
-    badgeStyle: { background: 'rgba(245, 158, 11, 0.20)', color: '#fbbf24' },
-    label: 'Cooking',
-    icon:  ChefHat,
-  },
   ready: {
-    cardStyle: {
-      background:   'rgba(16, 185, 129, 0.10)',
-      borderColor:  'rgba(16, 185, 129, 0.40)',
-      borderWidth:  '1px',
-      borderStyle:  'solid',
-    },
+    cardStyle:  { background: 'rgba(16, 185, 129, 0.10)', border: '1px solid rgba(16, 185, 129, 0.40)' },
     badgeStyle: { background: 'rgba(16, 185, 129, 0.20)', color: '#34d399' },
     label: 'Ready',
     icon:  CheckCircle2,
   },
   completed: {
-    cardStyle: {
-      background:   'rgba(255, 255, 255, 0.04)',
-      borderColor:  'rgba(255, 255, 255, 0.08)',
-      borderWidth:  '1px',
-      borderStyle:  'solid',
-      opacity:      0.55,
-    },
+    cardStyle:  { background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)', opacity: 0.55 },
     badgeStyle: { background: 'rgba(34, 197, 94, 0.15)', color: '#86efac' },
     label: 'Completed',
     icon:  CheckCircle2,
   },
 };
 
-// ─── Priority styles (File 1) ─────────────────────────────────────────────────
-
-const priorityStyles: Record<string, {
-  stripColor:  string;
-  badgeStyle:  React.CSSProperties;
-  label:       string;
-  shortLabel:  string;
-  icon:        React.ElementType;
-} | null> = {
-  normal: null,
-  high: {
-    stripColor: '#f97316',
-    badgeStyle: { background: 'rgba(249, 115, 22, 0.20)', color: '#fb923c' },
-    label: 'High Priority', shortLabel: 'High', icon: AlertTriangle,
-  },
-  urgent: {
-    stripColor: '#ef4444',
-    badgeStyle: { background: 'rgba(239, 68, 68, 0.20)', color: '#f87171' },
-    label: 'Urgent', shortLabel: 'Urgent', icon: Flame,
-  },
-};
-
-// ─── Action button styles (File 1) ────────────────────────────────────────────
-
-const actionButtonStyles: Record<string, React.CSSProperties> = {
-  pending:  { background: '#6366f1', color: '#ffffff', border: 'none', fontWeight: 600 },
-  cooking:  { background: 'rgba(245, 158, 11, 0.22)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.50)', fontWeight: 600 },
-  ready:    { background: 'rgba(16, 185, 129, 0.22)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.50)', fontWeight: 700 },
-};
-
-// ─── Status / action maps (File 2) ───────────────────────────────────────────
-
 const nextStatusMap: Partial<Record<OrderStatus, OrderStatus>> = {
   pending: 'cooking',
   cooking: 'ready',
   ready:   'completed',
-};
-
-const actionLabelMap: Partial<Record<OrderStatus, string>> = {
-  pending: 'Start Cooking',
-  cooking: 'Mark Ready',
-  ready:   'Done ✓',
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -126,64 +192,96 @@ export function OrderCard({
   onAssignChef,
   countdown,
 }: OrderCardProps) {
-  // File 2: local async-pending states
   const [actionPending, setActionPending] = useState(false);
   const [assigning,     setAssigning]     = useState(false);
   const [dropdownOpen,  setDropdownOpen]  = useState(false);
 
-  const statusCfg   = statusStyles[order.status] ?? statusStyles.pending;
-  const priorityCfg = priorityStyles[order.priority] ?? null;
-  const StatusIcon  = statusCfg.icon;
+  const { eta, isOverdue } = useOrderTimer(order);
 
-  const nextStatus  = nextStatusMap[order.status]  ?? null;
-  const actionLabel = actionLabelMap[order.status] ?? null;
+  const cookingState: CookingState = order.status === 'cooking'
+    ? getCookingState(eta, isOverdue, order.estimatedPrepTime ?? 0)
+    : 'cooking'; // unused for non-cooking cards
 
-  // File 2: overdue detection for accent border
-  const isOverdue = order.status === 'cooking'
-    && !!order.startedAt
-    && (Date.now() - new Date(order.startedAt).getTime()) / 60_000 > (order.estimatedPrepTime ?? 999);
+  // ── Order type badge — uses ORDER_TYPE_BADGE same as KanbanBoard ───────────
+  // FIX: removed dead `priority` / `priorityStyles` code.
+  //
+  // BEFORE: read `(order as any).priority` — this field is never mapped from
+  // OrderCardDto to Order in toFrontendOrder(), so it was always undefined.
+  // `priorityStyles[undefined ?? 'normal']` always returned null. The entire
+  // `priorityStyles` map (~80 lines), the strip-color logic, and the badge
+  // render block were dead code that never fired — but the `(order as any)`
+  // cast suppressed TypeScript's ability to catch this.
+  //
+  // AFTER: use ORDER_TYPE_BADGE[order.orderType] — the same lookup KanbanBoard
+  // uses. This is the correct priority signal: express > normal > scheduled.
+  const typeBadge = ORDER_TYPE_BADGE[order.orderType] ?? ORDER_TYPE_BADGE.normal;
 
-  // Card style = File 1 status color + priority left-strip + overdue red override
-  const cardStyle: React.CSSProperties = {
-    ...statusCfg.cardStyle,
-    ...(priorityCfg
-      ? { borderLeftColor: priorityCfg.stripColor, borderLeftWidth: '3px' }
-      : {}),
-    // File 2: overdue override — thicker red left strip
-    ...(isOverdue
-      ? { borderLeftColor: '#ef4444', borderLeftWidth: '3px' }
-      : {}),
-  };
+  // ── Card style ─────────────────────────────────────────────────────────────
+  const cardStyle: React.CSSProperties = order.status === 'cooking'
+    ? cookingCardStyles[cookingState]
+    : (statusStyles[order.status] ?? statusStyles.pending).cardStyle;
 
-  const btnStyle: React.CSSProperties = {
-    ...(actionButtonStyles[order.status] ?? {}),
+  // ── Status badge ──────────────────────────────────────────────────────────
+  const badgeStyle: React.CSSProperties = order.status === 'cooking'
+    ? cookingBadgeStyles[cookingState]
+    : (statusStyles[order.status] ?? statusStyles.pending).badgeStyle;
+
+  const badgeLabel = order.status === 'cooking'
+    ? cookingBadgeLabels[cookingState]
+    : (statusStyles[order.status] ?? statusStyles.pending).label;
+
+  const StatusIcon = order.status === 'cooking'
+    ? (cookingState === 'done' ? CheckCircle2 : cookingState === 'overdue' ? AlertTriangle : ChefHat)
+    : (statusStyles[order.status] ?? statusStyles.pending).icon;
+
+  // ── Action button ──────────────────────────────────────────────────────────
+  const nextStatus = nextStatusMap[order.status] ?? null;
+
+  const btnBaseStyle: React.CSSProperties = {
     fontSize:      '0.7rem',
     height:        '1.875rem',
-    padding:       '0 0.75rem',
+    padding:       '0 0.875rem',
     borderRadius:  '0.375rem',
     cursor:        actionPending ? 'not-allowed' : 'pointer',
     transition:    'opacity 0.15s ease',
     display:       'inline-flex',
     alignItems:    'center',
-    letterSpacing: '0.01em',
+    letterSpacing: '0.02em',
     whiteSpace:    'nowrap',
     opacity:       actionPending ? 0.6 : 1,
   };
 
-  // File 2: countdown styling
+  let btnStyle: React.CSSProperties;
+  if (order.status === 'cooking') {
+    btnStyle = { ...btnBaseStyle, ...cookingActionStyles[cookingState] };
+  } else if (order.status === 'pending') {
+    btnStyle = { ...btnBaseStyle, background: '#6366f1', color: '#ffffff', border: 'none', fontWeight: 600 };
+  } else if (order.status === 'ready') {
+    btnStyle = { ...btnBaseStyle, background: 'rgba(16,185,129,0.22)', color: '#34d399', border: '1px solid rgba(16,185,129,0.50)', fontWeight: 700 };
+  } else {
+    btnStyle = btnBaseStyle;
+  }
+
+  const actionLabel = order.status === 'cooking'
+    ? (actionPending ? 'Updating…' : cookingActionLabels[cookingState])
+    : order.status === 'pending' ? 'Start Cooking'
+    : order.status === 'ready'   ? 'Done ✓'
+    : null;
+
+  // ── Countdown (ready) ──────────────────────────────────────────────────────
   const countdownUrgent = countdown !== undefined && countdown <= 5;
   const countdownStyle: React.CSSProperties = {
-    fontSize:       '0.65rem',
-    padding:        '0.125rem 0.5rem',
-    borderRadius:   '999px',
-    fontWeight:     600,
-    background:     countdownUrgent ? 'rgba(239, 68, 68, 0.20)' : 'rgba(16, 185, 129, 0.15)',
-    color:          countdownUrgent ? '#f87171' : '#34d399',
-    border:         `1px solid ${countdownUrgent ? 'rgba(239,68,68,0.4)' : 'rgba(16,185,129,0.3)'}`,
-    animation:      countdownUrgent ? 'pulse 1s infinite' : 'none',
+    fontSize:     '0.65rem',
+    padding:      '0.125rem 0.5rem',
+    borderRadius: '999px',
+    fontWeight:   600,
+    background:   countdownUrgent ? 'rgba(239, 68, 68, 0.20)' : 'rgba(16, 185, 129, 0.15)',
+    color:        countdownUrgent ? '#f87171' : '#34d399',
+    border:       `1px solid ${countdownUrgent ? 'rgba(239,68,68,0.4)' : 'rgba(16,185,129,0.3)'}`,
+    animation:    countdownUrgent ? 'pulse 1s infinite' : 'none',
   };
 
-  // File 2: async action handler
+  // ── Handlers ───────────────────────────────────────────────────────────────
   const handleAction = useCallback(async () => {
     if (!nextStatus || actionPending) return;
     setActionPending(true);
@@ -191,7 +289,6 @@ export function OrderCard({
     finally { setActionPending(false); }
   }, [nextStatus, actionPending, onStatusChange, order.id]);
 
-  // File 2: async chef assign handler
   const handleAssign = useCallback(async (chefId: string) => {
     if (!onAssignChef) return;
     setDropdownOpen(false);
@@ -200,7 +297,6 @@ export function OrderCard({
     finally { setAssigning(false); }
   }, [onAssignChef, order.id]);
 
-  // File 2: chef dropdown data
   const showAssignChef  = order.status === 'pending' && staff.length > 0 && !!onAssignChef;
   const assignableStaff = staff.filter(s => s.onShift && s.status !== 'full');
 
@@ -209,197 +305,191 @@ export function OrderCard({
       className="rounded-lg sm:rounded-xl p-3 sm:p-4 flex flex-col gap-2 sm:gap-3 transition-all duration-300 animate-slide-in-right backdrop-blur-[10px]"
       style={cardStyle}
     >
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-          <span className="text-sm sm:text-lg font-bold font-mono">{order.orderNumber}</span>
+      {/* ── Cooking state banner (done / overdue only) ── */}
+      {order.status === 'cooking' && cookingState !== 'cooking' && (
+        <div style={cookingBanners[cookingState].style}>
+          {cookingState === 'done'
+            ? <PartyPopper style={{ width: '0.875rem', height: '0.875rem', flexShrink: 0 }} />
+            : <AlertTriangle style={{ width: '0.875rem', height: '0.875rem', flexShrink: 0 }} />
+          }
+          {cookingBanners[cookingState].text}
+        </div>
+      )}
 
-          {/* Priority badge — high or urgent only */}
-          {priorityCfg && (
-            <div
-              className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium shrink-0"
-              style={priorityCfg.badgeStyle}
-            >
-              <priorityCfg.icon className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              <span className="hidden sm:inline">{priorityCfg.label}</span>
-              <span className="sm:hidden">{priorityCfg.shortLabel}</span>
-            </div>
-          )}
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between gap-1.5" style={{ minWidth: 0 }}>
+
+        {/* Left: order number + order type badge */}
+        <div className="flex items-center gap-1.5 flex-1 overflow-hidden" style={{ minWidth: 0 }}>
+          <span
+            className="font-bold font-mono text-sm shrink-0"
+            style={{ maxWidth: '10rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}
+            title={order.orderNumber}
+          >
+            {order.orderNumber}
+          </span>
+
+          {/* Order type badge — express/normal/scheduled, same as KanbanBoard */}
+          <span style={{
+            display:       'inline-flex',
+            alignItems:    'center',
+            gap:           '0.18rem',
+            padding:       '0.1rem 0.32rem',
+            borderRadius:  '4px',
+            fontSize:      '0.56rem',
+            fontWeight:    700,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            background:    typeBadge.bg,
+            border:        typeBadge.border,
+            color:         typeBadge.color,
+            whiteSpace:    'nowrap',
+            flexShrink:    0,
+            userSelect:    'none',
+          }}>
+            <span style={{ fontSize: '0.6rem', lineHeight: 1 }}>{typeBadge.emoji}</span>
+            {typeBadge.label}
+          </span>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          {/* File 2: ready countdown badge */}
+        {/* Right: countdown + status badge */}
+        <div className="flex items-center gap-1 shrink-0">
           {order.status === 'ready' && countdown !== undefined && (
-            <span style={countdownStyle} title="Auto-completes when countdown reaches 0">
-              ✓ {countdown}s
-            </span>
+            <span style={countdownStyle}>✓ {countdown}s</span>
           )}
-
-          {/* Status badge */}
           <div
-            className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium shrink-0"
-            style={statusCfg.badgeStyle}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
+            style={badgeStyle}
           >
-            <StatusIcon className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-            <span className="hidden xs:inline">{statusCfg.label}</span>
+            <StatusIcon style={{ width: '0.65rem', height: '0.65rem', flexShrink: 0 }} />
+            <span style={{ whiteSpace: 'nowrap' }}>{badgeLabel}</span>
           </div>
         </div>
       </div>
 
       {/* ── Customer & Pickup ── */}
-      <div className="flex items-center gap-2 sm:gap-4 text-[10px] sm:text-sm text-muted-foreground flex-wrap">
-        <span className="flex items-center gap-1 sm:gap-1.5">
-          <User className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-          <span className="truncate max-w-[100px] sm:max-w-none">{order.customerName}</span>
+      <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
+        <span className="flex items-center gap-1">
+          <User style={{ width: '0.7rem', height: '0.7rem' }} />
+          <span className="truncate max-w-[120px]">{order.customerName}</span>
         </span>
-        <span className="flex items-center gap-1 sm:gap-1.5">
-          <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-          <span className="hidden sm:inline">Pickup:</span> {order.pickupTime}
+        <span className="flex items-center gap-1">
+          <Clock style={{ width: '0.7rem', height: '0.7rem' }} />
+          Pickup: {order.pickupTime}
         </span>
       </div>
 
-      {/* ── Assign Chef dropdown — pending only (File 2 data, File 1 inline style) ── */}
+      {/* ── Assign Chef dropdown — pending only ── */}
       {showAssignChef && (
         <div className="relative" onClick={e => e.stopPropagation()}>
           <button
-            className="flex items-center gap-1.5 w-full text-left text-xs px-2.5 py-1.5 rounded-md transition-opacity"
+            className="flex items-center gap-1.5 w-full text-left text-xs px-2.5 py-1.5 rounded-md"
             style={{
-              background:   'rgba(99, 102, 241, 0.12)',
-              border:       '1px solid rgba(99, 102, 241, 0.30)',
-              color:        '#a5b4fc',
-              cursor:       assigning ? 'not-allowed' : 'pointer',
-              opacity:      assigning ? 0.6 : 1,
+              background: 'rgba(99, 102, 241, 0.12)',
+              border:     '1px solid rgba(99, 102, 241, 0.30)',
+              color:      '#a5b4fc',
+              cursor:     assigning ? 'not-allowed' : 'pointer',
+              opacity:    assigning ? 0.6 : 1,
             }}
-            onClick={() => setDropdownOpen(prev => !prev)}
+            onClick={() => setDropdownOpen(p => !p)}
             disabled={assigning}
           >
-            <ChefHat className="w-3 h-3 shrink-0" />
+            <ChefHat style={{ width: '0.75rem', height: '0.75rem', flexShrink: 0 }} />
             <span className="flex-1 truncate">
               {assigning ? 'Assigning…' : (order.assignedTo ?? 'Assign Chef')}
             </span>
-            <ChevronDown
-              className="w-3 h-3 shrink-0 transition-transform"
-              style={{ transform: dropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
-            />
+            <ChevronDown style={{
+              width: '0.75rem', height: '0.75rem', flexShrink: 0,
+              transform:  dropdownOpen ? 'rotate(180deg)' : 'none',
+              transition: 'transform 0.2s',
+            }} />
           </button>
 
           {dropdownOpen && (
             <div
               className="absolute z-20 left-0 right-0 mt-1 rounded-md overflow-hidden shadow-lg"
-              style={{
-                background:  'rgba(15, 23, 42, 0.95)',
-                border:      '1px solid rgba(99, 102, 241, 0.25)',
-                backdropFilter: 'blur(8px)',
-              }}
+              style={{ background: 'rgba(15, 23, 42, 0.97)', border: '1px solid rgba(99, 102, 241, 0.25)', backdropFilter: 'blur(8px)' }}
             >
               {assignableStaff.length === 0 ? (
                 <div className="text-xs text-muted-foreground px-3 py-2">No available staff</div>
-              ) : (
-                assignableStaff.map(chef => {
-                  const isFull = chef.activeOrders >= chef.maxCapacity;
-                  return (
-                    <button
-                      key={chef.chefId}
-                      className="flex items-center gap-2 w-full px-3 py-2 text-xs text-left transition-colors hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                      onClick={() => handleAssign(chef.chefId)}
-                      disabled={isFull}
-                    >
-                      {/* Status dot */}
-                      <span
-                        className="w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{
-                          background: chef.status === 'available'
-                            ? '#34d399'
-                            : chef.status === 'busy' ? '#fbbf24' : '#94a3b8',
-                        }}
-                      />
-                      <span className="flex-1 truncate text-foreground/90">{chef.name}</span>
-                      <span
-                        className="text-[10px] shrink-0"
-                        style={{ color: isFull ? '#f87171' : '#94a3b8' }}
-                      >
-                        {chef.activeOrders}/{chef.maxCapacity}
-                        {isFull && ' (Full)'}
-                      </span>
-                    </button>
-                  );
-                })
-              )}
+              ) : assignableStaff.map(chef => {
+                const isFull = chef.activeOrders >= chef.maxCapacity;
+                return (
+                  <button
+                    key={chef.chefId}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-left hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => handleAssign(chef.chefId)}
+                    disabled={isFull}
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: chef.status === 'available' ? '#34d399' : chef.status === 'busy' ? '#fbbf24' : '#94a3b8' }}
+                    />
+                    <span className="flex-1 truncate text-foreground/90">{chef.name}</span>
+                    <span className="text-[10px] shrink-0" style={{ color: isFull ? '#f87171' : '#94a3b8' }}>
+                      {chef.activeOrders}/{chef.maxCapacity}{isFull && ' (Full)'}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* File 2: assigned chef badge on cooking cards */}
+      {/* ── Assigned chef badge — cooking only ── */}
       {order.status === 'cooking' && order.assignedTo && (
         <div
-          className="flex items-center gap-1.5 text-[10px] sm:text-xs px-2 py-1 rounded-md w-fit"
+          className="flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md w-fit"
           style={{
-            background: 'rgba(245, 158, 11, 0.12)',
-            border:     '1px solid rgba(245, 158, 11, 0.25)',
-            color:      '#fbbf24',
+            background: cookingState === 'done' ? 'rgba(16,185,129,0.15)' : cookingState === 'overdue' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.12)',
+            border:     cookingState === 'done' ? '1px solid rgba(16,185,129,0.40)' : cookingState === 'overdue' ? '1px solid rgba(239,68,68,0.40)' : '1px solid rgba(245,158,11,0.25)',
+            color:      cookingState === 'done' ? '#34d399' : cookingState === 'overdue' ? '#f87171' : '#fbbf24',
           }}
         >
-          <span
-            className="w-1.5 h-1.5 rounded-full"
-            style={{ background: '#fbbf24' }}
-          />
-          <ChefHat className="w-3 h-3" />
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: cookingState === 'done' ? '#34d399' : cookingState === 'overdue' ? '#f87171' : '#fbbf24' }} />
+          <ChefHat style={{ width: '0.7rem', height: '0.7rem' }} />
           <span>{order.assignedTo}</span>
         </div>
       )}
 
-      {/* ── Order Items (File 1) ── */}
-      <div className="flex flex-col gap-1 sm:gap-1.5">
-        {order.items.slice(0, 3).map((item) => (
-          <div key={item.id} className="flex items-start gap-1.5 sm:gap-2 text-xs sm:text-sm">
-            <span className="font-medium text-foreground/90 min-w-[18px] sm:min-w-[20px]">
-              {item.quantity}×
-            </span>
+      {/* ── Order items ── */}
+      <div className="flex flex-col gap-1">
+        {order.items.slice(0, 3).map(item => (
+          <div key={item.id} className="flex items-start gap-1.5 text-xs sm:text-sm">
+            <span className="font-medium text-foreground/90 min-w-[20px]">{item.quantity}×</span>
             <div className="flex-1 min-w-0">
               <span className="truncate block">{item.name}</span>
-              {item.notes && (
-                <span className="block text-[10px] sm:text-xs text-accent mt-0.5 truncate">
-                  Note: {item.notes}
+              {(item as any).notes && (
+                <span className="block text-[10px] text-accent mt-0.5 truncate">
+                  Note: {(item as any).notes}
                 </span>
               )}
             </div>
           </div>
         ))}
         {order.items.length > 3 && (
-          <span className="text-[10px] sm:text-xs text-muted-foreground">
-            +{order.items.length - 3} more items
-          </span>
+          <span className="text-[10px] text-muted-foreground">+{order.items.length - 3} more items</span>
         )}
       </div>
 
-      {/* ── Footer (File 1 style, File 2 async) ── */}
-      <div className="flex items-center justify-between pt-2 border-t border-border/50 gap-2">
-        <span className="text-[10px] sm:text-xs text-muted-foreground">
-          Est. {order.estimatedPrepTime}m
-          {/* File 2: overdue warning */}
-          {isOverdue && (
-            <span
-              className="ml-1.5 text-[10px] font-semibold"
-              style={{ color: '#f87171' }}
-            >
-              ⚠ Overdue
-            </span>
-          )}
-        </span>
+      {/* ── Timer block ── */}
+      {order.status !== 'completed' && <OrderTimer order={order} />}
 
-        {nextStatus && actionLabel && (
+      {/* ── Action button ── */}
+      {nextStatus && actionLabel && (
+        <div className="flex items-center justify-end pt-1">
           <button
             style={btnStyle}
-            onMouseEnter={e => { if (!actionPending) e.currentTarget.style.opacity = '0.75'; }}
+            onMouseEnter={e => { if (!actionPending) e.currentTarget.style.opacity = '0.80'; }}
             onMouseLeave={e => { if (!actionPending) e.currentTarget.style.opacity = '1'; }}
             onClick={handleAction}
             disabled={actionPending}
           >
-            {actionPending ? 'Updating…' : actionLabel}
+            {actionLabel}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

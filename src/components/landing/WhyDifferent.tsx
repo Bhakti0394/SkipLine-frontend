@@ -7,23 +7,23 @@ import "../../styles/Whydifferent.scss";
 const comparisons = [
   {
     others: "Solve delivery logistics",
-    prepline: "Solve on-site congestion",
+    SkipLine: "Solve on-site congestion",
   },
   {
     others: "Focus on order volume",
-    prepline: "Focus on kitchen productivity",
+    SkipLine: "Focus on kitchen productivity",
   },
   {
     others: "Generic user experience",
-    prepline: "Behavioral UX design",
+    SkipLine: "Behavioral UX design",
   },
   {
     others: "Ignore food waste",
-    prepline: "Sustainability-first approach",
+    SkipLine: "Sustainability-first approach",
   },
   {
     others: "Theoretical optimizations",
-    prepline: "Real-world constraints",
+    SkipLine: "Real-world constraints",
   },
 ];
 
@@ -54,7 +54,7 @@ const WhyDifferent = () => {
         >
           <span className="why-different__badge">
             <Trophy className="why-different__badge-icon" />
-            Why Prepline
+            Why SkipLine
           </span>
           <h2 className="why-different__title">
             Most Food Apps Solve Delivery.
@@ -75,8 +75,8 @@ const WhyDifferent = () => {
             <div className="why-different__header-others">
               <span>Other Food Apps</span>
             </div>
-            <div className="why-different__header-prepline">
-              <span>Prepline</span>
+            <div className="why-different__header-SkipLine">
+              <span>SkipLine</span>
             </div>
           </div>
 
@@ -98,12 +98,12 @@ const WhyDifferent = () => {
                   <span className="why-different__text why-different__text--others">{item.others}</span>
                 </div>
 
-                {/* Prepline */}
-                <div className="why-different__item why-different__item--prepline">
-                  <div className="why-different__icon-wrapper why-different__icon-wrapper--prepline">
+                {/* SkipLine */}
+                <div className="why-different__item why-different__item--SkipLine">
+                  <div className="why-different__icon-wrapper why-different__icon-wrapper--SkipLine">
                     <Check className="why-different__icon" />
                   </div>
-                  <span className="why-different__text why-different__text--prepline">{item.prepline}</span>
+                  <span className="why-different__text why-different__text--SkipLine">{item.SkipLine}</span>
                 </div>
               </motion.div>
             ))}

@@ -3,7 +3,7 @@ import { ArrowRight, Clock, Zap, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import HeroMockup from "./HeroMockup";
-import PreplineLogo from "./PreplineLogo";
+import SkipLineLogo from "./SkipLineLogo";
 import "../../styles/Hero.scss";
 
 const Hero = () => {
@@ -65,8 +65,8 @@ const Hero = () => {
               className="hero__heading"
             >
               <span className="hero__heading-logo">
-                <PreplineLogo size="lg" className="hero__logo-icon" />
-                <span>Prepline</span>
+                <SkipLineLogo size="lg" className="hero__logo-icon" />
+                <span>SkipLine</span>
               </span>
               <span className="hero__heading-tagline">
                 Smart Pre-Ordering.{" "}

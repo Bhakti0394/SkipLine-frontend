@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Clock, Minus, Plus, ShoppingBag, Flame, Leaf, Star, Check, ChefHat, ArrowRight, CheckCircle2, Calendar, Zap } from 'lucide-react';
-import { Meal, AddOn } from '../../../customer-types/dashboard';
+import { X, Clock, Minus, Plus, ShoppingBag, Flame, Leaf, Star, Check, ChefHat, ArrowRight, CheckCircle2, Calendar, Zap, Timer } from 'lucide-react';
+import { Meal, AddOn, OrderType } from '../../../customer-types/dashboard';
 import { Button } from '../../../components/ui/button';
 import { mockTimeSlots } from '../../../customer-data/mockData';
-import { usePrepline } from '../../../customer-context/PreplineContext';
+import { useSkipLine } from '../../../customer-context/SkipLineContext';
 import { useNavigate } from 'react-router-dom';
 import '../overview-styles/Ordermodal.scss';
 
@@ -31,28 +31,41 @@ const spiceLevels = [
   { id: 'extra-hot', label: 'Extra Hot', icon: '🔥' },
 ];
 
+// Express arrival options — customer picks how far away they are
+const expressArrivalOptions = [
+  { id: 'express-5',  minutes: 5,  label: '5 mins',  sublabel: 'Just around the corner', emoji: '🏃' },
+  { id: 'express-10', minutes: 10, label: '10 mins', sublabel: 'On my way now',           emoji: '🚶' },
+  { id: 'express-15', minutes: 15, label: '15 mins', sublabel: 'Leaving soon',            emoji: '🚪' },
+];
+
 const getTomorrowDate = () => {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   return tomorrow.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 };
 
+const getPickupTimeFromMinutes = (minutes: number): string => {
+  const pickup = new Date(Date.now() + minutes * 60 * 1000);
+  return pickup.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+};
+
 const scheduledTimeSlots = [
-  { id: 'sch-breakfast-1', time: '8:00 AM', period: 'Breakfast', available: true },
-  { id: 'sch-breakfast-2', time: '9:00 AM', period: 'Breakfast', available: true },
-  { id: 'sch-lunch-1', time: '12:00 PM', period: 'Lunch', available: true },
-  { id: 'sch-lunch-2', time: '1:00 PM', period: 'Lunch', available: true },
-  { id: 'sch-lunch-3', time: '2:00 PM', period: 'Lunch', available: true },
-  { id: 'sch-dinner-1', time: '7:00 PM', period: 'Dinner', available: true },
-  { id: 'sch-dinner-2', time: '8:00 PM', period: 'Dinner', available: true },
-  { id: 'sch-dinner-3', time: '9:00 PM', period: 'Dinner', available: true },
+  { id: 'sch-breakfast-1', time: '8:00 AM',  period: 'Breakfast', available: true },
+  { id: 'sch-breakfast-2', time: '9:00 AM',  period: 'Breakfast', available: true },
+  { id: 'sch-lunch-1',     time: '12:00 PM', period: 'Lunch',     available: true },
+  { id: 'sch-lunch-2',     time: '1:00 PM',  period: 'Lunch',     available: true },
+  { id: 'sch-lunch-3',     time: '2:00 PM',  period: 'Lunch',     available: true },
+  { id: 'sch-dinner-1',    time: '7:00 PM',  period: 'Dinner',    available: true },
+  { id: 'sch-dinner-2',    time: '8:00 PM',  period: 'Dinner',    available: true },
+  { id: 'sch-dinner-3',    time: '9:00 PM',  period: 'Dinner',    available: true },
 ];
 
 export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderModalProps) {
-  const { addToCart, cartItemsCount } = usePrepline();
+  const { addToCart, cartItemsCount } = useSkipLine();
   const navigate = useNavigate();
   const [quantity, setQuantity] = useState(1);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [selectedExpressOption, setSelectedExpressOption] = useState<string | null>(null);
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
   const [spiceLevel, setSpiceLevel] = useState('medium');
   const [specialInstructions, setSpecialInstructions] = useState('');
@@ -62,11 +75,20 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
 
   const isScheduleMode = orderMode === 'schedule';
   const isExpressMode = meal.isExpress && !isScheduleMode;
-  const timeSlots = isScheduleMode ? scheduledTimeSlots : mockTimeSlots;
   const tomorrowDate = getTomorrowDate();
 
+  const orderType: OrderType = isScheduleMode ? 'scheduled' : isExpressMode ? 'express' : 'normal';
+
+  const selectedExpressArrival = expressArrivalOptions.find(o => o.id === selectedExpressOption);
+  const expressPickupTime = selectedExpressArrival
+    ? getPickupTimeFromMinutes(selectedExpressArrival.minutes)
+    : null;
+
+  // express needs arrival pick; others need a slot
+  const canSubmit = isExpressMode ? !!selectedExpressOption : !!selectedSlot;
+
   const noSpiceCategories = ['Desserts', 'Dessert', 'Beverages', 'Beverage', 'Drinks', 'Drink', 'Sweet', 'Sweets', 'Chai', 'Tea', 'Coffee'];
-  const shouldShowSpiceLevel = !noSpiceCategories.some(cat => 
+  const shouldShowSpiceLevel = !noSpiceCategories.some(cat =>
     meal.category.toLowerCase().includes(cat.toLowerCase())
   );
 
@@ -81,6 +103,7 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
   const resetForm = () => {
     setQuantity(1);
     setSelectedSlot(null);
+    setSelectedExpressOption(null);
     setSelectedAddOns([]);
     setSpiceLevel('medium');
     setSpecialInstructions('');
@@ -88,19 +111,38 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
   };
 
   const handleAddToCart = () => {
-    if (!selectedSlot) return;
-    const slot = timeSlots.find(s => s.id === selectedSlot);
-    addToCart({
-      meal,
-      quantity,
-      addOns: selectedAddOnObjects,
-      spiceLevel: shouldShowSpiceLevel ? spiceLevel : 'none',
-      specialInstructions,
-      pickupSlotId: selectedSlot,
-      pickupTime: slot?.time || '12:30 PM',
-      isScheduled: isScheduleMode,
-      scheduledDate: isScheduleMode ? tomorrowDate : undefined,
-    });
+    if (!canSubmit) return;
+
+    if (isExpressMode && selectedExpressArrival) {
+      addToCart({
+        meal,
+        quantity,
+        addOns: selectedAddOnObjects,
+        spiceLevel: shouldShowSpiceLevel ? spiceLevel : 'none',
+        specialInstructions,
+        pickupSlotId: selectedExpressOption!,
+        pickupTime: expressPickupTime!,
+        isScheduled: false,
+        scheduledDate: undefined,
+        orderType,
+      });
+    } else {
+      const slot = isScheduleMode
+        ? scheduledTimeSlots.find(s => s.id === selectedSlot)
+        : mockTimeSlots.find(s => s.id === selectedSlot);
+      addToCart({
+        meal,
+        quantity,
+        addOns: selectedAddOnObjects,
+        spiceLevel: shouldShowSpiceLevel ? spiceLevel : 'none',
+        specialInstructions,
+        pickupSlotId: selectedSlot!,
+        pickupTime: slot?.time || '12:30 PM',
+        isScheduled: isScheduleMode,
+        scheduledDate: isScheduleMode ? tomorrowDate : undefined,
+        orderType,
+      });
+    }
     setShowSuccess(true);
   };
 
@@ -133,7 +175,7 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
 
                   <motion.h2 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.25 }} className="modal__success-title">
-                    {isScheduleMode ? 'Scheduled for Tomorrow!' : 'Added to Cart!'}
+                    {isScheduleMode ? 'Scheduled for Tomorrow!' : isExpressMode ? 'Express Order Placed!' : 'Added to Cart!'}
                   </motion.h2>
 
                   <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -141,11 +183,19 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                     {quantity}x {meal.name} • ₹{totalPrice}
                   </motion.p>
 
+                  {isExpressMode && selectedExpressArrival && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.4 }} className="modal__success-express-info">
+                      <Zap className="modal__success-express-icon" />
+                      <span>Ready by {expressPickupTime} · Kitchen starts now!</span>
+                    </motion.div>
+                  )}
+
                   {isScheduleMode && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.4 }} className="modal__success-schedule-info">
                       <Calendar className="modal__success-schedule-icon" />
-                      <span>{tomorrowDate} at {timeSlots.find(s => s.id === selectedSlot)?.time}</span>
+                      <span>{tomorrowDate} at {scheduledTimeSlots.find(s => s.id === selectedSlot)?.time}</span>
                     </motion.div>
                   )}
 
@@ -203,6 +253,16 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                         <div className="modal__schedule-banner-text">
                           <p className="modal__schedule-banner-title">Pre-order for {tomorrowDate}</p>
                           <p className="modal__schedule-banner-subtitle">We'll have it fresh & ready!</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {isExpressMode && (
+                      <div className="modal__express-banner">
+                        <Zap className="modal__express-banner-icon" />
+                        <div className="modal__express-banner-text">
+                          <p className="modal__express-banner-title">⚡ Kitchen starts cooking immediately</p>
+                          <p className="modal__express-banner-subtitle">Tell us when you'll arrive — food will be hot & ready</p>
                         </div>
                       </div>
                     )}
@@ -296,20 +356,56 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                         placeholder="Any allergies or requests?" className="modal__textarea" maxLength={150} />
                     </div>
 
+                    {/* ── PICKUP / ARRIVAL SECTION ── */}
                     <div className="modal__section">
                       <div className="modal__section-header">
                         {isScheduleMode ? (
                           <Calendar className="modal__section-icon modal__section-icon--schedule" />
+                        ) : isExpressMode ? (
+                          <Timer className="modal__section-icon modal__section-icon--express" />
                         ) : (
-                          <Clock className={`modal__section-icon ${isExpressMode ? 'modal__section-icon--express' : 'modal__section-icon--primary'}`} />
+                          <Clock className="modal__section-icon modal__section-icon--primary" />
                         )}
                         <h3 className="modal__section-title">
-                          {isScheduleMode ? 'Pickup Time Tomorrow' : 'Pickup Time'}
+                          {isExpressMode ? 'When will you arrive?' : isScheduleMode ? 'Pickup Time Tomorrow' : 'Pickup Time'}
                         </h3>
                         <span className="modal__required">*Required</span>
                       </div>
 
-                      {isScheduleMode ? (
+                      {/* EXPRESS — 3 arrival cards */}
+                      {isExpressMode ? (
+                        <div className="modal__express-arrival-grid">
+                          {expressArrivalOptions.map((option) => {
+                            const isSelected = selectedExpressOption === option.id;
+                            const pickupAt = getPickupTimeFromMinutes(option.minutes);
+                            return (
+                              <motion.button
+                                key={option.id}
+                                whileTap={{ scale: 0.95 }}
+                                whileHover={{ scale: 1.02 }}
+                                onClick={() => setSelectedExpressOption(option.id)}
+                                className={`modal__express-arrival ${isSelected ? 'modal__express-arrival--active' : ''}`}
+                              >
+                                <span className="modal__express-arrival-emoji">{option.emoji}</span>
+                                <span className="modal__express-arrival-label">{option.label}</span>
+                                <span className="modal__express-arrival-sublabel">{option.sublabel}</span>
+                                <span className="modal__express-arrival-time">Ready ~{pickupAt}</span>
+                                {isSelected && (
+                                  <motion.div
+                                    className="modal__express-arrival-check"
+                                    initial={{ scale: 0 }}
+                                    animate={{ scale: 1 }}
+                                    transition={{ type: 'spring', damping: 15 }}
+                                  >
+                                    <Check />
+                                  </motion.div>
+                                )}
+                              </motion.button>
+                            );
+                          })}
+                        </div>
+                      ) : isScheduleMode ? (
+                        /* SCHEDULED — tomorrow slots grouped by period */
                         <div className="modal__schedule-slots">
                           {['Breakfast', 'Lunch', 'Dinner'].map((period) => {
                             const periodSlots = scheduledTimeSlots.filter(s => s.period === period);
@@ -331,6 +427,7 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                           })}
                         </div>
                       ) : (
+                        /* NORMAL — today's slots with queue info */
                         <div className="modal__slots-grid">
                           {mockTimeSlots.map((slot) => (
                             <motion.button key={slot.id} whileTap={{ scale: 0.95 }}
@@ -361,7 +458,7 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                       <span className="modal__total-price">₹{totalPrice}</span>
                     </div>
 
-                    <Button onClick={handleAddToCart} disabled={!selectedSlot}
+                    <Button onClick={handleAddToCart} disabled={!canSubmit}
                       className={`modal__submit ${isScheduleMode ? 'modal__submit--schedule' : ''} ${isExpressMode ? 'modal__submit--express' : ''}`}>
                       {isScheduleMode ? (
                         <Calendar className="modal__submit-icon" />
@@ -370,13 +467,17 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                       ) : (
                         <ShoppingBag className="modal__submit-icon" />
                       )}
-                      {selectedSlot ? (
+                      {canSubmit ? (
                         <>
-                          {isScheduleMode ? 'Schedule Order' : isExpressMode ? 'Add Express to Cart' : 'Add to Cart'}
+                          {isScheduleMode
+                            ? 'Schedule Order'
+                            : isExpressMode
+                              ? `Start Cooking — Arrive in ${selectedExpressArrival?.label}`
+                              : 'Add to Cart'}
                           <ArrowRight className="modal__submit-arrow" />
                         </>
                       ) : (
-                        isScheduleMode ? 'Select Pickup Time' : 'Select Pickup Time'
+                        isExpressMode ? 'How far are you?' : 'Select Pickup Time'
                       )}
                     </Button>
                   </div>

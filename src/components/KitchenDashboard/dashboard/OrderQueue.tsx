@@ -1,18 +1,24 @@
 // ============================================================
-// OrderQueue.tsx — File 1 look + File 2 backend
-// FIX: onStatusChange typed as Promise<void> to match OrderCard
+// OrderQueue.tsx
+// FIX [F10/F12]: Added staff and onAssignChef props so OrderCard can show
+// the chef assignment dropdown in the List view.
+// Previously OrderQueue had no way to pass staff to OrderCard, so
+// showAssignChef was always false and admins could never assign chefs
+// from the List/Queue tab – only from the Kanban board.
 // ============================================================
 
 import { useState } from 'react';
-import { Order, OrderStatus } from '../../../kitchen-types/order';
+import { Order, OrderStatus, ORDER_TYPE_WEIGHT } from '../../../kitchen-types/order';
+import { StaffWorkloadDto } from '../../../kitchen-api/kitchenApi';
 import { OrderCard } from './OrderCard';
 import { Clock, ChefHat, CheckCircle2, Package } from 'lucide-react';
 import '../styles/Orderqueue.scss';
 
 interface OrderQueueProps {
-  orders:         Order[];
-  // FIX: async to match OrderCard's expected signature
-  onStatusChange: (orderId: string, status: OrderStatus) => Promise<void>;
+  orders:          Order[];
+  staff?:          StaffWorkloadDto[];   // FIX [F12]: now accepted, passed to OrderCard
+  onStatusChange:  (orderId: string, status: OrderStatus) => Promise<void>;
+  onAssignChef?:   (orderId: string, chefId: string) => Promise<void>; // FIX [F12]
 }
 
 interface Tab {
@@ -28,18 +34,18 @@ const tabs: Tab[] = [
   { status: 'ready',   label: 'Ready',   icon: CheckCircle2 },
 ];
 
-const priorityOrder: Record<string, number> = { urgent: 0, high: 1, normal: 2 };
-
-export function OrderQueue({ orders, onStatusChange }: OrderQueueProps) {
+export function OrderQueue({ orders, staff = [], onStatusChange, onAssignChef }: OrderQueueProps) {
   const [activeTab, setActiveTab] = useState<OrderStatus | 'all'>('all');
 
   const filteredOrders = activeTab === 'all'
     ? orders.filter(order => order.status !== 'completed')
     : orders.filter(order => order.status === activeTab);
 
+  // Express-first sort: ORDER_TYPE_WEIGHT (express=0, normal=1, scheduled=2)
+  // then by createdAt FIFO within each type.
   const sortedOrders = [...filteredOrders].sort((a, b) => {
-    const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
-    if (pDiff !== 0) return pDiff;
+    const tw = (ORDER_TYPE_WEIGHT[a.orderType] ?? 1) - (ORDER_TYPE_WEIGHT[b.orderType] ?? 1);
+    if (tw !== 0) return tw;
     return a.createdAt.getTime() - b.createdAt.getTime();
   });
 
@@ -85,8 +91,9 @@ export function OrderQueue({ orders, onStatusChange }: OrderQueueProps) {
             <OrderCard
               key={order.id}
               order={order}
+              staff={staff}               // FIX [F10]: pass staff so chef dropdown works
               onStatusChange={onStatusChange}
-              // staff not passed — OrderQueue has no chef assignment role
+              onAssignChef={onAssignChef} // FIX [F12]: pass handler through
             />
           ))
         )}

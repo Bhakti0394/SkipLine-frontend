@@ -2,13 +2,13 @@ import { motion } from 'framer-motion';
 import { History, Calendar, Download, RefreshCw, Star, ChevronRight, Zap, Leaf, Package, Sparkles, TrendingUp, Award } from 'lucide-react';
 import { DashboardLayout } from '../../components/CustomerDashboard/layout/DashboardLayout';
 import { Button } from '../../components/ui/button';
-import { usePrepline } from '../../customer-context/PreplineContext';
+import { useSkipLine } from '../../customer-context/SkipLineContext';
 import { useNavigate } from 'react-router-dom';
 import '../../components/CustomerDashboard/styles/OrderHistory.scss';
 
 export default function OrderHistory() {
   const navigate = useNavigate();
-  const { orderHistory, metrics, addToCart } = usePrepline();
+  const { orderHistory, metrics, addToCart } = useSkipLine();
 
   const totalSpent = orderHistory.reduce((sum, order) => sum + order.price, 0);
   const totalTimeSaved = orderHistory.reduce((sum, order) => sum + order.timeSaved, 0);

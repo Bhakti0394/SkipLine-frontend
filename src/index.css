@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Prepline Design System - Bold, Dark, Energetic */
+/* SkipLine Design System - Bold, Dark, Energetic */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap');
 
@@ -38,7 +38,7 @@
 
     --radius: 0.75rem;
 
-    /* Custom Prepline tokens */
+    /* Custom SkipLine tokens */
     --glow-primary: 16 90% 55%;
     --glow-accent: 155 70% 45%;
     --gradient-start: 16 90% 55%;

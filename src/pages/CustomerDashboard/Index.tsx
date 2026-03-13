@@ -6,11 +6,11 @@ import { KitchenGlance } from '../../components/CustomerDashboard/dashboard/Kitc
 import { OrderFlowMini } from '../../components/CustomerDashboard/dashboard/OrderFlowMini';
 import { StreakCard } from '../../components/CustomerDashboard/dashboard/StreakCard';
 import { CartButton } from '../../components/CustomerDashboard/dashboard/CartButton';
-import { usePrepline } from '../../customer-context/PreplineContext';
+import { useSkipLine } from '../../customer-context/SkipLineContext';
 import '../../components/CustomerDashboard/styles/Index.scss';
 
 const Index = () => {
-  const { orders, metrics, kitchenState, orderHistory } = usePrepline();
+  const { orders, metrics, kitchenState, orderHistory } = useSkipLine();
 
   const activeOrders = orders.filter(o => o.status !== 'completed');
 

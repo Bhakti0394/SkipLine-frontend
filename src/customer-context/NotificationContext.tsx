@@ -74,8 +74,8 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'prepline_notifications';
-const PREFERENCES_KEY = 'prepline_notification_preferences';
+const STORAGE_KEY = 'SkipLine_notifications';
+const PREFERENCES_KEY = 'SkipLine_notification_preferences';
 
 const defaultPreferences: NotificationPreferences = {
   orderUpdates: true,

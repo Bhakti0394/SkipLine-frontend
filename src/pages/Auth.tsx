@@ -18,7 +18,7 @@ import {
   Send,
   KeyRound,
 } from "lucide-react";
-import PreplineLogo from "@/components/landing/PreplineLogo";
+import SkipLineLogo from "@/components/landing/SkipLineLogo";
 
 import "./Auth.scss";
 
@@ -264,8 +264,8 @@ const Auth = () => {
 
         <div className="left-panel-content">
           <div className="logo-section" onClick={() => navigate("/")}>
-            <PreplineLogo size="md" />
-            <span className="logo-text">Prepline</span>
+            <SkipLineLogo size="md" />
+            <span className="logo-text">SkipLine</span>
           </div>
 
           <div className="feature-showcase">
@@ -325,7 +325,7 @@ const Auth = () => {
 
           <div className="testimonial-card">
             <p className="testimonial-text">
-              "Prepline transformed our canteen operations. Students love the zero-wait experience."
+              "SkipLine transformed our canteen operations. Students love the zero-wait experience."
             </p>
             <p className="testimonial-author">— Campus Dining Director</p>
           </div>
@@ -341,8 +341,8 @@ const Auth = () => {
       >
         <div className="auth-form-wrapper">
           <div className="mobile-logo" onClick={() => navigate("/")}>
-            <PreplineLogo size="lg" />
-            <span className="logo-text">Prepline</span>
+            <SkipLineLogo size="lg" />
+            <span className="logo-text">SkipLine</span>
           </div>
 
           <div className="auth-header">
@@ -360,8 +360,8 @@ const Auth = () => {
             </AnimatePresence>
             <p className="auth-subtitle">
               {mode === "login"
-                ? "Sign in to continue to Prepline"
-                : "Start optimizing meal operations with Prepline"}
+                ? "Sign in to continue to SkipLine"
+                : "Start optimizing meal operations with SkipLine"}
             </p>
           </div>
 

@@ -1,5 +1,5 @@
 {
-  "name": "prepline-queue-management",
+  "name": "QLess-queue-management",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -93,3 +93,4 @@
     "vitest": "^3.2.4"
   }
 }
+

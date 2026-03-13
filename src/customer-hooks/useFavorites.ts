@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Meal } from '@/types/dashboard';
 
-const STORAGE_KEY = 'prepline_favorites';
+const STORAGE_KEY = 'SkipLine_favorites';
 
 export function useFavorites() {
   const [favorites, setFavorites] = useState<Meal[]>([]);

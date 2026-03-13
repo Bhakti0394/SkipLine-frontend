@@ -1,36 +1,38 @@
 // ============================================================
-// SimulationControls.tsx — File 1 look + File 2 backend
+// SimulationControls.tsx
 // ============================================================
 //
-// KEPT from File 1: motion.div wrapper with fade-in animation,
-//                   Turtle/Rabbit speed icons, "Pause" label (not "Stop"),
-//                   prop-based interface (no direct hook call),
-//                   N/S keyboard shortcut hint style
+// Simulation gate logic:
 //
-// KEPT from File 2: stopSimulation() on pause for error clearing,
-//                   isSimTriggerPending disabled states,
-//                   capacity row (freeSlots, capacityPct, isOverloaded),
-//                   burst input + Add N Orders button,
-//                   feedback message (burstResult / simulationError),
-//                   +1 button disabled when overloaded,
-//                   Wind/Zap/Gauge replaced with Turtle/Zap/Rabbit (File 1)
+//   Sim OFF → drag/drop ✓, chef assign ✓, +1 ✓, Add N Orders ✓
+//             Speed buttons disabled (no auto-ticks running)
+//             Auto-complete on Ready cards: OFF (manual Complete only)
+//             Hint: "Drag & drop or use +1 to add orders manually"
+//
+//   Sim ON  → everything above ✓ + auto-orders inject at set speed ✓
+//             Auto-complete fires after 20s on Ready cards ✓
+//             Hint: slots/keyboard shortcuts
+//
+// +1 and Add N Orders are ALWAYS visible — manual injection is allowed
+// regardless of sim state. Backend auto-assigns a chef when one is
+// available, so manually injected orders flow into cooking automatically.
 
 import React, { useState, memo } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Pause, Plus, Zap, Turtle, Rabbit, Wind } from 'lucide-react';
+import { Play, Pause, Plus, Zap, Turtle, Rabbit } from 'lucide-react';
 import { CapacitySnapshot } from '../../../kitchen-types/order';
 import '../styles/Simulationcontrols.scss';
 
 interface SimulationControlsProps {
-  isSimulating:       boolean;
-  simulationSpeed:    'slow' | 'normal' | 'fast';
-  simulationError?:   string | null;
+  isSimulating:         boolean;
+  simulationSpeed:      'slow' | 'normal' | 'fast';
+  simulationError?:     string | null;
   isSimTriggerPending?: boolean;
-  capacity:           CapacitySnapshot;
-  onToggleSimulation: () => void;       // parent calls stopSimulation() or setIsSimulating()
-  onSetSpeed:         (speed: 'slow' | 'normal' | 'fast') => void;
-  onAddOne:           () => Promise<{ generated: number; rejected: number; reason?: string }>;
-  onBurst:            (count: number) => Promise<{ generated: number; rejected: number; reason?: string }>;
+  capacity:             CapacitySnapshot;
+  onToggleSimulation:   () => void;
+  onSetSpeed:           (speed: 'slow' | 'normal' | 'fast') => void;
+  onAddOne:             () => Promise<{ generated: number; rejected: number; reason?: string }>;
+  onBurst:              (count: number) => Promise<{ generated: number; rejected: number; reason?: string }>;
 }
 
 export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
@@ -80,11 +82,10 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
     }
   };
 
-  // File 1: Turtle / Zap / Rabbit icons for speed
   const speeds: Array<{ key: 'slow' | 'normal' | 'fast'; label: string; Icon: React.ElementType }> = [
-    { key: 'slow',   label: '0.5×', Icon: Turtle  },
-    { key: 'normal', label: '1×',   Icon: Zap     },
-    { key: 'fast',   label: '2×',   Icon: Rabbit  },
+    { key: 'slow',   label: '0.5×', Icon: Turtle },
+    { key: 'normal', label: '1×',   Icon: Zap    },
+    { key: 'fast',   label: '2×',   Icon: Rabbit },
   ];
 
   const feedbackMessage = burstResult ?? simulationError ?? null;
@@ -94,14 +95,18 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
     feedbackMessage?.toLowerCase().includes('failed') ||
     !!simulationError;
 
+  // Injection disabled only when kitchen is full or request in-flight.
+  // NOT gated on isSimulating — manual injection always allowed.
+  const injectionDisabled = isSimTriggerPending || capacity.isOverloaded;
+  const injectionTitle    = capacity.isOverloaded ? 'Kitchen is at full capacity' : undefined;
+
   return (
-    // File 1: motion.div fade-in wrapper
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="simulation-controls"
     >
-      {/* ── Header — File 1: "Order Simulation" title ── */}
+      {/* ── Header ── */}
       <div className="simulation-controls__header">
         <h3 className="simulation-controls__title">Order Simulation</h3>
         <div className="simulation-controls__status">
@@ -112,7 +117,7 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
         </div>
       </div>
 
-      {/* ── Capacity row (File 2) ── */}
+      {/* ── Capacity row ── */}
       <div className="simulation-controls__capacity">
         <span>Free slots: <strong>{capacity.freeSlots}</strong></span>
         <span>·</span>
@@ -122,7 +127,7 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
         )}
       </div>
 
-      {/* ── Main buttons — File 1: "Pause" label; File 2: pending + overload states ── */}
+      {/* ── Start/Pause + manual +1 (always visible) ── */}
       <div className="simulation-controls__buttons">
         <button
           className={`simulation-controls__btn simulation-controls__btn--main ${
@@ -142,14 +147,14 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
         <button
           className="simulation-controls__btn simulation-controls__btn--main simulation-controls__btn--outline"
           onClick={handleAddOne}
-          disabled={isSimTriggerPending || capacity.isOverloaded}
-          title={capacity.isOverloaded ? 'Kitchen is at full capacity' : 'Add 1 order'}
+          disabled={injectionDisabled}
+          title={injectionTitle}
         >
           <Plus className="simulation-controls__icon" /> +1
         </button>
       </div>
 
-      {/* ── Speed controls — File 1: Turtle/Zap/Rabbit icons ── */}
+      {/* ── Speed — disabled when sim OFF (no ticks running to speed up) ── */}
       <div className="simulation-controls__speed">
         <span className="simulation-controls__speed-label">Speed:</span>
         {speeds.map(({ key, label, Icon }) => (
@@ -157,9 +162,10 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
             key={key}
             className={`simulation-controls__speed-btn${
               simulationSpeed === key ? ' simulation-controls__speed-btn--active' : ''
-            }`}
-            onClick={() => onSetSpeed(key)}
-            title={`Set speed to ${label}`}
+            }${!isSimulating ? ' simulation-controls__speed-btn--disabled' : ''}`}
+            onClick={() => isSimulating && onSetSpeed(key)}
+            disabled={!isSimulating}
+            title={!isSimulating ? 'Start simulation to change speed' : `Set speed to ${label}`}
           >
             <Icon className="simulation-controls__speed-icon" />
             <span className="simulation-controls__speed-text">{label}</span>
@@ -167,7 +173,7 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
         ))}
       </div>
 
-      {/* ── Burst row (File 2) ── */}
+      {/* ── Burst row (always visible) ── */}
       <div className="simulation-controls__burst">
         <input
           type="number"
@@ -179,28 +185,36 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
         />
         <button
           onClick={handleBurst}
-          disabled={isSimTriggerPending || capacity.isOverloaded}
+          disabled={injectionDisabled}
           className="simulation-controls__btn simulation-controls__btn--secondary"
-          title={capacity.isOverloaded ? 'Kitchen is at full capacity' : `Add ${burst} orders`}
+          title={injectionTitle ?? `Add ${burst} orders`}
         >
           Add {burst} Orders
         </button>
       </div>
 
-      {/* ── Feedback (File 2) ── */}
+      {/* ── Feedback ── */}
       {feedbackMessage && (
         <p className={`simulation-controls__feedback simulation-controls__feedback--${isError ? 'error' : 'success'}`}>
           {feedbackMessage}
         </p>
       )}
 
-      {/* ── Hint — File 1: N/S shortcut style; File 2: capacity slots info ── */}
+      {/* ── Hint — contextual ── */}
       <p className="simulation-controls__hint">
-        Orders beyond capacity ({capacity.totalSlots} slots) are rejected.{' '}
-        <kbd className="simulation-controls__kbd">N</kbd> to add,{' '}
-        <kbd className="simulation-controls__kbd">S</kbd> to toggle.
+        {isSimulating ? (
+          <>
+            Orders beyond capacity ({capacity.totalSlots} slots) are rejected.{' '}
+            <kbd className="simulation-controls__kbd">N</kbd> to add,{' '}
+            <kbd className="simulation-controls__kbd">S</kbd> to toggle.
+          </>
+        ) : (
+          <>
+            Drag &amp; drop or use +1 to add orders manually.{' '}
+            <kbd className="simulation-controls__kbd">S</kbd> to start auto-simulation.
+          </>
+        )}
       </p>
-
     </motion.div>
   );
 });

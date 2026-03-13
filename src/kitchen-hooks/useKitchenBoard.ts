@@ -1,79 +1,147 @@
 // ============================================================
 // src/kitchen-hooks/useKitchenBoard.ts
 // ============================================================
+//
+// FIX [EXPRESS-TIME]: Express orders use 5/10/15 min windows only.
+//
+// FIX [SCHEDULED-PICKUP]: Scheduled orders now show real date+time in Queue.
+//
+// ROOT CAUSE of "TBD":
+//   dto.pickupSlotTime was null because createOrder() never linked a slot at
+//   creation. Backend fix: CreateOrderRequest now accepts pickupSlotId and
+//   OrderService links the slot immediately when provided.
+//
+//   Frontend fallback (resolvePickupTime): if pickupSlotTime is still null for
+//   a scheduled order, derives "Tomorrow ~HH:MM" from placedAt + 1 day so the
+//   card always shows something meaningful for legacy/in-flight orders.
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-  fetchBoard,
-  fetchMenuItems,
-  createOrder,
-  changeOrderStatus,
-  assignChef as assignChefApi,
-  activateChef as activateChefApi,
+  fetchBoard, fetchMenuItems, createOrder, changeOrderStatus,
+  assignChef as assignChefApi, activateChef as activateChefApi,
   removeChefFromShift as removeChefFromShiftApi,
   validateRemoval as validateRemovalApi,
-  triggerSimulation,
-  KanbanBoardResponse,
-  OrderCardDto,
-  MenuItemDto,
-  StaffWorkloadDto,
-  StaffRemovalValidationDto,
-  SimulationResult,
+  triggerSimulation, simulateAdvance, decodeOrderTypeFromRef,
+  KanbanBoardResponse, OrderCardDto, MenuItemDto,
+  StaffWorkloadDto, StaffRemovalValidationDto, SimulationResult,
+  SlotCapacityDto,
 } from '../kitchen-api/kitchenApi';
-import { Order, OrderStatus, CapacitySnapshot, BackendOrderStatus } from '../kitchen-types/order';
+import {
+  Order, OrderStatus, OrderType, CapacitySnapshot, BackendOrderStatus,
+} from '../kitchen-types/order';
+import { selectCapacity, canTransition } from './Capacityengine';
 
 export type BackendStatus = BackendOrderStatus;
-
-// ─── Valid transition graph ───────────────────────────────────────────────────
-
-const VALID_TRANSITIONS: Record<BackendStatus, BackendStatus[]> = {
-  PENDING:   ['COOKING'],
-  COOKING:   ['READY'],
-  READY:     ['COMPLETED'],
-  COMPLETED: [],
-};
-
-export function canTransition(from: BackendStatus, to: BackendStatus): boolean {
-  return VALID_TRANSITIONS[from]?.includes(to) ?? false;
-}
-
-// ─── Status maps ──────────────────────────────────────────────────────────────
+export { canTransition };
 
 const statusMap: Record<BackendStatus, OrderStatus> = {
-  PENDING:   'pending',
-  COOKING:   'cooking',
-  READY:     'ready',
-  COMPLETED: 'completed',
+  PENDING: 'pending', COOKING: 'cooking', READY: 'ready', COMPLETED: 'completed',
 };
 
 const statusMapReverse: Record<OrderStatus, BackendStatus> = {
-  pending:   'PENDING',
-  cooking:   'COOKING',
-  ready:     'READY',
-  completed: 'COMPLETED',
+  pending: 'PENDING', cooking: 'COOKING', ready: 'READY', completed: 'COMPLETED',
 };
-
-// ─── Constants ────────────────────────────────────────────────────────────────
 
 const AUTO_COMPLETE_DELAY_MS = 20_000;
 
 const SPEED_INTERVALS: Record<'slow' | 'normal' | 'fast', number> = {
-  slow:   25_000,
-  normal: 12_000,
-  fast:    5_000,
+  slow: 25_000, normal: 12_000, fast: 5_000,
 };
 
 const EMPTY_METRICS = {
-  totalOrdersToday:           0,
-  completedOrdersToday:       0,
-  avgCookTimeMinutes:         0,
-  efficiencyPercent:          0,
-  capacityUtilizationPercent: 0,
-  lateOrdersCount:            0,
-  activeChefCount:            0,
+  totalOrdersToday: 0, completedOrdersToday: 0, avgCookTimeMinutes: 0,
+  efficiencyPercent: 0, capacityUtilizationPercent: 0, lateOrdersCount: 0, activeChefCount: 0,
 };
 
-// ─── DTO → frontend Order ─────────────────────────────────────────────────────
+// ─── EXPRESS time options ─────────────────────────────────────────────────────
+
+const EXPRESS_OPTIONS = [5, 10, 15] as const;
+type ExpressMinutes   = typeof EXPRESS_OPTIONS[number];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function simpleHash(str: string): number {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+const ORDER_TYPE_HASH_TABLE: Exclude<OrderType, 'scheduled'>[] = [
+  'normal',  'express', 'normal',  'normal',  'normal',
+  'express', 'normal',  'normal',  'normal',  'normal',
+  'express', 'normal',  'normal',  'express', 'normal',
+  'normal',  'express', 'normal',  'normal',  'normal',
+];
+
+function resolveOrderType(dto: OrderCardDto): OrderType {
+  if (dto.orderType) {
+    const t = dto.orderType.toLowerCase();
+    if (t === 'express' || t === 'scheduled' || t === 'normal') return t as OrderType;
+  }
+  const ref = dto.orderRef ?? '';
+  if (ref.includes('-SCHEDULED')) return 'scheduled';
+  if (ref.includes('-EXPRESS'))   return 'express';
+  if (ref.includes('-NORMAL'))    return 'normal';
+  const decoded = decodeOrderTypeFromRef(ref);
+  if (decoded === 'scheduled' || decoded === 'express') return decoded;
+  return ORDER_TYPE_HASH_TABLE[simpleHash(dto.id + ref) % ORDER_TYPE_HASH_TABLE.length];
+}
+
+function safeDate(value: string | null | undefined): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
+// ─── resolvePickupTime ────────────────────────────────────────────────────────
+//
+// Single source of truth for the pickupTime string shown on every order card.
+//
+// Priority chain:
+//   1. Real slot time from backend → "9:30 AM" / "Tomorrow 9:30 AM" / "Mon 9:30 AM"
+//   2. Express + no slot → "ASAP"
+//   3. Scheduled + no slot → "Tomorrow ~<time>" derived from placedAt (fallback)
+//   4. Normal + no slot   → "ASAP"
+
+function resolvePickupTime(dto: OrderCardDto, resolvedType: OrderType): string {
+  // 1. Real backend slot
+  if (dto.pickupSlotTime) {
+    const slotDate = new Date(dto.pickupSlotTime);
+    const today    = new Date();
+
+    const sameDay = (a: Date, b: Date) =>
+      a.getDate() === b.getDate() &&
+      a.getMonth() === b.getMonth() &&
+      a.getFullYear() === b.getFullYear();
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    const timeStr = slotDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+    if (sameDay(slotDate, today))    return timeStr;
+    if (sameDay(slotDate, tomorrow)) return `Tomorrow ${timeStr}`;
+    return slotDate.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + timeStr;
+  }
+
+  // 2. Express, no slot
+  if (resolvedType === 'express') return 'ASAP';
+
+  // 3. Scheduled, no slot — derive from placedAt + 1 day (fallback for legacy orders)
+  if (resolvedType === 'scheduled') {
+    const placed = safeDate(dto.placedAt);
+    if (placed) {
+      const tmrw = new Date(placed);
+      tmrw.setDate(placed.getDate() + 1);
+      const timeStr = tmrw.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      return `Tomorrow ~${timeStr}`;
+    }
+    return 'Tomorrow';
+  }
+
+  // 4. Normal, no slot
+  return 'ASAP';
+}
 
 function toFrontendOrder(dto: OrderCardDto): Order {
   const items = dto.itemSummary.map((summary, i) => {
@@ -87,65 +155,83 @@ function toFrontendOrder(dto: OrderCardDto): Order {
     };
   });
 
+  const isCompleted      = dto.status === 'COMPLETED';
+  const placedAt         = safeDate(dto.placedAt);
+  const cookingStartedAt = safeDate(dto.cookingStartedAt);
+  const readyAt          = safeDate(dto.readyAt);
+
+  let completedAt: Date | undefined = safeDate(dto.completedAt);
+  if (!completedAt && isCompleted) {
+    completedAt = readyAt ?? placedAt ?? new Date();
+  }
+
+  let elapsedMinutes = dto.elapsedMinutes;
+  if (elapsedMinutes === 0 && cookingStartedAt) {
+    const cookEnd = completedAt ?? readyAt;
+    if (cookEnd) {
+      const ms = cookEnd.getTime() - cookingStartedAt.getTime();
+      if (ms > 0 && ms < 8 * 60 * 60 * 1000) elapsedMinutes = ms / 60_000;
+    }
+  }
+
+  const resolvedType = resolveOrderType(dto);
+
+  // ── Express window ─────────────────────────────────────────────────────────
+  let expressMinutes: ExpressMinutes | undefined;
+  let expressPickupSlotMs: number | undefined;
+
+  if (resolvedType === 'express' && !dto.pickupSlotTime) {
+    expressMinutes      = EXPRESS_OPTIONS[simpleHash(dto.id) % EXPRESS_OPTIONS.length];
+    const base          = placedAt ?? new Date();
+    const fromPlacement = base.getTime() + expressMinutes * 60_000;
+    const anchor        = cookingStartedAt ?? base;
+    const MIN_BUFFER_MS = 2 * 60_000;
+    expressPickupSlotMs = Math.max(fromPlacement, anchor.getTime() + MIN_BUFFER_MS);
+  }
+
+  // ── Resolved estimatedPrepTime ─────────────────────────────────────────────
+  const resolvedEstimatedPrepTime: number =
+    resolvedType === 'express' && expressMinutes !== undefined
+      ? expressMinutes
+      : dto.totalPrepMinutes;
+
   return {
     id:                dto.id,
     orderNumber:       dto.orderRef,
     customerName:      dto.customerName ?? dto.orderRef,
     status:            statusMap[dto.status as BackendStatus] ?? 'pending',
     backendStatus:     dto.status as BackendOrderStatus,
-    priority:          dto.isLate ? 'urgent' : 'normal',
+    orderType:         resolvedType,
     items,
-    estimatedPrepTime: dto.totalPrepMinutes,
-    elapsedMinutes:    dto.elapsedMinutes,
-    pickupTime:        dto.pickupSlotTime
-      ? new Date(dto.pickupSlotTime).toLocaleTimeString('en-US', {
-          hour: 'numeric', minute: '2-digit',
-        })
-      : 'TBD',
+    estimatedPrepTime: resolvedEstimatedPrepTime,
+    elapsedMinutes,
+    pickupTime:     resolvePickupTime(dto, resolvedType), // ← FIX applied here
     assignedTo:     dto.assignedChefName ?? undefined,
     assignedChefId: dto.assignedChefId   ?? undefined,
-    createdAt:      new Date(dto.placedAt),
-    startedAt:      undefined,
-    completedAt:    undefined,
+    createdAt:      placedAt ?? new Date(),
+    startedAt:      cookingStartedAt,
+    ...(readyAt     ? { readyAt }     : {}),
+    completedAt,
+    ...(dto.pickupSlotTime
+          ? { pickupSlotMs: new Date(dto.pickupSlotTime).getTime() }
+          : expressPickupSlotMs !== undefined
+            ? { pickupSlotMs: expressPickupSlotMs }
+            : {}
+    ),
   };
 }
 
-// ─── Capacity selector ────────────────────────────────────────────────────────
-
-export function selectCapacity(boardData: KanbanBoardResponse | null): CapacitySnapshot {
-  if (!boardData) {
-    return { totalSlots: 0, cookingCount: 0, freeSlots: 0, capacityPct: 0, isOverloaded: false };
-  }
-
-  const onShiftStaff  = boardData.staff.filter(s => s.onShift);
-  const totalSlots    = onShiftStaff.reduce((sum, s) => sum + s.maxCapacity, 0);
-  const maxQueueDepth = Math.max(totalSlots * 2, 10);
-
-  const cookingCount = (boardData.columns.COOKING ?? []).length;
-  const pendingCount = (boardData.columns.PENDING  ?? []).length;
-
-  const freeSlots   = Math.max(0, totalSlots - cookingCount);
-  const capacityPct = totalSlots > 0
-    ? Math.min(100, Math.round((cookingCount / totalSlots) * 100))
-    : 0;
-
-  const cookingFull  = cookingCount >= totalSlots && totalSlots > 0;
-  const queueFull    = pendingCount >= maxQueueDepth;
-  const isOverloaded = cookingFull && queueFull;
-
-  return { totalSlots, cookingCount, freeSlots, capacityPct, isOverloaded };
-}
-
-// ─── Auto-complete timer entry ────────────────────────────────────────────────
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 interface AutoCompleteEntry {
   timeout:  ReturnType<typeof setTimeout>;
   interval: ReturnType<typeof setInterval>;
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
-
-export function useKitchenBoard(pollingIntervalMs = 10_000) {
+export function useKitchenBoard(
+  pollingIntervalMs = 10_000,
+  onNewOrders?: (orders: Order[]) => void,
+) {
   const [boardData, setBoardData]             = useState<KanbanBoardResponse | null>(null);
   const [orders, setOrders]                   = useState<Order[]>([]);
   const [completedOrders, setCompletedOrders] = useState<Order[]>([]);
@@ -168,8 +254,19 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
 
   const simIntervalRef   = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoCompleteRefs = useRef<Record<string, AutoCompleteEntry>>({});
+  const knownOrderIds    = useRef<Set<string>>(new Set());
+  const isFirstLoad      = useRef(true);
+  const onNewOrdersRef   = useRef(onNewOrders);
+  useEffect(() => { onNewOrdersRef.current = onNewOrders; }, [onNewOrders]);
 
-  // ── Derived ────────────────────────────────────────────────────────────────
+  const isSimulatingRef = useRef(isSimulating);
+  useEffect(() => { isSimulatingRef.current = isSimulating; }, [isSimulating]);
+
+  const boardDataRef = useRef<KanbanBoardResponse | null>(null);
+  useEffect(() => { boardDataRef.current = boardData; }, [boardData]);
+
+  const ordersRef = useRef<Order[]>([]);
+  useEffect(() => { ordersRef.current = orders; }, [orders]);
 
   const capacity: CapacitySnapshot = useMemo(() => selectCapacity(boardData), [boardData]);
   const staff: StaffWorkloadDto[]  = useMemo(() => boardData?.staff ?? [], [boardData]);
@@ -183,58 +280,83 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     pending:   (boardData?.columns.PENDING   ?? []).length,
     cooking:   (boardData?.columns.COOKING   ?? []).length,
     ready:     (boardData?.columns.READY     ?? []).length,
-    completed: (boardData?.columns.COMPLETED ?? []).length,
+    completed: boardData?.metrics.completedOrdersToday ?? 0,
   }), [boardData]);
 
-  // ── Menu items ─────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchMenuItems()
       .then(items => setMenuItems(items.filter(i => i.available)))
       .catch(err => console.warn('[useKitchenBoard] Menu items unavailable:', err.message));
   }, []);
 
-  // ── Board load ─────────────────────────────────────────────────────────────
+  const abortRef = useRef<AbortController | null>(null);
+
   const loadBoard = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const data = await fetchBoard();
+      const data = await fetchBoard(controller.signal);
+      if (controller.signal.aborted) return;
+
       setBoardData(data);
-      setOrders([
+
+      const activeOrders = [
         ...(data.columns.PENDING ?? []),
         ...(data.columns.COOKING ?? []),
         ...(data.columns.READY   ?? []),
-      ].map(toFrontendOrder));
+      ].map(toFrontendOrder);
+
+      if (isFirstLoad.current) {
+        activeOrders.forEach(o => knownOrderIds.current.add(o.id));
+        isFirstLoad.current = false;
+      } else {
+        const brandNew = activeOrders.filter(
+          o => o.status === 'pending' && !knownOrderIds.current.has(o.id)
+        );
+        brandNew.forEach(o => knownOrderIds.current.add(o.id));
+        if (brandNew.length > 0) onNewOrdersRef.current?.(brandNew);
+        activeOrders
+          .filter(o => o.status !== 'pending' && !knownOrderIds.current.has(o.id))
+          .forEach(o => knownOrderIds.current.add(o.id));
+      }
+
+      setOrders(activeOrders);
       setCompletedOrders((data.columns.COMPLETED ?? []).slice(0, 50).map(toFrontendOrder));
       setError(null);
     } catch (err: any) {
+      if (err.name === 'AbortError') return;
       setError(err.message ?? 'Failed to load board');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadBoard(); }, [loadBoard]);
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
+  useEffect(() => { loadBoard(); }, [loadBoard]);
   useEffect(() => {
     const id = setInterval(loadBoard, pollingIntervalMs);
     return () => clearInterval(id);
   }, [loadBoard, pollingIntervalMs]);
 
-  // ── Auto-complete timers ───────────────────────────────────────────────────
+  // ─── Auto-complete timers ─────────────────────────────────────────────────
+
   const cancelAutoComplete = useCallback((orderId: string) => {
     const entry = autoCompleteRefs.current[orderId];
     if (entry) {
       clearTimeout(entry.timeout);
       clearInterval(entry.interval);
       delete autoCompleteRefs.current[orderId];
-      setReadyCountdowns(prev => {
-        const next = { ...prev };
-        delete next[orderId];
-        return next;
-      });
+      setReadyCountdowns(prev => { const n = { ...prev }; delete n[orderId]; return n; });
     }
   }, []);
 
   const scheduleAutoComplete = useCallback((order: Order) => {
+    if (!isSimulatingRef.current) return;
     if (autoCompleteRefs.current[order.id]) return;
 
     setReadyCountdowns(prev => ({ ...prev, [order.id]: AUTO_COMPLETE_DELAY_MS / 1000 }));
@@ -251,18 +373,9 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     const timeout = setTimeout(async () => {
       delete autoCompleteRefs.current[order.id];
       clearInterval(interval);
-      setReadyCountdowns(prev => {
-        const next = { ...prev };
-        delete next[order.id];
-        return next;
-      });
-      try {
-        await changeOrderStatus(order.id, 'COMPLETED');
-        await loadBoard();
-      } catch (err) {
-        console.warn('[AutoComplete] Failed to complete order', order.id, err);
-        await loadBoard();
-      }
+      setReadyCountdowns(prev => { const n = { ...prev }; delete n[order.id]; return n; });
+      try { await changeOrderStatus(order.id, 'COMPLETED'); await loadBoard(); }
+      catch { await loadBoard(); }
     }, AUTO_COMPLETE_DELAY_MS);
 
     autoCompleteRefs.current[order.id] = { timeout, interval };
@@ -281,17 +394,26 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
   }, [orders, cancelAutoComplete, scheduleAutoComplete]);
 
   useEffect(() => {
+    if (!isSimulating) {
+      for (const id of Object.keys(autoCompleteRefs.current)) {
+        cancelAutoComplete(id);
+      }
+    }
+  }, [isSimulating, cancelAutoComplete]);
+
+  useEffect(() => {
     return () => {
       for (const id of Object.keys(autoCompleteRefs.current)) {
-        const entry = autoCompleteRefs.current[id];
-        clearTimeout(entry.timeout);
-        clearInterval(entry.interval);
+        const e = autoCompleteRefs.current[id];
+        clearTimeout(e.timeout);
+        clearInterval(e.interval);
       }
       autoCompleteRefs.current = {};
     };
   }, []);
 
-  // ── updateOrderStatus ──────────────────────────────────────────────────────
+  // ─── Actions ──────────────────────────────────────────────────────────────
+
   const updateOrderStatus = useCallback(async (orderId: string, newStatus: OrderStatus) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) throw new Error(`Order ${orderId} not found`);
@@ -300,48 +422,41 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     const toBackend   = statusMapReverse[newStatus];
 
     if (!canTransition(fromBackend, toBackend)) {
-      throw new Error(
-        `Illegal transition: ${fromBackend} → ${toBackend}. ` +
-        `Allowed from ${fromBackend}: ${VALID_TRANSITIONS[fromBackend].join(', ') || 'none'}`
-      );
+      throw new Error(`Illegal transition: ${fromBackend} → ${toBackend}`);
     }
 
     if (toBackend === 'COMPLETED') cancelAutoComplete(orderId);
 
     const previousOrders = orders;
-    setOrders(prev =>
-      prev.map(o => o.id === orderId ? { ...o, status: newStatus, backendStatus: toBackend } : o)
-    );
+    setOrders(prev => prev.map(o =>
+      o.id === orderId ? { ...o, status: newStatus } : o
+    ));
 
     try {
       await changeOrderStatus(orderId, toBackend);
-      // Reload so backend auto-assignment is reflected (backend assigns chef on COOKING transition)
       await loadBoard();
     } catch (err: any) {
+      console.warn(
+        `[updateOrderStatus] ${fromBackend}→${toBackend} failed for order ${orderId}:`,
+        err.message,
+        '– reverting optimistic update and refreshing board.',
+      );
       setOrders(previousOrders);
       await loadBoard();
       throw err;
     }
   }, [orders, loadBoard, cancelAutoComplete]);
 
-  // ── assignChef ─────────────────────────────────────────────────────────────
-  // FIX: removed optimistic status update — don't set status:'cooking' before
-  // both API calls confirm. Let loadBoard() sync the real state after both complete.
   const assignChef = useCallback(async (orderId: string, chefId: string) => {
-    const order = orders.find(o => o.id === orderId);
     try {
       await assignChefApi(orderId, chefId);
-      if (order?.status === 'pending') {
-        await changeOrderStatus(orderId, 'COOKING');
-      }
-      await loadBoard();
     } catch (err: any) {
       await loadBoard();
       throw err;
     }
-  }, [orders, loadBoard]);
+    await loadBoard();
+  }, [loadBoard]);
 
-  // ── addOrder ───────────────────────────────────────────────────────────────
   const addOrder = useCallback(async (orderRef: string, menuItemIds: string[]): Promise<string> => {
     const id = await createOrder(orderRef, menuItemIds);
     await new Promise(r => setTimeout(r, 300));
@@ -349,34 +464,30 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     return id;
   }, [loadBoard]);
 
-  // ── stopSimulation ────────────────────────────────────────────────────────
   const stopSimulation = useCallback(() => {
     setIsSimulating(false);
     setSimulationError(null);
   }, []);
 
-  // ── Simulation tick ────────────────────────────────────────────────────────
   const runSimulationTick = useCallback(async () => {
     if (menuItems.length === 0) { setSimulationError('No menu items loaded'); return; }
-
     if (capacity.isOverloaded) {
-      setSimulationError('Kitchen is at full capacity — simulation paused');
+      setSimulationError('Kitchen is at full capacity – simulation paused');
       setIsSimulating(false);
       return;
     }
-
     setIsSimTriggerPending(true);
     try {
-      const result: SimulationResult = await triggerSimulation(1, menuItems);
+      const slots: SlotCapacityDto[] = boardDataRef.current?.upcomingSlots ?? [];
+      const result: SimulationResult = await triggerSimulation(1, menuItems, slots);
       if (result.rejected > 0 && result.reason) {
         setSimulationError(result.reason);
-        if (result.reason.includes('full capacity') || result.reason.includes('at full capacity')) {
-          setIsSimulating(false);
-        }
+        if (result.reason.includes('full capacity')) setIsSimulating(false);
       } else {
         setSimulationError(null);
       }
       if (result.generated > 0) {
+        try { await simulateAdvance(); } catch { /* best-effort */ }
         await new Promise(r => setTimeout(r, 300));
         await loadBoard();
       }
@@ -388,10 +499,7 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
   }, [menuItems, capacity.isOverloaded, loadBoard]);
 
   useEffect(() => {
-    if (simIntervalRef.current) {
-      clearInterval(simIntervalRef.current);
-      simIntervalRef.current = null;
-    }
+    if (simIntervalRef.current) { clearInterval(simIntervalRef.current); simIntervalRef.current = null; }
     if (isSimulating) {
       simIntervalRef.current = setInterval(
         () => runSimulationTick().catch(console.error),
@@ -401,7 +509,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     return () => { if (simIntervalRef.current) clearInterval(simIntervalRef.current); };
   }, [isSimulating, simulationSpeed, runSimulationTick]);
 
-  // ── activateBackupChef ─────────────────────────────────────────────────────
   const activateBackupChef = useCallback(async (chefId: string) => {
     setActivatingChefId(chefId);
     try {
@@ -416,7 +523,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     }
   }, [loadBoard]);
 
-  // ── removeChefFromShift ────────────────────────────────────────────────────
   const removeChefFromShift = useCallback(async (chefId: string) => {
     try {
       const updatedStaff = await removeChefFromShiftApi(chefId);
@@ -428,7 +534,6 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     }
   }, [loadBoard]);
 
-  // ── Staff removal flow ─────────────────────────────────────────────────────
   const initiateStaffRemoval = useCallback(async (chefId: string) => {
     setRemovalTargetId(chefId);
     setIsValidatingRemoval(true);
@@ -462,21 +567,21 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
     setIsConfirmingRemoval(false);
   }, []);
 
-  // ── removeOrder ────────────────────────────────────────────────────────────
   const removeOrder = useCallback((orderId: string) => {
     setCompletedOrders(prev => prev.filter(o => o.id !== orderId));
   }, []);
 
-  // ── triggerBurst ───────────────────────────────────────────────────────────
   const triggerBurst = useCallback(async (count: number): Promise<SimulationResult> => {
-    if (menuItems.length === 0) throw new Error('No menu items loaded — cannot simulate');
+    if (menuItems.length === 0) throw new Error('No menu items loaded – cannot simulate');
     if (capacity.isOverloaded) {
       return { generated: 0, rejected: count, reason: 'Kitchen is at full capacity' };
     }
     setIsSimTriggerPending(true);
     try {
-      const result = await triggerSimulation(count, menuItems);
+      const slots: SlotCapacityDto[] = boardDataRef.current?.upcomingSlots ?? [];
+      const result = await triggerSimulation(count, menuItems, slots);
       if (result.generated > 0) {
+        try { await simulateAdvance(); } catch { /* best-effort */ }
         await new Promise(r => setTimeout(r, 300));
         await loadBoard();
       }
@@ -488,52 +593,17 @@ export function useKitchenBoard(pollingIntervalMs = 10_000) {
   }, [menuItems, capacity.isOverloaded, loadBoard]);
 
   return {
-    orders,
-    completedOrders,
-    boardData,
-    loading,
-    error,
-
-    counts,
-    readyCountdowns,
-
-    metrics,
-    staff,
-    allStaff,
-    backupStaff,
-    backupStaffCount,
-    capacity,
-    capacityPercent,
-    currentCapacity: capacity.totalSlots,
-
-    addOrder,
-    updateOrderStatus,
-    assignChef,
-    removeOrder,
-    refresh: loadBoard,
-
-    activateBackupChef,
-    activatingChefId,
-    removeChefFromShift,
-
-    initiateStaffRemoval,
-    confirmStaffRemoval,
-    cancelStaffRemoval,
-    removalValidation,
-    removalTargetId,
-    isValidatingRemoval,
-    isConfirmingRemoval,
-
-    isSimulating,
-    setIsSimulating,
-    stopSimulation,
-    simulationSpeed,
-    setSimulationSpeed,
-    simulationError,
-    isSimTriggerPending,
-    triggerBurst,
-    menuItems,
-
+    orders, completedOrders, boardData, loading, error,
+    counts, readyCountdowns,
+    metrics, staff, allStaff, backupStaff, backupStaffCount,
+    capacity, capacityPercent, currentCapacity: capacity.totalSlots,
+    addOrder, updateOrderStatus, assignChef, removeOrder, refresh: loadBoard,
+    activateBackupChef, activatingChefId, removeChefFromShift,
+    initiateStaffRemoval, confirmStaffRemoval, cancelStaffRemoval,
+    removalValidation, removalTargetId, isValidatingRemoval, isConfirmingRemoval,
+    isSimulating, setIsSimulating, stopSimulation,
+    simulationSpeed, setSimulationSpeed,
+    simulationError, isSimTriggerPending, triggerBurst, menuItems,
     canTransition,
   };
 }

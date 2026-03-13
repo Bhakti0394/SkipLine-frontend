@@ -20,9 +20,9 @@ export function Header({ userName, streak }: HeaderProps) {
       <div className="header__left">
         <motion.div whileHover={{ scale: 1.05 }} className="header__logo">
           <div className="header__logo-icon">
-            <span className="header__logo-text">P</span>
+            <span className="header__logo-text">S</span>
           </div>
-          <span className="header__logo-name">Prepline</span>
+          <span className="header__logo-name">SkipLine</span>
         </motion.div>
 
         <motion.div
@@ -57,3 +57,4 @@ export function Header({ userName, streak }: HeaderProps) {
     </motion.header>
   );
 }
+

@@ -8,7 +8,7 @@ import paneerTikka from '../customer-assets/paneer-tikka.jpg';
 import choleBhature from '../customer-assets/chole-bhature.jpg';
 
 
-interface PreplineContextType {
+interface SkipLineContextType {
   // Cart
   cart: CartItem[];
   addToCart: (item: Omit<CartItem, 'id'>) => void;
@@ -39,14 +39,14 @@ interface PreplineContextType {
   simulateKitchenProgress: () => void;
 }
 
-const PreplineContext = createContext<PreplineContextType | undefined>(undefined);
+const SkipLineContext = createContext<SkipLineContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
-  CART: 'prepline_cart',
-  ORDERS: 'prepline_orders',
-  HISTORY: 'prepline_history',
-  METRICS: 'prepline_metrics',
-  KITCHEN: 'prepline_kitchen',
+  CART: 'SkipLine_cart',
+  ORDERS: 'SkipLine_orders',
+  HISTORY: 'SkipLine_history',
+  METRICS: 'SkipLine_metrics',
+  KITCHEN: 'SkipLine_kitchen',
 };
 
 const defaultMetrics: UserMetrics = {
@@ -208,7 +208,7 @@ const demoActiveOrders: Order[] = [
   },
 ];
 
-export function PreplineProvider({ children }: { children: React.ReactNode }) {
+export function SkipLineProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [orderHistory, setOrderHistory] = useState<Order[]>([]);
@@ -337,7 +337,7 @@ export function PreplineProvider({ children }: { children: React.ReactNode }) {
 
     // Update metrics - including streak increment for new orders
     const today = new Date().toDateString();
-    const lastOrderDate = localStorage.getItem('prepline_last_order_date');
+    const lastOrderDate = localStorage.getItem('SkipLine_last_order_date');
     const yesterday = new Date(Date.now() - 86400000).toDateString();
     
     let streakIncrement = 0;
@@ -349,7 +349,7 @@ export function PreplineProvider({ children }: { children: React.ReactNode }) {
         // Streak broken - reset to 1
         streakIncrement = 1 - metrics.streak;
       }
-      localStorage.setItem('prepline_last_order_date', today);
+      localStorage.setItem('SkipLine_last_order_date', today);
     }
 
     setMetrics(prev => {
@@ -518,7 +518,7 @@ export function PreplineProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <PreplineContext.Provider value={{
+    <SkipLineContext.Provider value={{
       cart,
       addToCart,
       removeFromCart,
@@ -538,14 +538,14 @@ export function PreplineProvider({ children }: { children: React.ReactNode }) {
       simulateKitchenProgress,
     }}>
       {children}
-    </PreplineContext.Provider>
+    </SkipLineContext.Provider>
   );
 }
 
-export function usePrepline() {
-  const context = useContext(PreplineContext);
+export function useSkipLine() {
+  const context = useContext(SkipLineContext);
   if (context === undefined) {
-    throw new Error('usePrepline must be used within a PreplineProvider');
+    throw new Error('useSkipLine must be used within a SkipLineProvider');
   }
   return context;
 }

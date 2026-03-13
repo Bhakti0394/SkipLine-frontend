@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { PreplineProvider } from "./customer-context/PreplineContext";
+import { SkipLineProvider } from "./customer-context/SkipLineContext";
 
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -75,13 +75,13 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
-          <PreplineProvider>
+          <SkipLineProvider>
             <TooltipProvider>
               <Toaster />
               <Sonner />
               <AppRoutes />
             </TooltipProvider>
-          </PreplineProvider>
+          </SkipLineProvider>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

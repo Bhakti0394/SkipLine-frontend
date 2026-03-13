@@ -4,7 +4,7 @@ import {
   Flame, Gift, Star, Crown, Sparkles, Trophy, Medal,
   Zap, ChevronRight, Info, Tag, Clock, Shield,
 } from 'lucide-react';
-import { usePrepline } from '../../../customer-context/PreplineContext';
+import { useSkipLine } from '../../../customer-context/SkipLineContext';
 import { Button } from '@/components/ui/button';
 import { useNotifications } from '../../../customer-context/NotificationContext';
 import '../overview-styles/StreakCard.scss';
@@ -125,7 +125,7 @@ function StreakCelebration({ reward, onClose }: StreakCelebrationProps) {
 // ─── Main Card ────────────────────────────────────────────────────────────────
 
 export function StreakCard() {
-  const { metrics } = usePrepline();
+  const { metrics } = useSkipLine();
   const { addNotification } = useNotifications();
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebratingReward, setCelebratingReward] = useState<Reward | null>(null);

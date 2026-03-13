@@ -1,12 +1,6 @@
 // ============================================================
-// AnalyticsPanel.tsx — File 1 look (motion animations) + File 2 backend
+// src/components/KitchenDashboard/dashboard/AnalyticsPanel.tsx
 // ============================================================
-//
-// KEPT from File 1:  motion animations on KPI cards, chart cards, fadeUp helper
-// KEPT from File 2:  real props (efficiencyPercent, avgCookTimeMinutes),
-//                    useMemo for all derived data, real hourly chart from
-//                    actual orders, real throughput from last-hour completions,
-//                    correct import path, no Math.random()
 
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
@@ -21,12 +15,10 @@ import '../styles/Analyticspanel.scss';
 interface AnalyticsPanelProps {
   orders:             Order[];
   completedOrders:    Order[];
-  // Real metrics from backend — no Math.random()
   efficiencyPercent:  number;
   avgCookTimeMinutes: number;
 }
 
-// File 1: motion helper
 const fadeUp = (delay = 0) => ({
   initial:    { opacity: 0, y: 12 },
   animate:    { opacity: 1, y: 0 },
@@ -41,7 +33,6 @@ export function AnalyticsPanel({
 }: AnalyticsPanelProps) {
   const now = new Date();
 
-  // File 2: real hourly data derived from actual orders (no random baseline)
   const hourlyData = useMemo(() => {
     return Array.from({ length: 8 }, (_, i) => {
       const hour = new Date(now);
@@ -67,22 +58,35 @@ export function AnalyticsPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [completedOrders.length, orders.length]);
 
-  // File 2: memoised status / priority breakdowns
   const statusData = useMemo(() => [
-    { name: 'Pending', value: orders.filter(o => o.status === 'pending').length, color: '#64748b' },
-    { name: 'Cooking', value: orders.filter(o => o.status === 'cooking').length, color: '#f59e0b' },
-    { name: 'Ready',   value: orders.filter(o => o.status === 'ready').length,   color: '#10b981' },
+    { name: 'Pending',  value: orders.filter(o => o.status === 'pending').length,  color: '#64748b' },
+    { name: 'Cooking',  value: orders.filter(o => o.status === 'cooking').length,  color: '#f59e0b' },
+    { name: 'Ready',    value: orders.filter(o => o.status === 'ready').length,    color: '#10b981' },
   ], [orders]);
 
-  const priorityData = useMemo(() => [
-    { name: 'Urgent', count: orders.filter(o => o.priority === 'urgent').length, color: '#ef4444' },
-    { name: 'High',   count: orders.filter(o => o.priority === 'high').length,   color: '#f97316' },
-    { name: 'Normal', count: orders.filter(o => o.priority === 'normal').length, color: '#6366f1' },
-  ], [orders]);
+  // ── Order type breakdown — Express / Normal / Scheduled ───────────────────
+  const allOrders = useMemo(() => [...orders, ...completedOrders], [orders, completedOrders]);
+
+  const orderTypeData = useMemo(() => [
+    {
+      name:  'Express',
+      count: allOrders.filter(o => o.orderType === 'express').length,
+      color: '#fb923c',
+    },
+    {
+      name:  'Normal',
+      count: allOrders.filter(o => o.orderType === 'normal').length,
+      color: '#6366f1',
+    },
+    {
+      name:  'Scheduled',
+      count: allOrders.filter(o => o.orderType === 'scheduled').length,
+      color: '#6ee7b7',
+    },
+  ], [allOrders]);
 
   const totalActive = orders.filter(o => o.status !== 'completed').length;
 
-  // File 2: real throughput — completions in the last 60 minutes
   const lastHourCompleted = useMemo(() => {
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     return completedOrders.filter(o =>
@@ -91,16 +95,15 @@ export function AnalyticsPanel({
   }, [completedOrders]);
 
   const stats = [
-    { icon: TrendingUp, label: 'Throughput', value: lastHourCompleted,                                                              unit: '/hr',                          cls: 'primary' },
-    { icon: Clock,      label: 'Avg Time',   value: avgCookTimeMinutes > 0 ? Math.round(avgCookTimeMinutes) : '—',                  unit: avgCookTimeMinutes > 0 ? 'min' : '', cls: 'amber'   },
-    { icon: Zap,        label: 'Efficiency', value: Math.round(efficiencyPercent),                                                  unit: '%',                            cls: 'emerald' },
-    { icon: Target,     label: 'Active',     value: totalActive,                                                                    unit: '',                             cls: 'red'     },
+    { icon: TrendingUp, label: 'Throughput', value: lastHourCompleted,                                             unit: '/hr',                           cls: 'primary' },
+    { icon: Clock,      label: 'Avg Time',   value: avgCookTimeMinutes > 0 ? Math.round(avgCookTimeMinutes) : '–', unit: avgCookTimeMinutes > 0 ? 'min' : '', cls: 'amber'   },
+    { icon: Zap,        label: 'Efficiency', value: Math.round(efficiencyPercent),                                 unit: '%',                             cls: 'emerald' },
+    { icon: Target,     label: 'Active',     value: totalActive,                                                   unit: '',                              cls: 'red'     },
   ];
 
   return (
     <div className="ap">
 
-      {/* ── KPI Row — File 1: motion.div with staggered fadeUp ── */}
       <div className="ap__kpi-grid">
         {stats.map((s, i) => (
           <motion.div key={s.label} className={`ap__kpi ap__kpi--${s.cls}`} {...fadeUp(i * 0.07)}>
@@ -116,7 +119,6 @@ export function AnalyticsPanel({
         ))}
       </div>
 
-      {/* ── Area Chart — File 1: motion.div wrapper ── */}
       <motion.div className="ap__card" {...fadeUp(0.18)}>
         <div className="ap__card-head">
           <span className="ap__card-title">Order Volume</span>
@@ -164,10 +166,8 @@ export function AnalyticsPanel({
         </div>
       </motion.div>
 
-      {/* ── Bottom Row: Pie + Bar ── */}
       <div className="ap__bottom-row">
 
-        {/* Status Donut — File 1: motion.div wrapper */}
         <motion.div className="ap__card ap__card--half" {...fadeUp(0.26)}>
           <div className="ap__card-head">
             <span className="ap__card-title">Status</span>
@@ -202,21 +202,21 @@ export function AnalyticsPanel({
           </div>
         </motion.div>
 
-        {/* Priority Bar — File 1: motion.div wrapper */}
+        {/* Order Type Bar — Express / Normal / Scheduled */}
         <motion.div className="ap__card ap__card--half" {...fadeUp(0.32)}>
           <div className="ap__card-head">
-            <span className="ap__card-title">Priority</span>
+            <span className="ap__card-title">Order Types</span>
           </div>
           <div className="ap__bar-wrap">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={priorityData} layout="vertical"
+                data={orderTypeData} layout="vertical"
                 margin={{ top: 0, right: 8, bottom: 0, left: 0 }}
               >
                 <XAxis type="number" hide />
                 <YAxis
                   type="category" dataKey="name"
-                  axisLine={false} tickLine={false} width={42}
+                  axisLine={false} tickLine={false} width={60}
                   tick={{ fill: 'rgba(148,163,184,0.8)', fontSize: 9, fontFamily: 'inherit' }}
                 />
                 <Tooltip
@@ -231,7 +231,7 @@ export function AnalyticsPanel({
                   labelStyle={{ color: '#94a3b8' }}
                 />
                 <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={14}>
-                  {priorityData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                  {orderTypeData.map((e, i) => <Cell key={i} fill={e.color} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

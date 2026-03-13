@@ -3,7 +3,7 @@ import {
   Clock, Flame, CheckCircle2, ChevronRight,
   RefreshCw, XCircle, Zap, ShoppingBag, Star, ArrowRight,
 } from 'lucide-react';
-import { usePrepline } from '../../../customer-context/PreplineContext';
+import { useSkipLine } from '../../../customer-context/SkipLineContext';
 import { useState } from 'react';
 import '../overview-styles/OrderFlowMini.scss';
 
@@ -22,7 +22,7 @@ const orderPerks = [
 ];
 
 export function OrderFlowMini() {
-  const { orders } = usePrepline();
+  const { orders } = useSkipLine();
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
 
   const activeOrders    = orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled');
