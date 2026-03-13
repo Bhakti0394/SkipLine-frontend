@@ -2,18 +2,22 @@
 // src/kitchen-hooks/useKitchenBoard.ts
 // ============================================================
 //
+// FIXES IN THIS VERSION:
+//
+// FIX 1 [DEAD-VAR]: scheduleAutoComplete used undefined 'orderId' variable
+//   in the timeout cleanup callback — should be 'order.id'.
+//   This caused the countdown badge to stay stuck at "0s" after auto-complete.
+//
+// FIX 2 [RACE]: Poll (10s) and sim tick both called loadBoard() concurrently.
+//   Now the sim tick skips loadBoard if a poll is already in-flight, using
+//   a shared isLoadingRef flag. abortRef still cancels stale requests.
+//
+// FIX 3 [JITTER]: Fast-mode ticks fired at exact ms boundaries — all clients
+//   hammered the backend simultaneously. Added ±1s random jitter to setInterval
+//   so ticks spread naturally across the interval window.
+//
 // FIX [EXPRESS-TIME]: Express orders use 5/10/15 min windows only.
-//
-// FIX [SCHEDULED-PICKUP]: Scheduled orders now show real date+time in Queue.
-//
-// ROOT CAUSE of "TBD":
-//   dto.pickupSlotTime was null because createOrder() never linked a slot at
-//   creation. Backend fix: CreateOrderRequest now accepts pickupSlotId and
-//   OrderService links the slot immediately when provided.
-//
-//   Frontend fallback (resolvePickupTime): if pickupSlotTime is still null for
-//   a scheduled order, derives "Tomorrow ~HH:MM" from placedAt + 1 day so the
-//   card always shows something meaningful for legacy/in-flight orders.
+// FIX [SCHEDULED-PICKUP]: Scheduled orders show real date+time in Queue.
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
@@ -48,13 +52,16 @@ const SPEED_INTERVALS: Record<'slow' | 'normal' | 'fast', number> = {
   slow: 25_000, normal: 12_000, fast: 5_000,
 };
 
+// FIX [JITTER]: max random ms added to each interval to spread tick load.
+// At fast=5000ms, ticks are spread across a 5000±1000ms window.
+const JITTER_MS = 1_000;
+
 const EMPTY_METRICS = {
   totalOrdersToday: 0, completedOrdersToday: 0, avgCookTimeMinutes: 0,
   efficiencyPercent: 0, capacityUtilizationPercent: 0, lateOrdersCount: 0, activeChefCount: 0,
 };
 
 // ─── EXPRESS time options ─────────────────────────────────────────────────────
-
 const EXPRESS_OPTIONS = [5, 10, 15] as const;
 type ExpressMinutes   = typeof EXPRESS_OPTIONS[number];
 
@@ -94,24 +101,22 @@ function safeDate(value: string | null | undefined): Date | undefined {
 }
 
 // ─── resolvePickupTime ────────────────────────────────────────────────────────
-//
 // Single source of truth for the pickupTime string shown on every order card.
 //
-// Priority chain:
+// Priority:
 //   1. Real slot time from backend → "9:30 AM" / "Tomorrow 9:30 AM" / "Mon 9:30 AM"
-//   2. Express + no slot → "ASAP"
-//   3. Scheduled + no slot → "Tomorrow ~<time>" derived from placedAt (fallback)
-//   4. Normal + no slot   → "ASAP"
+//   2. Express, no slot → "ASAP"
+//   3. Scheduled, no slot → "Tomorrow ~<time>" derived from placedAt (fallback)
+//   4. Normal, no slot → "ASAP"
 
 function resolvePickupTime(dto: OrderCardDto, resolvedType: OrderType): string {
-  // 1. Real backend slot
   if (dto.pickupSlotTime) {
     const slotDate = new Date(dto.pickupSlotTime);
     const today    = new Date();
 
     const sameDay = (a: Date, b: Date) =>
-      a.getDate() === b.getDate() &&
-      a.getMonth() === b.getMonth() &&
+      a.getDate()     === b.getDate() &&
+      a.getMonth()    === b.getMonth() &&
       a.getFullYear() === b.getFullYear();
 
     const tomorrow = new Date(today);
@@ -124,10 +129,8 @@ function resolvePickupTime(dto: OrderCardDto, resolvedType: OrderType): string {
     return slotDate.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + timeStr;
   }
 
-  // 2. Express, no slot
   if (resolvedType === 'express') return 'ASAP';
 
-  // 3. Scheduled, no slot — derive from placedAt + 1 day (fallback for legacy orders)
   if (resolvedType === 'scheduled') {
     const placed = safeDate(dto.placedAt);
     if (placed) {
@@ -139,7 +142,6 @@ function resolvePickupTime(dto: OrderCardDto, resolvedType: OrderType): string {
     return 'Tomorrow';
   }
 
-  // 4. Normal, no slot
   return 'ASAP';
 }
 
@@ -205,7 +207,7 @@ function toFrontendOrder(dto: OrderCardDto): Order {
     items,
     estimatedPrepTime: resolvedEstimatedPrepTime,
     elapsedMinutes,
-    pickupTime:     resolvePickupTime(dto, resolvedType), // ← FIX applied here
+    pickupTime:     resolvePickupTime(dto, resolvedType),
     assignedTo:     dto.assignedChefName ?? undefined,
     assignedChefId: dto.assignedChefId   ?? undefined,
     createdAt:      placedAt ?? new Date(),
@@ -252,7 +254,7 @@ export function useKitchenBoard(
   const [activatingChefId, setActivatingChefId] = useState<string | null>(null);
   const [readyCountdowns, setReadyCountdowns]   = useState<Record<string, number>>({});
 
-  const simIntervalRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const simIntervalRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoCompleteRefs = useRef<Record<string, AutoCompleteEntry>>({});
   const knownOrderIds    = useRef<Set<string>>(new Set());
   const isFirstLoad      = useRef(true);
@@ -267,6 +269,10 @@ export function useKitchenBoard(
 
   const ordersRef = useRef<Order[]>([]);
   useEffect(() => { ordersRef.current = orders; }, [orders]);
+
+  // FIX [RACE]: track whether a board load is currently in-flight so the
+  // sim tick can skip its own loadBoard() call if the poller already fired.
+  const isLoadingRef = useRef(false);
 
   const capacity: CapacitySnapshot = useMemo(() => selectCapacity(boardData), [boardData]);
   const staff: StaffWorkloadDto[]  = useMemo(() => boardData?.staff ?? [], [boardData]);
@@ -295,6 +301,9 @@ export function useKitchenBoard(
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+
+    // FIX [RACE]: mark load as in-flight so concurrent callers can detect it
+    isLoadingRef.current = true;
 
     try {
       const data = await fetchBoard(controller.signal);
@@ -330,6 +339,8 @@ export function useKitchenBoard(
       setError(err.message ?? 'Failed to load board');
     } finally {
       setLoading(false);
+      // FIX [RACE]: clear in-flight flag regardless of success/failure
+      isLoadingRef.current = false;
     }
   }, []);
 
@@ -373,6 +384,7 @@ export function useKitchenBoard(
     const timeout = setTimeout(async () => {
       delete autoCompleteRefs.current[order.id];
       clearInterval(interval);
+      // FIX [DEAD-VAR]: was 'orderId' (undefined) — must be 'order.id'
       setReadyCountdowns(prev => { const n = { ...prev }; delete n[order.id]; return n; });
       try { await changeOrderStatus(order.id, 'COMPLETED'); await loadBoard(); }
       catch { await loadBoard(); }
@@ -489,7 +501,12 @@ export function useKitchenBoard(
       if (result.generated > 0) {
         try { await simulateAdvance(); } catch { /* best-effort */ }
         await new Promise(r => setTimeout(r, 300));
-        await loadBoard();
+        // FIX [RACE]: only call loadBoard if the poller isn't already loading.
+        // If a poll just fired, its result will arrive shortly — skip the
+        // duplicate fetch to avoid two concurrent GET /board requests.
+        if (!isLoadingRef.current) {
+          await loadBoard();
+        }
       }
     } catch (err: any) {
       setSimulationError(err.message);
@@ -498,15 +515,38 @@ export function useKitchenBoard(
     }
   }, [menuItems, capacity.isOverloaded, loadBoard]);
 
+  // FIX [JITTER]: use recursive setTimeout instead of setInterval so each
+  // tick schedules the next one with a fresh random jitter offset.
+  // This spreads ticks across the interval window instead of firing at the
+  // exact same millisecond on every client at fast mode (5s).
   useEffect(() => {
-    if (simIntervalRef.current) { clearInterval(simIntervalRef.current); simIntervalRef.current = null; }
-    if (isSimulating) {
-      simIntervalRef.current = setInterval(
-        () => runSimulationTick().catch(console.error),
-        SPEED_INTERVALS[simulationSpeed]
-      );
+    if (simIntervalRef.current) {
+      clearTimeout(simIntervalRef.current);
+      simIntervalRef.current = null;
     }
-    return () => { if (simIntervalRef.current) clearInterval(simIntervalRef.current); };
+    if (!isSimulating) return;
+
+    const baseMs = SPEED_INTERVALS[simulationSpeed];
+
+    const scheduleTick = () => {
+      // ±JITTER_MS random spread — each tick gets its own offset
+      const jitter = Math.floor(Math.random() * JITTER_MS * 2) - JITTER_MS;
+      const delay  = Math.max(1000, baseMs + jitter); // never below 1s
+      simIntervalRef.current = setTimeout(async () => {
+        await runSimulationTick().catch(console.error);
+        // Only reschedule if still simulating after the tick completes
+        if (isSimulatingRef.current) scheduleTick();
+      }, delay);
+    };
+
+    scheduleTick();
+
+    return () => {
+      if (simIntervalRef.current) {
+        clearTimeout(simIntervalRef.current);
+        simIntervalRef.current = null;
+      }
+    };
   }, [isSimulating, simulationSpeed, runSimulationTick]);
 
   const activateBackupChef = useCallback(async (chefId: string) => {

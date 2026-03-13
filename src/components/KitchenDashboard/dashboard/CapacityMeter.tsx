@@ -70,7 +70,7 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
   }, [activateId, activating, onActivateChef]);
 
   // ── Remove modal ──────────────────────────────────────────────────────────
-  const [removeErr,  setRemoveErr]  = useState<string | null>(null);
+  const [removeErr, setRemoveErr] = useState<string | null>(null);
   const removingChef = useMemo(() => staff.find(s => s.chefId === removalTargetId) ?? null, [removalTargetId, staff]);
 
   const handleRemoveConfirm = useCallback(async () => {
@@ -112,19 +112,40 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
 
       {/* ── Bar ── */}
       <div className="capacity-meter__bar-track">
-        <div className={`capacity-meter__bar-fill capacity-meter__bar-fill--${cssTier}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+        <div
+          className={`capacity-meter__bar-fill capacity-meter__bar-fill--${cssTier}`}
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
       </div>
-      <div className="capacity-meter__bar-labels"><span>Low</span><span>Optimal</span><span>High</span></div>
+      <div className="capacity-meter__bar-labels">
+        <span>Low</span><span>Optimal</span><span>High</span>
+      </div>
 
       {/* ── Summary row ── */}
+      {/*
+        FIX: was "activeLoad/totalSlots orders" which showed e.g. "45/15 orders"
+        — activeLoad = cooking + pending, totalSlots = chef slot capacity.
+        45/15 implied 45 slots which is wrong and confusing.
+
+        Now shows: "13/15 slots · 17 queued"
+          cooking/totalSlots = how many slots are actively in use
+          pendingCount       = how many are waiting in the queue
+        Both numbers are immediately verifiable against the Kanban columns.
+      */}
       <div className="capacity-meter__summary">
         <span className="capacity-meter__summary-stat">
-          <strong style={{ color: breakdown.activeLoad > breakdown.totalSlots ? '#ef4444' : TIER_COLORS[tier] }}>
-            {breakdown.activeLoad}
-          </strong>/{breakdown.totalSlots} orders
+          <strong style={{ color: breakdown.cookingCount >= breakdown.totalSlots ? '#ef4444' : TIER_COLORS[tier] }}>
+            {breakdown.cookingCount}
+          </strong>/{breakdown.totalSlots} slots
         </span>
         <span className="capacity-meter__summary-dot" />
-        <span className="capacity-meter__summary-stat">{breakdown.activeChefCount} chefs</span>
+        <span className="capacity-meter__summary-stat">
+          {breakdown.pendingCount} queued
+        </span>
+        <span className="capacity-meter__summary-dot" />
+        <span className="capacity-meter__summary-stat">
+          {breakdown.activeChefCount} chef{breakdown.activeChefCount !== 1 ? 's' : ''}
+        </span>
         <span className="capacity-meter__summary-dot" />
         <span className={`capacity-meter__summary-status capacity-meter__summary-status--${cssTier}`}>
           {tier === 'overloaded' ? '⚠ At capacity' : tier === 'busy' ? '⚡ High load' : '✓ Ready'}
@@ -140,7 +161,9 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
           <p className="capacity-meter__section-label">ON SHIFT ({activeStaff.length})</p>
           {activeStaff.map(s => (
             <div key={s.chefId} className="capacity-meter__chef-row">
-              <div className={`capacity-meter__avatar capacity-meter__avatar--${s.loadPercent >= 100 ? 'full' : s.loadPercent >= 50 ? 'busy' : 'free'}`}>
+              <div className={`capacity-meter__avatar capacity-meter__avatar--${
+                s.loadPercent >= 100 ? 'full' : s.loadPercent >= 50 ? 'busy' : 'free'
+              }`}>
                 {s.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
               </div>
               <span className="capacity-meter__chef-name">{s.name}</span>
@@ -160,7 +183,9 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
       {/* ── Backup staff ── */}
       {backupStaff.length > 0 && (
         <>
-          <p className="capacity-meter__section-label capacity-meter__section-label--backup">BACKUP ({backupStaff.length})</p>
+          <p className="capacity-meter__section-label capacity-meter__section-label--backup">
+            BACKUP ({backupStaff.length})
+          </p>
           {backupStaff.map(s => (
             <div key={s.chefId} className="capacity-meter__chef-row capacity-meter__chef-row--backup">
               <div className="capacity-meter__avatar capacity-meter__avatar--off">
@@ -190,13 +215,26 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
         <Modal onDismiss={() => !activating && setActivateId(null)}>
           <h3 className="staff-modal__title">Activate {activateChef.name}?</h3>
           <div className="staff-modal__info staff-modal__info--success">
-            Capacity: <strong>{breakdown.totalSlots}</strong> → <strong style={{ color: '#4ade80' }}>{breakdown.totalSlots + activateChef.maxCapacity}</strong> orders.
+            Capacity: <strong>{breakdown.totalSlots}</strong> →{' '}
+            <strong style={{ color: '#4ade80' }}>
+              {breakdown.totalSlots + activateChef.maxCapacity}
+            </strong> slots.
             <p className="staff-modal__hint">Queued orders will be auto-assigned to Cooking.</p>
           </div>
           {activateErr && <div className="staff-modal__error">⚠ {activateErr}</div>}
           <div className="staff-modal__actions">
-            <button className="staff-modal__btn staff-modal__btn--cancel" onClick={() => setActivateId(null)} disabled={activating}>Cancel</button>
-            <button className="staff-modal__btn staff-modal__btn--confirm-activate" onClick={handleActivate} disabled={activating}>
+            <button
+              className="staff-modal__btn staff-modal__btn--cancel"
+              onClick={() => setActivateId(null)}
+              disabled={activating}
+            >
+              Cancel
+            </button>
+            <button
+              className="staff-modal__btn staff-modal__btn--confirm-activate"
+              onClick={handleActivate}
+              disabled={activating}
+            >
               {activating ? 'Activating…' : 'Activate'}
             </button>
           </div>
@@ -212,18 +250,39 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
             : (
               <div className="staff-modal__info staff-modal__info--warning">
                 {removalValidation.ordersToReassign > 0 && (
-                  <div><strong>{removalValidation.ordersToReassign} order{removalValidation.ordersToReassign !== 1 ? 's' : ''}</strong> will be reassigned{removalValidation.estimatedDelayMinutes > 0 ? ` (~${removalValidation.estimatedDelayMinutes} min delay)` : ''}.</div>
+                  <div>
+                    <strong>{removalValidation.ordersToReassign} order{removalValidation.ordersToReassign !== 1 ? 's' : ''}</strong>{' '}
+                    will be reassigned
+                    {removalValidation.estimatedDelayMinutes > 0
+                      ? ` (~${removalValidation.estimatedDelayMinutes} min delay)`
+                      : ''}.
+                  </div>
                 )}
-                <div>Capacity drops: <strong>{breakdown.totalSlots}</strong> → <strong style={{ color: '#ef4444' }}>{removalValidation.newCapacity}</strong>.</div>
-                {removalValidation.ordersToReassign === 0 && <div style={{ color: '#10b981', marginTop: '0.25rem' }}>✓ No active orders affected.</div>}
+                <div>
+                  Capacity drops: <strong>{breakdown.totalSlots}</strong> →{' '}
+                  <strong style={{ color: '#ef4444' }}>{removalValidation.newCapacity}</strong> slots.
+                </div>
+                {removalValidation.ordersToReassign === 0 && (
+                  <div style={{ color: '#10b981', marginTop: '0.25rem' }}>✓ No active orders affected.</div>
+                )}
               </div>
             )
           }
           {removeErr && <div className="staff-modal__error">⚠ {removeErr}</div>}
           <div className="staff-modal__actions">
-            <button className="staff-modal__btn staff-modal__btn--cancel" onClick={onCancelRemoval} disabled={isConfirmingRemoval}>Cancel</button>
+            <button
+              className="staff-modal__btn staff-modal__btn--cancel"
+              onClick={onCancelRemoval}
+              disabled={isConfirmingRemoval}
+            >
+              Cancel
+            </button>
             {!removalValidation.blocked && (
-              <button className="staff-modal__btn staff-modal__btn--confirm-remove" onClick={handleRemoveConfirm} disabled={isConfirmingRemoval}>
+              <button
+                className="staff-modal__btn staff-modal__btn--confirm-remove"
+                onClick={handleRemoveConfirm}
+                disabled={isConfirmingRemoval}
+              >
                 {isConfirmingRemoval ? 'Removing…' : 'Confirm'}
               </button>
             )}
@@ -237,22 +296,37 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
           <h3 className="staff-modal__title">Add Chef</h3>
           <div className="staff-modal__field">
             <label className="staff-modal__label">Name</label>
-            <input className="staff-modal__input" type="text" placeholder="e.g. Ravi Kumar"
-              value={chefName} onChange={e => setChefName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAdd()} autoFocus maxLength={50} />
+            <input
+              className="staff-modal__input"
+              type="text"
+              placeholder="e.g. Ravi Kumar"
+              value={chefName}
+              onChange={e => setChefName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              autoFocus
+              maxLength={50}
+            />
           </div>
           <div className="staff-modal__field">
             <label className="staff-modal__label">Max concurrent orders</label>
-            <input className="staff-modal__input staff-modal__input--narrow" type="number" min={1} max={10}
-              value={chefSlots} onChange={e => setChefSlots(Math.min(10, Math.max(1, +e.target.value || 1)))} />
+            <input
+              className="staff-modal__input staff-modal__input--narrow"
+              type="number"
+              min={1}
+              max={10}
+              value={chefSlots}
+              onChange={e => setChefSlots(Math.min(10, Math.max(1, +e.target.value || 1)))}
+            />
           </div>
           <div className="staff-modal__field">
             <label className="staff-modal__label">Status</label>
             <div className="staff-modal__toggle-group">
               {(['ACTIVE', 'BACKUP'] as const).map(s => (
-                <button key={s}
+                <button
+                  key={s}
                   className={`staff-modal__toggle${chefStatus === s ? ' staff-modal__toggle--' + s.toLowerCase() : ''}`}
-                  onClick={() => setChefStatus(s)}>
+                  onClick={() => setChefStatus(s)}
+                >
                   {s === 'ACTIVE' ? 'Active' : 'Backup'}
                 </button>
               ))}
@@ -260,8 +334,18 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
           </div>
           {addErr && <div className="staff-modal__error">⚠ {addErr}</div>}
           <div className="staff-modal__actions">
-            <button className="staff-modal__btn staff-modal__btn--cancel" onClick={() => setShowAdd(false)} disabled={adding}>Cancel</button>
-            <button className="staff-modal__btn staff-modal__btn--confirm-activate" onClick={handleAdd} disabled={adding || !chefName.trim()}>
+            <button
+              className="staff-modal__btn staff-modal__btn--cancel"
+              onClick={() => setShowAdd(false)}
+              disabled={adding}
+            >
+              Cancel
+            </button>
+            <button
+              className="staff-modal__btn staff-modal__btn--confirm-activate"
+              onClick={handleAdd}
+              disabled={adding || !chefName.trim()}
+            >
               {adding ? 'Adding…' : 'Add Chef'}
             </button>
           </div>

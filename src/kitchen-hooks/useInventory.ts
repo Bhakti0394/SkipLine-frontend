@@ -1,16 +1,16 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { InventoryItem, StockStatus, InventoryAlert } from '../kitchen-types/inventory';
 import { initialInventory, menuIngredients } from '../kitchen-data/inventoryData';
 import { Order } from '../kitchen-types/order';
 
 export function useInventory() {
   const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
-  const [alerts, setAlerts] = useState<InventoryAlert[]>([]);
+  const [alerts,    setAlerts]    = useState<InventoryAlert[]>([]);
 
   const getStockStatus = useCallback((item: InventoryItem): StockStatus => {
-    if (item.currentStock <= 0) return 'out-of-stock';
-    if (item.currentStock <= item.criticalThreshold) return 'critical';
-    if (item.currentStock <= item.minThreshold) return 'low-stock';
+    if (item.currentStock <= 0)                          return 'out-of-stock';
+    if (item.currentStock <= item.criticalThreshold)     return 'critical';
+    if (item.currentStock <= item.minThreshold)          return 'low-stock';
     return 'in-stock';
   }, []);
 
@@ -20,7 +20,7 @@ export function useInventory() {
 
     items.forEach(item => {
       const status = getStockStatus(item);
-      
+
       if (status === 'critical' || status === 'out-of-stock') {
         newAlerts.push({
           id: `alert-${item.id}-critical`,
@@ -43,7 +43,9 @@ export function useInventory() {
 
       // Check for expiring items
       if (item.expiryDate) {
-        const daysUntilExpiry = Math.ceil((item.expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const daysUntilExpiry = Math.ceil(
+          (item.expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+        );
         if (daysUntilExpiry <= 0) {
           newAlerts.push({
             id: `alert-${item.id}-expired`,
@@ -69,6 +71,14 @@ export function useInventory() {
     setAlerts(newAlerts);
   }, [getStockStatus]);
 
+  // ── Seed alerts on first mount so the bell count is accurate immediately ──
+  // This does NOT trigger any toast — Index.tsx's inventoryInitialized guard
+  // handles the toast side-effect and skips it on the first render.
+  useEffect(() => {
+    generateAlerts(initialInventory);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount only
+
   const updateStock = useCallback((itemId: string, newStock: number) => {
     setInventory(prev => {
       const updated = prev.map(item =>
@@ -85,10 +95,10 @@ export function useInventory() {
     setInventory(prev => {
       const updated = prev.map(item =>
         item.id === itemId
-          ? { 
-              ...item, 
+          ? {
+              ...item,
               currentStock: Math.min(item.currentStock + quantity, item.maxCapacity),
-              lastRestocked: new Date()
+              lastRestocked: new Date(),
             }
           : item
       );
@@ -100,33 +110,33 @@ export function useInventory() {
   const consumeForOrder = useCallback((order: Order) => {
     setInventory(prev => {
       let updated = [...prev];
-      
+
       order.items.forEach(orderItem => {
         const menuRecipe = menuIngredients.find(m => m.menuItemId === orderItem.id);
         if (menuRecipe) {
           menuRecipe.ingredients.forEach(ingredient => {
             updated = updated.map(invItem =>
               invItem.id === ingredient.itemId
-                ? { 
-                    ...invItem, 
-                    currentStock: Math.max(0, invItem.currentStock - (ingredient.quantity * orderItem.quantity))
+                ? {
+                    ...invItem,
+                    currentStock: Math.max(
+                      0,
+                      invItem.currentStock - ingredient.quantity * orderItem.quantity
+                    ),
                   }
                 : invItem
             );
           });
         }
       });
-      
+
       generateAlerts(updated);
       return updated;
     });
   }, [generateAlerts]);
 
   const addInventoryItem = useCallback((item: Omit<InventoryItem, 'id'>) => {
-    const newItem: InventoryItem = {
-      ...item,
-      id: `inv-${Date.now()}`,
-    };
+    const newItem: InventoryItem = { ...item, id: `inv-${Date.now()}` };
     setInventory(prev => [...prev, newItem]);
   }, []);
 
@@ -135,25 +145,22 @@ export function useInventory() {
   }, []);
 
   const stats = useMemo(() => {
-    const totalItems = inventory.length;
-    const lowStockItems = inventory.filter(item => getStockStatus(item) === 'low-stock').length;
-    const criticalItems = inventory.filter(item => getStockStatus(item) === 'critical' || getStockStatus(item) === 'out-of-stock').length;
-    const healthyItems = inventory.filter(item => getStockStatus(item) === 'in-stock').length;
-    
-    const totalValue = inventory.reduce((sum, item) => sum + (item.currentStock * item.costPerUnit), 0);
-    const capacityUsed = inventory.reduce((sum, item) => sum + item.currentStock, 0);
-    const totalCapacity = inventory.reduce((sum, item) => sum + item.maxCapacity, 0);
+    const totalItems      = inventory.length;
+    const lowStockItems   = inventory.filter(i => getStockStatus(i) === 'low-stock').length;
+    const criticalItems   = inventory.filter(i =>
+      getStockStatus(i) === 'critical' || getStockStatus(i) === 'out-of-stock'
+    ).length;
+    const healthyItems    = inventory.filter(i => getStockStatus(i) === 'in-stock').length;
+    const totalValue      = inventory.reduce((s, i) => s + i.currentStock * i.costPerUnit, 0);
+    const capacityUsed    = inventory.reduce((s, i) => s + i.currentStock, 0);
+    const totalCapacity   = inventory.reduce((s, i) => s + i.maxCapacity, 0);
     const overallCapacityPercent = Math.round((capacityUsed / totalCapacity) * 100);
 
     const byCategory = inventory.reduce((acc, item) => {
-      if (!acc[item.category]) {
-        acc[item.category] = { count: 0, value: 0, lowStock: 0 };
-      }
+      if (!acc[item.category]) acc[item.category] = { count: 0, value: 0, lowStock: 0 };
       acc[item.category].count++;
       acc[item.category].value += item.currentStock * item.costPerUnit;
-      if (getStockStatus(item) !== 'in-stock') {
-        acc[item.category].lowStock++;
-      }
+      if (getStockStatus(item) !== 'in-stock') acc[item.category].lowStock++;
       return acc;
     }, {} as Record<string, { count: number; value: number; lowStock: number }>);
 
@@ -170,9 +177,9 @@ export function useInventory() {
   }, [inventory, alerts, getStockStatus]);
 
   const acknowledgeAlert = useCallback((alertId: string) => {
-    setAlerts(prev => prev.map(alert =>
-      alert.id === alertId ? { ...alert, acknowledged: true } : alert
-    ));
+    setAlerts(prev =>
+      prev.map(alert => alert.id === alertId ? { ...alert, acknowledged: true } : alert)
+    );
   }, []);
 
   return {

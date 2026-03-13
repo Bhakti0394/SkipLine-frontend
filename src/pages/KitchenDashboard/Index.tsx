@@ -34,7 +34,7 @@ import { OrderQueue }         from '../../components/KitchenDashboard/dashboard/
 import { CapacityMeter }      from '../../components/KitchenDashboard/dashboard/CapacityMeter';
 import { TimelineSlots }      from '../../components/KitchenDashboard/dashboard/TimelineSlots';
 import { AnalyticsPanel }     from '../../components/KitchenDashboard/dashboard/AnalyticsPanel';
-import { StaffController }    from '../../components/KitchenDashboard/dashboard/StaffController';
+import { StaffController }    from '../../components/KitchenDashboard/dashboard/Staffcontroller';
 import { SimulationControls } from '../../components/KitchenDashboard/dashboard/SimulationControls';
 import { CompletedOrders }    from '../../components/KitchenDashboard/dashboard/CompletedOrders';
 import { OrderDetailsModal }  from '../../components/KitchenDashboard/dashboard/OrderDetailsModal';
@@ -231,7 +231,10 @@ const Index = () => {
   }, [backupStaff, activateBackupChef]);
 
   // ── Capacity change notifications ──────────────────────────────────────────
-  const prevCapacityRef = useRef<{ isOverloaded: boolean; usedPercent: number } | null>(null);
+  const prevCapacityRef    = useRef<{ isOverloaded: boolean; usedPercent: number } | null>(null);
+  // Guard: skip the very first board load — capacity may already be high at page open.
+  // Only fire toasts when a threshold is CROSSED during the session, not on initial paint.
+  const capacityMounted = useRef(false);
 
   useEffect(() => {
     if (!boardData) return;
@@ -239,16 +242,22 @@ const Index = () => {
     const cooking     = counts.cooking;
     const pending     = counts.pending;
     const cap         = capacity.totalSlots;
-    // Use same formula as Capacityengine: activeLoad = cooking + pending
     const pct         = cap > 0 ? Math.min(100, Math.round(((cooking + pending) / cap) * 100)) : 0;
+
+    // First board load: record baseline silently, fire nothing
+    if (!capacityMounted.current) {
+      capacityMounted.current = true;
+      prevCapacityRef.current = { isOverloaded: capacity.isOverloaded, usedPercent: pct };
+      return;
+    }
+
     const prev        = prevCapacityRef.current;
     const firstBackup = backupStaff[0];
 
-    // Guard: only fire when crossing a threshold, not on every poll
-    const prevPct = prev?.usedPercent ?? 0;
-    const crossedFull     =  capacity.isOverloaded && !prev?.isOverloaded;
-    const crossedNearFull = !capacity.isOverloaded && pct >= 80 && prevPct < 80;
-    const crossedRecovered = prev?.isOverloaded && !capacity.isOverloaded;
+    const prevPct          = prev?.usedPercent ?? 0;
+    const crossedFull      =  capacity.isOverloaded && !prev?.isOverloaded;
+    const crossedNearFull  = !capacity.isOverloaded && pct >= 80 && prevPct < 80;
+    const crossedRecovered =  prev?.isOverloaded && !capacity.isOverloaded;
 
     if (crossedFull) {
       if (firstBackup) {
@@ -308,8 +317,6 @@ const Index = () => {
         return;
       }
 
-      // Block cooking → ready if no chef assigned.
-      // An order must have a chef before it can be marked ready.
       if (order.status === 'cooking' && status === 'ready' && !order.assignedTo) {
         showToast('error', 'Assign a chef first',
           `Order ${order.orderNumber} needs a chef assigned before it can be marked ready.`);
@@ -353,7 +360,7 @@ const Index = () => {
   }, [isSimulating, stopSimulation, setIsSimulating]);
 
   // ── Inventory alerts ───────────────────────────────────────────────────────
-  // Guard: skip initial load — only fire when stock actually DROPS after mount.
+  // Guard: skip initial load — only fire toasts when stock actually DROPS after mount.
   const prevStockRef         = useRef<Record<string, number>>({});
   const inventoryInitialized = useRef(false);
 
@@ -400,19 +407,6 @@ const Index = () => {
 
   // ── Shared render helpers ──────────────────────────────────────────────────
 
-  /**
-   * renderCapacityMeter
-   *
-   * SINGLE unified panel — renders capacity bar + staff list + all three modals
-   * (Activate, Remove, Add Chef). No separate StaffController in Kanban sidebar.
-   *
-   * Props wired directly from useKitchenBoard:
-   *   onRemoveChef        → initiateStaffRemoval  (starts validation, sets removalTargetId)
-   *   removalValidation   → drives the remove modal inside CapacityMeter
-   *   onConfirmRemoval    → confirmStaffRemoval
-   *   onCancelRemoval     → cancelStaffRemoval
-   *   onActivateChef      → activateBackupChef    (CapacityMeter manages its own activate modal)
-   */
   const renderCapacityMeter = () => (
     <CapacityMeter
       capacity={capacity}
@@ -445,10 +439,6 @@ const Index = () => {
     />
   );
 
-  /**
-   * renderStaffController — used ONLY in the Analytics sidebar where
-   * a full chef-detail panel is appropriate. NOT rendered in Kanban sidebar.
-   */
   const renderStaffController = () => (
     <StaffController
       allStaff={allStaff}
@@ -471,6 +461,8 @@ const Index = () => {
   );
 
   // ── Stat cards ─────────────────────────────────────────────────────────────
+  // FIX: Pending = warning (orange) always — it's a queue waiting for action
+  //      Cooking = success (green)  always — active cooking is good/in-progress
   const renderStatsCards = () => (
     <div className="stats-grid">
       <StatCard
@@ -478,7 +470,7 @@ const Index = () => {
         value={stats.pending}
         subtitle="In queue"
         icon={Clock}
-        variant={stats.pending > 5 ? 'primary' : 'default'}
+        variant="warning"
         onClick={() => scrollToColumn('pending')}
         ariaLabel={`View ${stats.pending} pending orders in Queue column`}
       />
@@ -487,7 +479,7 @@ const Index = () => {
         value={stats.cooking}
         subtitle="In progress"
         icon={ChefHat}
-        variant="warning"
+        variant="success"
         onClick={() => scrollToColumn('cooking')}
         ariaLabel={`View ${stats.cooking} orders in Cooking column`}
       />
@@ -532,13 +524,6 @@ const Index = () => {
 
   // ── Views ──────────────────────────────────────────────────────────────────
 
-  /**
-   * Kanban view:
-   *   main  → KanbanBoard (drag-and-drop columns)
-   *   sidebar →
-   *     SimulationControls (start/pause, speed, burst)
-   *     CapacityMeter      (bar + staff + modals) ← ONLY staff panel in this view
-   */
   const renderKanbanView = () => (
     <div className="kanban-layout">
       <div className="kanban-layout__main">
@@ -578,10 +563,6 @@ const Index = () => {
     </div>
   );
 
-  /**
-   * Analytics view sidebar uses StaffController (ChefStations) for
-   * full chef detail — appropriate here where there is more horizontal space.
-   */
   const renderAnalyticsView = () => (
     <div className="analytics-layout">
       <div className="analytics-layout__main">
