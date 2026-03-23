@@ -4,18 +4,29 @@ import { useSkipLine } from '../../../customer-context/SkipLineContext';
 import '../overview-styles/Kitchenglance.scss';
 
 interface KitchenGlanceProps {
-  topDish: { name: string; orders: number };
-  busiestHour: { time: string; orders: number };
-  avgPrepTime: number;
-  bottleneck?: string;
+  topDish:      { name: string; orders: number };
+  busiestHour:  { time: string; orders: number };
+  avgPrepTime:  number;
+  bottleneck?:  string;
+  // FIX: accept real kitchen capacity from board metrics instead of hardcoding 3.
+  // CustomerDashboard/Index.tsx passes board.metrics.activeChefCount here.
+  // Falls back to 3 when board data is unavailable (unauthenticated / 403).
+  kitchenCapacity?: number;
 }
 
-export function KitchenGlance({ topDish, busiestHour, avgPrepTime, bottleneck }: KitchenGlanceProps) {
+export function KitchenGlance({
+  topDish,
+  busiestHour,
+  avgPrepTime,
+  bottleneck,
+  kitchenCapacity = 3,
+}: KitchenGlanceProps) {
   const { orders, kitchenState } = useSkipLine();
-  
-  const activeCount = kitchenState.activeOrders.length;
-  const queuedCount = kitchenState.queuedOrders.length;
-  const isOverCapacity = queuedCount > 3;
+
+  const activeCount    = kitchenState.activeOrders.length;
+  const queuedCount    = kitchenState.queuedOrders.length;
+  // FIX: use real capacity from backend, not hardcoded 3
+  const isOverCapacity = queuedCount > kitchenCapacity;
 
   return (
     <motion.div
@@ -32,7 +43,7 @@ export function KitchenGlance({ topDish, busiestHour, avgPrepTime, bottleneck }:
           </div>
           <h3 className="kitchen-glance__title">Kitchen at a Glance</h3>
         </div>
-        
+
         {isOverCapacity && (
           <motion.div
             initial={{ scale: 0 }}
@@ -98,8 +109,8 @@ export function KitchenGlance({ topDish, busiestHour, avgPrepTime, bottleneck }:
         <motion.div
           whileHover={{ scale: 1.02 }}
           className={`kitchen-glance__card ${
-            bottleneck 
-              ? 'kitchen-glance__card--warning' 
+            bottleneck
+              ? 'kitchen-glance__card--warning'
               : 'kitchen-glance__card--neutral'
           }`}
         >
@@ -142,19 +153,20 @@ export function KitchenGlance({ topDish, busiestHour, avgPrepTime, bottleneck }:
               ? 'kitchen-glance__capacity-value--danger'
               : 'kitchen-glance__capacity-value--success'
           }`}>
-            {activeCount}/3 being prepared • {queuedCount} waiting
+            {/* FIX: show real capacity denominator */}
+            {activeCount}/{kitchenCapacity} being prepared &bull; {queuedCount} waiting
           </span>
         </div>
         <div className="kitchen-glance__capacity-bar">
           <motion.div
             initial={{ width: 0 }}
-            animate={{ width: `${Math.min((activeCount / 3) * 100, 100)}%` }}
+            animate={{ width: `${Math.min((activeCount / kitchenCapacity) * 100, 100)}%` }}
             transition={{ duration: 0.8, delay: 0.5 }}
             className={`kitchen-glance__capacity-fill ${
-              activeCount >= 3 
-                ? 'kitchen-glance__capacity-fill--danger' 
-                : activeCount >= 2 
-                ? 'kitchen-glance__capacity-fill--warning' 
+              activeCount >= kitchenCapacity
+                ? 'kitchen-glance__capacity-fill--danger'
+                : activeCount >= kitchenCapacity * 0.67
+                ? 'kitchen-glance__capacity-fill--warning'
                 : 'kitchen-glance__capacity-fill--success'
             }`}
           />

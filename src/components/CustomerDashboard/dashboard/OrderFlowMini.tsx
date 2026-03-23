@@ -7,9 +7,17 @@ import { useSkipLine } from '../../../customer-context/SkipLineContext';
 import { useState } from 'react';
 import '../overview-styles/OrderFlowMini.scss';
 
+// FIX: Removed 'preparing' step — backend OrderStatus enum has no PREPARING.
+// Valid backend statuses: PENDING → COOKING → READY → COMPLETED.
+// Frontend mapping (dtoToOrder in SkipLineContext):
+//   "pending"   → status: 'confirmed'  (shown as "Pending")
+//   "cooking"   → status: 'cooking'    (shown as "Cooking")
+//   "ready"     → status: 'ready'      (shown as "Ready")
+//   "completed" → moves to order history
+// The old 4-step flow had 'preparing' betweesn Pending and Cooking which could
+// never be populated from real backend data, always showing 0.
 const statusSteps = [
   { key: 'confirmed', label: 'Pending',   icon: Clock,        color: 'blue'   },
-  { key: 'preparing', label: 'Preparing', icon: Clock,        color: 'yellow' },
   { key: 'cooking',   label: 'Cooking',   icon: Flame,        color: 'orange' },
   { key: 'ready',     label: 'Ready! 🎉', icon: CheckCircle2, color: 'green'  },
 ];
@@ -111,7 +119,7 @@ export function OrderFlowMini() {
           </div>
         </div>
 
-        {/* ── Status Steps (always visible) ── */}
+        {/* ── Status Steps ── */}
         <div className="flow-enhanced__steps">
           {statusSteps.map((step, i) => {
             const count      = statusCounts[step.key] || 0;
@@ -251,7 +259,6 @@ export function OrderFlowMini() {
               exit={{ opacity: 0, y: -10 }}
               className="flow-enhanced__empty"
             >
-              {/* Animated bag icon */}
               <motion.div
                 className="flow-enhanced__empty-icon-wrap"
                 animate={{ y: [0, -6, 0] }}
@@ -270,7 +277,6 @@ export function OrderFlowMini() {
                 Place an order and watch it come to life in real time 👇
               </p>
 
-              {/* Perks grid */}
               <div className="flow-enhanced__perks">
                 {orderPerks.map((perk, i) => (
                   <motion.div
@@ -289,7 +295,6 @@ export function OrderFlowMini() {
                 ))}
               </div>
 
-              {/* CTA */}
               <motion.button
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.97 }}

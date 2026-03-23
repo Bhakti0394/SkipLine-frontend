@@ -1,47 +1,81 @@
-import { useState } from 'react';
+// components/CustomerDashboard/dashboard/OrderModal.tsx
+//
+// FIX [HARDCODED-ADDONS]: ADDONS list is now fetched from backend.
+//
+// BEFORE: ADDONS was a static hardcoded array — prices and availability
+//   were never in sync with what the kitchen actually offers. "Extra Cheese +₹30"
+//   might not even be a real add-on at your canteen.
+//
+// AFTER: GET /api/customer/addons is called when the modal opens.
+//   If the endpoint doesn't exist yet or returns an error, it falls back to
+//   the static list so the modal never breaks. When you're ready to make
+//   add-ons fully dynamic, implement the endpoint in CustomerOrderController.
+//
+// SPICE_LEVELS: kept static — these are UI config, not database entities.
+// EXPRESS_ARRIVAL_OPTIONS: already dynamic (filtered by meal.prepTime) ✅
+// Slots: already fetched from backend ✅
+
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Clock, Minus, Plus, ShoppingBag, Flame, Leaf, Star, Check, ChefHat, ArrowRight, CheckCircle2, Calendar, Zap, Timer } from 'lucide-react';
+import {
+  X, Clock, Minus, Plus, ShoppingBag, Flame, Leaf, Star,
+  Check, ChefHat, ArrowRight, CheckCircle2, Calendar, Zap, Timer, Loader2,
+} from 'lucide-react';
 import { Meal, AddOn, OrderType } from '../../../customer-types/dashboard';
-import { Button } from '../../../components/ui/button';
-import { mockTimeSlots } from '../../../customer-data/mockData';
-import { useSkipLine } from '../../../customer-context/SkipLineContext';
-import { useNavigate } from 'react-router-dom';
+import { Button }        from '../../../components/ui/button';
+import { useSkipLine }   from '../../../customer-context/SkipLineContext';
+import { useNavigate }   from 'react-router-dom';
+import {
+  SlotCapacityDto,
+  CustomerSlotDto,
+  fetchCustomerSlots,
+  fetchCustomerSlotsTomorrow,
+} from '../../../kitchen-api/kitchenApi';
 import '../overview-styles/Ordermodal.scss';
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface OrderModalProps {
-  meal: Meal | null;
-  isOpen: boolean;
-  onClose: () => void;
-  orderMode?: 'now' | 'schedule';
+  meal:              Meal | null;
+  isOpen:            boolean;
+  onClose:           () => void;
+  orderMode?:        'now' | 'schedule';
+  forceExpressMode?: boolean;
+  realSlots?:        SlotCapacityDto[]; // kept for backward compat, not used
 }
 
-const addOns: AddOn[] = [
-  { id: 'extra-cheese', name: 'Extra Cheese', price: 30, icon: '🧀' },
-  { id: 'extra-spicy', name: 'Extra Spicy', price: 0, icon: '🌶️' },
-  { id: 'extra-butter', name: 'Extra Butter', price: 20, icon: '🧈' },
-  { id: 'onion-rings', name: 'Onion Rings', price: 40, icon: '🧅' },
-  { id: 'raita', name: 'Raita', price: 25, icon: '🥛' },
-  { id: 'papad', name: 'Papad (2 pcs)', price: 20, icon: '🫓' },
+// ── Static fallback add-ons ───────────────────────────────────────────────────
+// Used only when GET /api/customer/addons fails or isn't implemented yet.
+// Replace this with a real endpoint when add-on prices/availability need to
+// be managed from the kitchen side.
+const ADDONS_FALLBACK: AddOn[] = [
+  { id: 'extra-cheese', name: 'Extra Cheese',  price: 30, icon: '🧀' },
+  { id: 'extra-spicy',  name: 'Extra Spicy',   price:  0, icon: '🌶️' },
+  { id: 'extra-butter', name: 'Extra Butter',  price: 20, icon: '🧈' },
+  { id: 'onion-rings',  name: 'Onion Rings',   price: 40, icon: '🧅' },
+  { id: 'raita',        name: 'Raita',         price: 25, icon: '🥛' },
+  { id: 'papad',        name: 'Papad (2 pcs)', price: 20, icon: '🫓' },
 ];
 
-const spiceLevels = [
-  { id: 'mild', label: 'Mild', icon: '🌶️' },
-  { id: 'medium', label: 'Medium', icon: '🌶️🌶️' },
-  { id: 'spicy', label: 'Spicy', icon: '🌶️🌶️🌶️' },
-  { id: 'extra-hot', label: 'Extra Hot', icon: '🔥' },
+// ── Static product config (not database data — fine to keep static) ───────────
+const SPICE_LEVELS = [
+  { id: 'mild',      label: 'Mild',      icon: '🌶️'     },
+  { id: 'medium',    label: 'Medium',    icon: '🌶️🌶️'   },
+  { id: 'spicy',     label: 'Spicy',     icon: '🌶️🌶️🌶️' },
+  { id: 'extra-hot', label: 'Extra Hot', icon: '🔥'      },
 ];
 
-// Express arrival options — customer picks how far away they are
-const expressArrivalOptions = [
-  { id: 'express-5',  minutes: 5,  label: '5 mins',  sublabel: 'Just around the corner', emoji: '🏃' },
+// Express arrival windows — filtered at render time by meal.prepTime ✅
+const ALL_EXPRESS_ARRIVAL_OPTIONS = [
+  { id: 'express-5',  minutes:  5, label:  '5 mins', sublabel: 'Just around the corner', emoji: '🏃' },
   { id: 'express-10', minutes: 10, label: '10 mins', sublabel: 'On my way now',           emoji: '🚶' },
   { id: 'express-15', minutes: 15, label: '15 mins', sublabel: 'Leaving soon',            emoji: '🚪' },
 ];
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 const getTomorrowDate = () => {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return tomorrow.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const t = new Date();
+  t.setDate(t.getDate() + 1);
+  return t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 };
 
 const getPickupTimeFromMinutes = (minutes: number): string => {
@@ -49,42 +83,123 @@ const getPickupTimeFromMinutes = (minutes: number): string => {
   return pickup.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 };
 
-const scheduledTimeSlots = [
-  { id: 'sch-breakfast-1', time: '8:00 AM',  period: 'Breakfast', available: true },
-  { id: 'sch-breakfast-2', time: '9:00 AM',  period: 'Breakfast', available: true },
-  { id: 'sch-lunch-1',     time: '12:00 PM', period: 'Lunch',     available: true },
-  { id: 'sch-lunch-2',     time: '1:00 PM',  period: 'Lunch',     available: true },
-  { id: 'sch-lunch-3',     time: '2:00 PM',  period: 'Lunch',     available: true },
-  { id: 'sch-dinner-1',    time: '7:00 PM',  period: 'Dinner',    available: true },
-  { id: 'sch-dinner-2',    time: '8:00 PM',  period: 'Dinner',    available: true },
-  { id: 'sch-dinner-3',    time: '9:00 PM',  period: 'Dinner',    available: true },
-];
+function queueLevel(remaining: number, max: number): 'low' | 'medium' | 'high' {
+  const pct = max > 0 ? remaining / max : 0;
+  return pct > 0.5 ? 'low' : pct > 0.2 ? 'medium' : 'high';
+}
 
-export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderModalProps) {
+// ── Add-ons fetch ─────────────────────────────────────────────────────────────
+// Module-level cache so all modal instances share one fetch.
+let addonsCache: AddOn[] | null = null;
+
+async function fetchAddons(): Promise<AddOn[]> {
+  if (addonsCache) return addonsCache;
+  try {
+    const CUSTOMER_URL = (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/customer';
+    const token = localStorage.getItem('auth_token');
+    const res = await fetch(`${CUSTOMER_URL}/addons`, {
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    const data: AddOn[] = await res.json();
+    addonsCache = data.length > 0 ? data : ADDONS_FALLBACK;
+    return addonsCache;
+  } catch {
+    // Endpoint not implemented yet or network error → use fallback
+    addonsCache = ADDONS_FALLBACK;
+    return addonsCache;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+export function OrderModal({
+  meal,
+  isOpen,
+  onClose,
+  orderMode        = 'now',
+  forceExpressMode = false,
+}: OrderModalProps) {
   const { addToCart, cartItemsCount } = useSkipLine();
   const navigate = useNavigate();
-  const [quantity, setQuantity] = useState(1);
-  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+
+  // ── Local state ──────────────────────────────────────────────────────────
+  const [quantity,              setQuantity]              = useState(1);
+  const [selectedSlot,          setSelectedSlot]          = useState<string | null>(null);
   const [selectedExpressOption, setSelectedExpressOption] = useState<string | null>(null);
-  const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
-  const [spiceLevel, setSpiceLevel] = useState('medium');
-  const [specialInstructions, setSpecialInstructions] = useState('');
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [selectedAddOns,        setSelectedAddOns]        = useState<string[]>([]);
+  const [spiceLevel,            setSpiceLevel]            = useState('medium');
+  const [specialInstructions,   setSpecialInstructions]   = useState('');
+  const [showSuccess,           setShowSuccess]           = useState(false);
+
+  // FIX: add-ons loaded from backend (with static fallback)
+  const [addons,       setAddons]       = useState<AddOn[]>(ADDONS_FALLBACK);
+  const [addonsLoaded, setAddonsLoaded] = useState(false);
+
+  // Slots from backend
+  const [todaySlots,    setTodaySlots]    = useState<CustomerSlotDto[]>([]);
+  const [tomorrowSlots, setTomorrowSlots] = useState<CustomerSlotDto[]>([]);
+  const [slotsLoading,  setSlotsLoading]  = useState(false);
 
   if (!meal) return null;
 
   const isScheduleMode = orderMode === 'schedule';
-  const isExpressMode = meal.isExpress && !isScheduleMode;
-  const tomorrowDate = getTomorrowDate();
-
+  const isExpressMode  = !isScheduleMode && (meal.isExpress || forceExpressMode);
   const orderType: OrderType = isScheduleMode ? 'scheduled' : isExpressMode ? 'express' : 'normal';
+  const tomorrowDate   = getTomorrowDate();
+
+  // FIX: fetch real add-ons when modal opens (cached after first load)
+  useEffect(() => {
+    if (!isOpen || addonsLoaded) return;
+    fetchAddons().then(data => {
+      setAddons(data);
+      setAddonsLoaded(true);
+    });
+  }, [isOpen, addonsLoaded]);
+
+  // Fetch real slots when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    if (isExpressMode) return;
+
+    let cancelled = false;
+    setSlotsLoading(true);
+
+    if (isScheduleMode) {
+      fetchCustomerSlotsTomorrow()
+        .then(slots => { if (!cancelled) { setTomorrowSlots(slots); setSlotsLoading(false); } })
+        .catch(() => { if (!cancelled) setSlotsLoading(false); });
+    } else {
+      fetchCustomerSlots()
+        .then(slots => { if (!cancelled) { setTodaySlots(slots); setSlotsLoading(false); } })
+        .catch(() => { if (!cancelled) setSlotsLoading(false); });
+    }
+
+    return () => { cancelled = true; };
+  }, [isOpen, isScheduleMode, isExpressMode]);
+
+  // Express options filtered to only those achievable for this dish
+  const expressArrivalOptions = ALL_EXPRESS_ARRIVAL_OPTIONS.filter(
+    o => o.minutes >= meal.prepTime
+  );
 
   const selectedExpressArrival = expressArrivalOptions.find(o => o.id === selectedExpressOption);
-  const expressPickupTime = selectedExpressArrival
+  const expressPickupTime      = selectedExpressArrival
     ? getPickupTimeFromMinutes(selectedExpressArrival.minutes)
     : null;
 
-  // express needs arrival pick; others need a slot
+  // Group tomorrow slots by period for scheduled view
+  const tomorrowSlotsByPeriod = tomorrowSlots.reduce((acc, slot) => {
+    const p = slot.period;
+    if (!acc[p]) acc[p] = [];
+    acc[p].push(slot);
+    return acc;
+  }, {} as Record<string, CustomerSlotDto[]>);
+
+  const periods = ['Breakfast', 'Lunch', 'Afternoon', 'Dinner'].filter(
+    p => tomorrowSlotsByPeriod[p]?.length > 0
+  );
+
   const canSubmit = isExpressMode ? !!selectedExpressOption : !!selectedSlot;
 
   const noSpiceCategories = ['Desserts', 'Dessert', 'Beverages', 'Beverage', 'Drinks', 'Drink', 'Sweet', 'Sweets', 'Chai', 'Tea', 'Coffee'];
@@ -92,97 +207,92 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
     meal.category.toLowerCase().includes(cat.toLowerCase())
   );
 
-  const toggleAddOn = (addOnId: string) => {
-    setSelectedAddOns(prev => prev.includes(addOnId) ? prev.filter(id => id !== addOnId) : [...prev, addOnId]);
-  };
+  const toggleAddOn = (addOnId: string) =>
+    setSelectedAddOns(prev =>
+      prev.includes(addOnId) ? prev.filter(id => id !== addOnId) : [...prev, addOnId]
+    );
 
-  const selectedAddOnObjects = addOns.filter(a => selectedAddOns.includes(a.id));
-  const addOnsTotal = selectedAddOnObjects.reduce((total, a) => total + a.price, 0);
-  const totalPrice = (meal.price + addOnsTotal) * quantity;
+  // FIX: use dynamic addons list for price calculation
+  const selectedAddOnObjects = addons.filter(a => selectedAddOns.includes(a.id));
+  const addOnsTotal          = selectedAddOnObjects.reduce((t, a) => t + a.price, 0);
+  const totalPrice           = (meal.price + addOnsTotal) * quantity;
 
   const resetForm = () => {
-    setQuantity(1);
-    setSelectedSlot(null);
-    setSelectedExpressOption(null);
-    setSelectedAddOns([]);
-    setSpiceLevel('medium');
-    setSpecialInstructions('');
-    setShowSuccess(false);
+    setQuantity(1); setSelectedSlot(null); setSelectedExpressOption(null);
+    setSelectedAddOns([]); setSpiceLevel('medium');
+    setSpecialInstructions(''); setShowSuccess(false);
   };
 
   const handleAddToCart = () => {
     if (!canSubmit) return;
-
     if (isExpressMode && selectedExpressArrival) {
       addToCart({
-        meal,
-        quantity,
+        meal, menuItemId: meal.id, quantity,
         addOns: selectedAddOnObjects,
         spiceLevel: shouldShowSpiceLevel ? spiceLevel : 'none',
         specialInstructions,
         pickupSlotId: selectedExpressOption!,
         pickupTime: expressPickupTime!,
-        isScheduled: false,
-        scheduledDate: undefined,
-        orderType,
+        isScheduled: false, scheduledDate: undefined, orderType,
       });
     } else {
-      const slot = isScheduleMode
-        ? scheduledTimeSlots.find(s => s.id === selectedSlot)
-        : mockTimeSlots.find(s => s.id === selectedSlot);
+      const allSlots = isScheduleMode ? tomorrowSlots : todaySlots;
+      const slot = allSlots.find(s => s.slotId === selectedSlot);
       addToCart({
-        meal,
-        quantity,
+        meal, menuItemId: meal.id, quantity,
         addOns: selectedAddOnObjects,
         spiceLevel: shouldShowSpiceLevel ? spiceLevel : 'none',
         specialInstructions,
         pickupSlotId: selectedSlot!,
-        pickupTime: slot?.time || '12:30 PM',
+        pickupTime: slot?.displayTime || 'ASAP',
         isScheduled: isScheduleMode,
-        scheduledDate: isScheduleMode ? tomorrowDate : undefined,
-        orderType,
+        scheduledDate: isScheduleMode ? tomorrowDate : undefined, orderType,
       });
     }
     setShowSuccess(true);
   };
 
-  const handleAddMore = () => { resetForm(); onClose(); };
+  const handleAddMore  = () => { resetForm(); onClose(); };
   const handleViewCart = () => { resetForm(); onClose(); navigate('/customer-dashboard/checkout'); };
-
-  const modalClass = isExpressMode ? 'modal modal--express' : 'modal';
 
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={handleAddMore} className="modal__backdrop" />
-
-          <motion.div initial={{ opacity: 0, scale: 0.95, y: "-50%", x: "-50%" }}
-            animate={{ opacity: 1, scale: 1, y: "-50%", x: "-50%" }}
-            exit={{ opacity: 0, scale: 0.95, y: "-50%", x: "-50%" }}
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={handleAddMore} className="modal__backdrop"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: '-50%', x: '-50%' }}
+            animate={{ opacity: 1, scale: 1,    y: '-50%', x: '-50%' }}
+            exit={{   opacity: 0, scale: 0.95,  y: '-50%', x: '-50%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className={modalClass}>
+            className={isExpressMode ? 'modal modal--express' : 'modal'}
+          >
             <AnimatePresence mode="wait">
+
+              {/* ── Success screen ── */}
               {showSuccess ? (
-                <motion.div key="success" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }} className="modal__success">
-                  <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
+                <motion.div key="success"
+                  initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }} className="modal__success"
+                >
+                  <motion.div
+                    initial={{ scale: 0 }} animate={{ scale: 1 }}
                     transition={{ type: 'spring', delay: 0.15, damping: 15 }}
-                    className={`modal__success-icon ${isScheduleMode ? 'modal__success-icon--schedule' : ''} ${isExpressMode ? 'modal__success-icon--express' : ''}`}>
+                    className={`modal__success-icon ${isScheduleMode ? 'modal__success-icon--schedule' : ''} ${isExpressMode ? 'modal__success-icon--express' : ''}`}
+                  >
                     <CheckCircle2 className="modal__success-check" />
                   </motion.div>
-
                   <motion.h2 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.25 }} className="modal__success-title">
                     {isScheduleMode ? 'Scheduled for Tomorrow!' : isExpressMode ? 'Express Order Placed!' : 'Added to Cart!'}
                   </motion.h2>
-
                   <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.35 }} className="modal__success-text">
                     {quantity}x {meal.name} • ₹{totalPrice}
                   </motion.p>
-
                   {isExpressMode && selectedExpressArrival && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.4 }} className="modal__success-express-info">
@@ -190,15 +300,13 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                       <span>Ready by {expressPickupTime} · Kitchen starts now!</span>
                     </motion.div>
                   )}
-
                   {isScheduleMode && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.4 }} className="modal__success-schedule-info">
                       <Calendar className="modal__success-schedule-icon" />
-                      <span>{tomorrowDate} at {scheduledTimeSlots.find(s => s.id === selectedSlot)?.time}</span>
+                      <span>{tomorrowDate} at {tomorrowSlots.find(s => s.slotId === selectedSlot)?.displayTime}</span>
                     </motion.div>
                   )}
-
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 }} className="modal__success-actions">
                     <Button variant="outline" onClick={handleAddMore} className="modal__btn modal__btn--outline">
@@ -209,31 +317,30 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                     </Button>
                   </motion.div>
                 </motion.div>
+
               ) : (
-                <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  className="modal__form">
+                /* ── Order form ── */
+                <motion.div key="form"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="modal__form"
+                >
+                  {/* Header */}
                   <div className="modal__header">
                     <img src={meal.image} alt={meal.name} className="modal__header-img" />
                     <div className="modal__header-overlay" />
-
                     {isScheduleMode && (
                       <div className="modal__schedule-badge">
-                        <Calendar className="modal__schedule-badge-icon" />
-                        Tomorrow
+                        <Calendar className="modal__schedule-badge-icon" />Tomorrow
                       </div>
                     )}
-
                     {isExpressMode && (
                       <div className="modal__express-badge">
-                        <Zap className="modal__express-badge-icon" />
-                        Express
+                        <Zap className="modal__express-badge-icon" />Express
                       </div>
                     )}
-
                     <Button variant="ghost" size="icon" onClick={handleAddMore} className="modal__close">
                       <X className="modal__close-icon" />
                     </Button>
-
                     <div className="modal__header-info">
                       <div className="modal__badges">
                         <span className="modal__badge modal__badge--category">{meal.category}</span>
@@ -247,6 +354,7 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                   </div>
 
                   <div className="modal__content">
+                    {/* Mode banners */}
                     {isScheduleMode && (
                       <div className="modal__schedule-banner">
                         <Calendar className="modal__schedule-banner-icon" />
@@ -256,17 +364,19 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                         </div>
                       </div>
                     )}
-
                     {isExpressMode && (
                       <div className="modal__express-banner">
                         <Zap className="modal__express-banner-icon" />
                         <div className="modal__express-banner-text">
                           <p className="modal__express-banner-title">⚡ Kitchen starts cooking immediately</p>
-                          <p className="modal__express-banner-subtitle">Tell us when you'll arrive — food will be hot & ready</p>
+                          <p className="modal__express-banner-subtitle">
+                            {meal.name} is ready in {meal.prepTime} min — pick your arrival time
+                          </p>
                         </div>
                       </div>
                     )}
 
+                    {/* Quick info */}
                     <div className="modal__info">
                       <div className="modal__info-item">
                         <Clock className="modal__info-icon" />
@@ -284,24 +394,27 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                       </div>
                     </div>
 
+                    {/* Quantity */}
                     <div className="modal__quantity">
                       <div className="modal__quantity-label">
-                        <ShoppingBag className="modal__quantity-icon" />
-                        <span>Quantity</span>
+                        <ShoppingBag className="modal__quantity-icon" /><span>Quantity</span>
                       </div>
                       <div className="modal__quantity-controls">
-                        <motion.button whileTap={{ scale: 0.9 }} onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                        <motion.button whileTap={{ scale: 0.9 }}
+                          onClick={() => setQuantity(q => Math.max(1, q - 1))}
                           className="modal__quantity-btn modal__quantity-btn--minus">
                           <Minus className="modal__quantity-btn-icon" />
                         </motion.button>
                         <span className="modal__quantity-value">{quantity}</span>
-                        <motion.button whileTap={{ scale: 0.9 }} onClick={() => setQuantity(q => Math.min(10, q + 1))}
+                        <motion.button whileTap={{ scale: 0.9 }}
+                          onClick={() => setQuantity(q => Math.min(10, q + 1))}
                           className="modal__quantity-btn modal__quantity-btn--plus">
                           <Plus className="modal__quantity-btn-icon" />
                         </motion.button>
                       </div>
                     </div>
 
+                    {/* Spice level */}
                     {shouldShowSpiceLevel && (
                       <div className="modal__section">
                         <div className="modal__section-header">
@@ -309,7 +422,7 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                           <h3 className="modal__section-title">Spice Level</h3>
                         </div>
                         <div className="modal__spice-grid">
-                          {spiceLevels.map((level) => (
+                          {SPICE_LEVELS.map((level) => (
                             <motion.button key={level.id} whileTap={{ scale: 0.95 }}
                               onClick={() => setSpiceLevel(level.id)}
                               className={`modal__spice-btn ${spiceLevel === level.id ? 'modal__spice-btn--active' : ''}`}>
@@ -321,13 +434,14 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                       </div>
                     )}
 
+                    {/* FIX: Add-ons — now from backend (with fallback) */}
                     <div className="modal__section">
                       <div className="modal__section-header">
                         <ChefHat className={`modal__section-icon ${isExpressMode ? 'modal__section-icon--express' : 'modal__section-icon--primary'}`} />
                         <h3 className="modal__section-title">Add-ons</h3>
                       </div>
                       <div className="modal__addons-grid">
-                        {addOns.map((addOn) => {
+                        {addons.map((addOn) => {
                           const isSelected = selectedAddOns.includes(addOn.id);
                           return (
                             <motion.button key={addOn.id} whileTap={{ scale: 0.98 }}
@@ -336,9 +450,7 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                               <span className="modal__addon-icon">{addOn.icon}</span>
                               <div className="modal__addon-info">
                                 <p className="modal__addon-name">{addOn.name}</p>
-                                <p className="modal__addon-price">
-                                  {addOn.price > 0 ? `+₹${addOn.price}` : 'Free'}
-                                </p>
+                                <p className="modal__addon-price">{addOn.price > 0 ? `+₹${addOn.price}` : 'Free'}</p>
                               </div>
                               {isSelected && <Check className="modal__addon-check" />}
                             </motion.button>
@@ -347,16 +459,21 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                       </div>
                     </div>
 
+                    {/* Special instructions */}
                     <div className="modal__section">
                       <div className="modal__section-header">
                         <Leaf className="modal__section-icon modal__section-icon--success" />
                         <h3 className="modal__section-title">Special Instructions</h3>
                       </div>
-                      <textarea value={specialInstructions} onChange={(e) => setSpecialInstructions(e.target.value)}
-                        placeholder="Any allergies or requests?" className="modal__textarea" maxLength={150} />
+                      <textarea
+                        value={specialInstructions}
+                        onChange={(e) => setSpecialInstructions(e.target.value)}
+                        placeholder="Any allergies or requests?"
+                        className="modal__textarea" maxLength={150}
+                      />
                     </div>
 
-                    {/* ── PICKUP / ARRIVAL SECTION ── */}
+                    {/* ── Pickup / Arrival section ── */}
                     <div className="modal__section">
                       <div className="modal__section-header">
                         {isScheduleMode ? (
@@ -372,17 +489,15 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                         <span className="modal__required">*Required</span>
                       </div>
 
-                      {/* EXPRESS — 3 arrival cards */}
+                      {/* EXPRESS — filtered by meal.prepTime ✅ */}
                       {isExpressMode ? (
                         <div className="modal__express-arrival-grid">
                           {expressArrivalOptions.map((option) => {
                             const isSelected = selectedExpressOption === option.id;
-                            const pickupAt = getPickupTimeFromMinutes(option.minutes);
+                            const pickupAt   = getPickupTimeFromMinutes(option.minutes);
                             return (
-                              <motion.button
-                                key={option.id}
-                                whileTap={{ scale: 0.95 }}
-                                whileHover={{ scale: 1.02 }}
+                              <motion.button key={option.id}
+                                whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.02 }}
                                 onClick={() => setSelectedExpressOption(option.id)}
                                 className={`modal__express-arrival ${isSelected ? 'modal__express-arrival--active' : ''}`}
                               >
@@ -391,12 +506,9 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                                 <span className="modal__express-arrival-sublabel">{option.sublabel}</span>
                                 <span className="modal__express-arrival-time">Ready ~{pickupAt}</span>
                                 {isSelected && (
-                                  <motion.div
-                                    className="modal__express-arrival-check"
-                                    initial={{ scale: 0 }}
-                                    animate={{ scale: 1 }}
-                                    transition={{ type: 'spring', damping: 15 }}
-                                  >
+                                  <motion.div className="modal__express-arrival-check"
+                                    initial={{ scale: 0 }} animate={{ scale: 1 }}
+                                    transition={{ type: 'spring', damping: 15 }}>
                                     <Check />
                                   </motion.div>
                                 )}
@@ -404,76 +516,98 @@ export function OrderModal({ meal, isOpen, onClose, orderMode = 'now' }: OrderMo
                             );
                           })}
                         </div>
+
                       ) : isScheduleMode ? (
-                        /* SCHEDULED — tomorrow slots grouped by period */
-                        <div className="modal__schedule-slots">
-                          {['Breakfast', 'Lunch', 'Dinner'].map((period) => {
-                            const periodSlots = scheduledTimeSlots.filter(s => s.period === period);
-                            return (
+                        /* SCHEDULED — real tomorrow slots from backend ✅ */
+                        slotsLoading ? (
+                          <div className="modal__slots-loading">
+                            <Loader2 className="modal__slots-loading-icon" />
+                            <span>Loading available slots...</span>
+                          </div>
+                        ) : tomorrowSlots.length === 0 ? (
+                          <p className="modal__slots-empty">No slots available for tomorrow yet. Check back later.</p>
+                        ) : (
+                          <div className="modal__schedule-slots">
+                            {periods.map((period) => (
                               <div key={period} className="modal__schedule-period">
                                 <p className="modal__schedule-period-title">{period}</p>
                                 <div className="modal__schedule-period-slots">
-                                  {periodSlots.map((slot) => (
-                                    <motion.button key={slot.id} whileTap={{ scale: 0.95 }}
-                                      onClick={() => setSelectedSlot(slot.id)}
-                                      className={`modal__schedule-slot ${selectedSlot === slot.id ? 'modal__schedule-slot--active' : ''}`}>
-                                      <Clock className="modal__schedule-slot-icon" />
-                                      <span className="modal__schedule-slot-time">{slot.time}</span>
-                                    </motion.button>
-                                  ))}
+                                  {tomorrowSlotsByPeriod[period].map((slot) => {
+                                    const isFull = slot.remaining === 0;
+                                    return (
+                                      <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
+                                        onClick={() => !isFull && setSelectedSlot(slot.slotId)}
+                                        disabled={isFull}
+                                        className={`modal__schedule-slot ${selectedSlot === slot.slotId ? 'modal__schedule-slot--active' : ''} ${isFull ? 'modal__schedule-slot--full' : ''}`}>
+                                        <Clock className="modal__schedule-slot-icon" />
+                                        <span className="modal__schedule-slot-time">{slot.displayTime}</span>
+                                        {isFull && <span className="modal__schedule-slot-full-badge">Full</span>}
+                                      </motion.button>
+                                    );
+                                  })}
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
+                            ))}
+                          </div>
+                        )
+
                       ) : (
-                        /* NORMAL — today's slots with queue info */
-                        <div className="modal__slots-grid">
-                          {mockTimeSlots.map((slot) => (
-                            <motion.button key={slot.id} whileTap={{ scale: 0.95 }}
-                              onClick={() => setSelectedSlot(slot.id)}
-                              className={`modal__slot ${selectedSlot === slot.id ? 'modal__slot--active' : ''}`}>
-                              <p className="modal__slot-time">{slot.time}</p>
-                              <div className="modal__slot-queue">
-                                <span className={`modal__slot-dot modal__slot-dot--${slot.queueLevel}`} />
-                                <span className="modal__slot-wait">
-                                  {slot.queueLevel === 'low' ? 'No wait' : `~${slot.estimatedWait}m`}
-                                </span>
-                              </div>
-                            </motion.button>
-                          ))}
-                        </div>
+                        /* NORMAL — real today's slots from backend ✅ */
+                        slotsLoading ? (
+                          <div className="modal__slots-loading">
+                            <Loader2 className="modal__slots-loading-icon" />
+                            <span>Loading available slots...</span>
+                          </div>
+                        ) : todaySlots.length === 0 ? (
+                          <p className="modal__slots-empty">No slots available right now. Try again soon.</p>
+                        ) : (
+                          <div className="modal__slots-grid">
+                            {todaySlots.map((slot) => {
+                              const level = queueLevel(slot.remaining, slot.maxCapacity);
+                              const isFull = slot.remaining === 0;
+                              return (
+                                <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
+                                  onClick={() => setSelectedSlot(slot.slotId)}
+                                  disabled={isFull}
+                                  className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
+                                >
+                                  <p className="modal__slot-time">{slot.displayTime}</p>
+                                  <div className="modal__slot-queue">
+                                    <span className={`modal__slot-dot modal__slot-dot--${level}`} />
+                                    <span className="modal__slot-wait">
+                                      {isFull ? 'Full' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
+                                    </span>
+                                  </div>
+                                </motion.button>
+                              );
+                            })}
+                          </div>
+                        )
                       )}
                     </div>
                   </div>
 
+                  {/* Footer */}
                   <div className="modal__footer">
                     <div className="modal__total">
                       <div>
                         <span className="modal__total-label">Total</span>
-                        {addOnsTotal > 0 && (
-                          <p className="modal__total-addon">incl. ₹{addOnsTotal} add-ons</p>
-                        )}
+                        {addOnsTotal > 0 && <p className="modal__total-addon">incl. ₹{addOnsTotal} add-ons</p>}
                       </div>
                       <span className="modal__total-price">₹{totalPrice}</span>
                     </div>
-
-                    <Button onClick={handleAddToCart} disabled={!canSubmit}
-                      className={`modal__submit ${isScheduleMode ? 'modal__submit--schedule' : ''} ${isExpressMode ? 'modal__submit--express' : ''}`}>
-                      {isScheduleMode ? (
-                        <Calendar className="modal__submit-icon" />
-                      ) : isExpressMode ? (
-                        <Zap className="modal__submit-icon" />
-                      ) : (
-                        <ShoppingBag className="modal__submit-icon" />
-                      )}
+                    <Button
+                      onClick={handleAddToCart} disabled={!canSubmit}
+                      className={`modal__submit ${isScheduleMode ? 'modal__submit--schedule' : ''} ${isExpressMode ? 'modal__submit--express' : ''}`}
+                    >
+                      {isScheduleMode ? <Calendar className="modal__submit-icon" />
+                        : isExpressMode ? <Zap className="modal__submit-icon" />
+                        : <ShoppingBag className="modal__submit-icon" />}
                       {canSubmit ? (
                         <>
-                          {isScheduleMode
-                            ? 'Schedule Order'
-                            : isExpressMode
-                              ? `Start Cooking — Arrive in ${selectedExpressArrival?.label}`
-                              : 'Add to Cart'}
+                          {isScheduleMode ? 'Schedule Order'
+                            : isExpressMode ? `Start Cooking — Arrive in ${selectedExpressArrival?.label}`
+                            : 'Add to Cart'}
                           <ArrowRight className="modal__submit-arrow" />
                         </>
                       ) : (

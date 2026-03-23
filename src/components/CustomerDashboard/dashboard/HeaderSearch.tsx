@@ -1,37 +1,63 @@
-import { useState, useRef, useEffect } from 'react';
+// components/CustomerDashboard/dashboard/HeaderSearch.tsx
+//
+// FIX [HARDCODED-MEALS]: Removed static `indianMeals` array.
+//
+// BEFORE: Search results came from a 12-item hardcoded list with fake restaurant
+//   names and wrong prices — never connected to real menu data. A dish could be
+//   sold out on the backend but still appear in search results here.
+//
+// AFTER: MenuItemDto[] is fetched once from GET /api/customer/menu-items on
+//   first open. Results are memoized so subsequent opens don't re-fetch.
+//   Real name, price, prepTime, category, and availability come from backend.
+//   Unavailable items are filtered out before matching.
+//
+// FIX [WRONG-PATH]: navigate('/browse') → navigate('/customer-dashboard/browse')
+
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, X, Clock } from 'lucide-react';
+import { Search, X, Clock, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useNavigate } from 'react-router-dom';
+import { fetchCustomerMenuItems, MenuItemDto } from '../../../kitchen-api/kitchenApi';
 import '../overview-styles/Headersearch.scss';
 
-const indianMeals = [
-  { id: '1', name: 'Butter Chicken', restaurant: 'Punjab Grill', price: 249, category: 'North Indian' },
-  { id: '2', name: 'Masala Dosa', restaurant: 'Saravana Bhavan', price: 129, category: 'South Indian' },
-  { id: '3', name: 'Hyderabadi Biryani', restaurant: 'Paradise Biryani', price: 299, category: 'Biryani' },
-  { id: '4', name: 'Pani Puri', restaurant: 'Chaat Corner', price: 79, category: 'Street Food' },
-  { id: '5', name: 'Paneer Tikka', restaurant: 'Barbeque Nation', price: 199, category: 'North Indian' },
-  { id: '6', name: 'Chole Bhature', restaurant: "Haldiram's", price: 149, category: 'North Indian' },
-  { id: '7', name: 'Idli Sambar', restaurant: 'Madras Café', price: 99, category: 'South Indian' },
-  { id: '8', name: 'Vada Pav', restaurant: 'Mumbai Street', price: 49, category: 'Street Food' },
-  { id: '9', name: 'Dal Makhani', restaurant: 'Moti Mahal', price: 179, category: 'North Indian' },
-  { id: '10', name: 'Gulab Jamun', restaurant: "Haldiram's", price: 89, category: 'Desserts' },
-  { id: '11', name: 'Rajasthani Thali', restaurant: 'Chokhi Dhani', price: 399, category: 'Thali' },
-  { id: '12', name: 'Lucknowi Biryani', restaurant: 'Tunday Kababi', price: 329, category: 'Biryani' },
-];
-
 export function HeaderSearch() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [isOpen,    setIsOpen]    = useState(false);
+  const [query,     setQuery]     = useState('');
+  const [menuItems, setMenuItems] = useState<MenuItemDto[]>([]);
+  const [loading,   setLoading]   = useState(false);
+  // Track whether we've fetched already so we don't re-fetch on every open
+  const fetchedRef   = useRef(false);
+  const inputRef     = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
+  const navigate     = useNavigate();
 
+  // Fetch menu items once on first open
+  const ensureMenuLoaded = useCallback(async () => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    setLoading(true);
+    try {
+      const items = await fetchCustomerMenuItems();
+      // Only keep available items for search
+      setMenuItems(items.filter(i => i.available));
+    } catch {
+      // If fetch fails, search will just show no results — not a fatal error
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleOpen = () => {
+    setIsOpen(true);
+    ensureMenuLoaded();
+  };
+
+  // FIX: search against real backend menu items
   const filteredMeals = query.length > 0
-    ? indianMeals.filter(meal =>
-        meal.name.toLowerCase().includes(query.toLowerCase()) ||
-        meal.restaurant.toLowerCase().includes(query.toLowerCase()) ||
-        meal.category.toLowerCase().includes(query.toLowerCase())
+    ? menuItems.filter(item =>
+        item.name.toLowerCase().includes(query.toLowerCase()) ||
+        (item.category ?? '').toLowerCase().includes(query.toLowerCase())
       ).slice(0, 6)
     : [];
 
@@ -52,8 +78,9 @@ export function HeaderSearch() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleMealClick = (mealId: string) => {
-    navigate(`/browse?meal=${mealId}`);
+  const handleMealClick = (itemId: string) => {
+    // FIX: correct customer dashboard route
+    navigate(`/customer-dashboard/browse?meal=${itemId}`);
     setIsOpen(false);
     setQuery('');
   };
@@ -62,10 +89,7 @@ export function HeaderSearch() {
     <div ref={containerRef} className={`header-search ${isOpen ? 'header-search--open' : ''}`}>
 
       {!isOpen && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="header-search__button"
-        >
+        <button onClick={handleOpen} className="header-search__button">
           <Search className="header-search__button-icon" />
           <span className="header-search__button-text">Search food...</span>
         </button>
@@ -81,6 +105,7 @@ export function HeaderSearch() {
             placeholder="    Search meals..."
             className="header-search__input"
           />
+          {loading && <Loader2 className="header-search__loading-icon" style={{ width: 16, height: 16, animation: 'spin 1s linear infinite', opacity: 0.5 }} />}
           <button
             onClick={() => { setIsOpen(false); setQuery(''); }}
             className="header-search__close-btn"
@@ -98,29 +123,39 @@ export function HeaderSearch() {
             exit={{ opacity: 0, y: -10 }}
             className="header-search__dropdown"
           >
-            {filteredMeals.length > 0 ? (
+            {loading ? (
+              <div className="header-search__empty">
+                <p className="header-search__empty-text">Loading menu...</p>
+              </div>
+            ) : filteredMeals.length > 0 ? (
               <div className="header-search__results">
-                {filteredMeals.map((meal, index) => (
+                {filteredMeals.map((item, index) => (
                   <motion.button
-                    key={meal.id}
+                    key={item.id}
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    onClick={() => handleMealClick(meal.id)}
+                    onClick={() => handleMealClick(item.id)}
                     className="header-search__result-item"
                   >
                     <div className="header-search__result-icon">
                       <span>🍽️</span>
                     </div>
                     <div className="header-search__result-info">
-                      <p className="header-search__result-name">{meal.name}</p>
-                      <p className="header-search__result-restaurant">{meal.restaurant}</p>
+                      {/* FIX: real name from backend */}
+                      <p className="header-search__result-name">{item.name}</p>
+                      {/* FIX: real category from backend, no fake restaurant name */}
+                      <p className="header-search__result-restaurant">{item.category ?? 'Menu Item'}</p>
                     </div>
                     <div className="header-search__result-meta">
-                      <p className="header-search__result-price">₹{meal.price}</p>
+                      {/* FIX: real price from backend */}
+                      <p className="header-search__result-price">
+                        {item.price != null ? `₹${item.price}` : '—'}
+                      </p>
                       <div className="header-search__result-time">
                         <Clock className="header-search__result-time-icon" />
-                        <span>10-15m</span>
+                        {/* FIX: real prep time from backend */}
+                        <span>{item.prepTimeMinutes} min</span>
                       </div>
                     </div>
                   </motion.button>
@@ -130,7 +165,12 @@ export function HeaderSearch() {
               <div className="header-search__empty">
                 <p className="header-search__empty-text">No meals found for "{query}"</p>
                 <button
-                  onClick={() => { navigate('/browse'); setIsOpen(false); setQuery(''); }}
+                  onClick={() => {
+                    // FIX: correct path
+                    navigate('/customer-dashboard/browse');
+                    setIsOpen(false);
+                    setQuery('');
+                  }}
                   className="header-search__empty-link"
                 >
                   Browse all meals →

@@ -1,3 +1,16 @@
+// components/CustomerDashboard/dashboard/Header.tsx
+//
+// FIX [HARDCODED-BADGE]: Removed hardcoded "Premium" membership badge.
+//
+// BEFORE: Every user always saw "Premium" regardless of their actual order count
+//   or membership tier. A new user with 0 orders had the same badge as a user
+//   with 100+ orders.
+//
+// AFTER: memberTier is passed as a prop from DashboardLayout (which reads
+//   useSkipLine().metrics + useSkipLine().orderHistory to compute the tier).
+//   Tiers: Member → Silver (10+) → Gold (25+) → Platinum (50+) → Legendary (100+).
+//   Falls back to "Member" when metrics haven't loaded yet.
+
 import { motion } from 'framer-motion';
 import { User, Flame } from 'lucide-react';
 import { NotificationBell } from './NotificationBell';
@@ -5,11 +18,13 @@ import { HeaderSearch } from './HeaderSearch';
 import '../overview-styles/Header.scss';
 
 interface HeaderProps {
-  userName: string;
-  streak: number;
+  userName:    string;
+  streak:      number;
+  // FIX: real tier from parent — no longer hardcoded "Premium"
+  memberTier?: string;
 }
 
-export function Header({ userName, streak }: HeaderProps) {
+export function Header({ userName, streak, memberTier = 'Member' }: HeaderProps) {
   return (
     <motion.header
       initial={{ opacity: 0, y: -20 }}
@@ -38,16 +53,14 @@ export function Header({ userName, streak }: HeaderProps) {
 
       {/* ✅ inline style guarantees NO padding-left regardless of any CSS cascade */}
       <div className="header__right" style={{ paddingLeft: 0, marginLeft: 0 }}>
-        {/* HeaderClock removed — it was injecting width/padding causing the gap */}
-        {/* Add it back only after confirming layout is fixed */}
-
         <HeaderSearch />
         <NotificationBell />
 
         <motion.div whileHover={{ scale: 1.05 }} className="header__user">
           <div className="header__user-info">
             <p className="header__user-name">{userName}</p>
-            <p className="header__user-badge">Premium</p>
+            {/* FIX: real tier, not hardcoded "Premium" */}
+            <p className="header__user-badge">{memberTier}</p>
           </div>
           <div className="header__user-avatar">
             <User className="header__user-icon" />
@@ -57,4 +70,3 @@ export function Header({ userName, streak }: HeaderProps) {
     </motion.header>
   );
 }
-
