@@ -1,148 +1,275 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
-import { InventoryItem, StockStatus, InventoryAlert } from '../kitchen-types/inventory';
-import { initialInventory, menuIngredients } from '../kitchen-data/inventoryData';
+// ============================================================
+// src/kitchen-hooks/useInventory.ts
+// ============================================================
+//
+// REWRITE: inventory now fetches from and writes to the backend.
+//
+// KEY CHANGES vs old version:
+//   - Removed all initialInventory / inventoryData.ts imports
+//   - fetchInventory() on mount + 30s polling
+//   - updateStock, restockItem, deleteInventoryItem all call backend
+//     with optimistic updates + rollback on failure
+//   - consumeForOrder still works locally (backend does not expose
+//     per-ingredient consume endpoint yet — see NOTE below)
+//   - Alerts are derived from live backend data (no separate storage)
+//   - Added loading / error state for the panel to show skeleton/error
+//
+// NOTE on consumeForOrder:
+//   The backend's OrderService already deducts ingredients when an order
+//   is cooked (if you wire it up in OrderService.startCooking). The
+//   frontend consumeForOrder is kept as a best-effort local deduction
+//   so the UI reflects changes immediately without waiting for the next
+//   poll. The 30s poll will sync the true backend value.
+
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { InventoryItem, StockStatus, InventoryAlert, InventoryCategory } from '../kitchen-types/inventory';
+import { menuIngredients } from '../kitchen-data/inventoryData';
 import { Order } from '../kitchen-types/order';
+import {
+  fetchInventory,
+  updateInventoryStock,
+  restockInventoryItem,
+  deleteInventoryItem as deleteInventoryItemApi,
+  InventoryItemDto,
+} from '../kitchen-api/kitchenApi';
+
+// ── Convert backend DTO → frontend InventoryItem ─────────────────────────────
+
+function toInventoryItem(dto: InventoryItemDto): InventoryItem {
+  return {
+    id:                dto.id,
+    name:              dto.name,
+    category:          dto.category as InventoryCategory,
+    currentStock:      dto.currentStock,
+    maxCapacity:       dto.maxCapacity,
+    unit:              dto.unit,
+    minThreshold:      dto.minThreshold,
+    criticalThreshold: dto.criticalThreshold,
+    costPerUnit:       dto.costPerUnit,
+    supplier:          dto.supplier,
+    lastRestocked:     new Date(dto.lastRestocked),
+    expiryDate:        dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+  };
+}
+
+const POLL_INTERVAL_MS = 30_000; // 30s — inventory changes slowly
 
 export function useInventory() {
-  const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
-  const [alerts,    setAlerts]    = useState<InventoryAlert[]>([]);
+  const [inventory, setInventory]   = useState<InventoryItem[]>([]);
+  const [alerts,    setAlerts]      = useState<InventoryAlert[]>([]);
+  const [loading,   setLoading]     = useState(true);
+  const [error,     setError]       = useState<string | null>(null);
+
+  // ── Stock status ──────────────────────────────────────────────────────────
 
   const getStockStatus = useCallback((item: InventoryItem): StockStatus => {
-    if (item.currentStock <= 0)                          return 'out-of-stock';
-    if (item.currentStock <= item.criticalThreshold)     return 'critical';
-    if (item.currentStock <= item.minThreshold)          return 'low-stock';
+    if (item.currentStock <= 0)                       return 'out-of-stock';
+    if (item.currentStock <= item.criticalThreshold)  return 'critical';
+    if (item.currentStock <= item.minThreshold)       return 'low-stock';
     return 'in-stock';
   }, []);
 
+  // ── Alert generation (derived from live inventory) ────────────────────────
+
   const generateAlerts = useCallback((items: InventoryItem[]) => {
-    const newAlerts: InventoryAlert[] = [];
     const now = new Date();
+    const newAlerts: InventoryAlert[] = [];
 
     items.forEach(item => {
-      const status = getStockStatus(item);
+      const status = (() => {
+        if (item.currentStock <= 0)                       return 'out-of-stock';
+        if (item.currentStock <= item.criticalThreshold)  return 'critical';
+        if (item.currentStock <= item.minThreshold)       return 'low-stock';
+        return 'in-stock';
+      })();
 
       if (status === 'critical' || status === 'out-of-stock') {
         newAlerts.push({
-          id: `alert-${item.id}-critical`,
-          itemId: item.id,
-          type: 'critical',
-          message: `${item.name} is critically low (${item.currentStock} ${item.unit} remaining)`,
-          createdAt: now,
+          id:           `alert-${item.id}-critical`,
+          itemId:       item.id,
+          type:         'critical',
+          message:      `${item.name} is critically low (${item.currentStock} ${item.unit} remaining)`,
+          createdAt:    now,
           acknowledged: false,
         });
       } else if (status === 'low-stock') {
         newAlerts.push({
-          id: `alert-${item.id}-low`,
-          itemId: item.id,
-          type: 'low-stock',
-          message: `${item.name} is running low (${item.currentStock} ${item.unit} remaining)`,
-          createdAt: now,
+          id:           `alert-${item.id}-low`,
+          itemId:       item.id,
+          type:         'low-stock',
+          message:      `${item.name} is running low (${item.currentStock} ${item.unit} remaining)`,
+          createdAt:    now,
           acknowledged: false,
         });
       }
 
-      // Check for expiring items
       if (item.expiryDate) {
-        const daysUntilExpiry = Math.ceil(
+        const daysLeft = Math.ceil(
           (item.expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
         );
-        if (daysUntilExpiry <= 0) {
+        if (daysLeft <= 0) {
           newAlerts.push({
-            id: `alert-${item.id}-expired`,
-            itemId: item.id,
-            type: 'expired',
-            message: `${item.name} has expired!`,
-            createdAt: now,
-            acknowledged: false,
+            id: `alert-${item.id}-expired`, itemId: item.id,
+            type: 'expired', message: `${item.name} has expired!`,
+            createdAt: now, acknowledged: false,
           });
-        } else if (daysUntilExpiry <= 3) {
+        } else if (daysLeft <= 3) {
           newAlerts.push({
-            id: `alert-${item.id}-expiring`,
-            itemId: item.id,
+            id: `alert-${item.id}-expiring`, itemId: item.id,
             type: 'expiring-soon',
-            message: `${item.name} expires in ${daysUntilExpiry} day(s)`,
-            createdAt: now,
-            acknowledged: false,
+            message: `${item.name} expires in ${daysLeft} day(s)`,
+            createdAt: now, acknowledged: false,
           });
         }
       }
     });
 
-    setAlerts(newAlerts);
-  }, [getStockStatus]);
+    // Preserve acknowledgements from existing alerts
+    setAlerts(prev => {
+      const acked = new Set(prev.filter(a => a.acknowledged).map(a => a.id));
+      return newAlerts.map(a => ({ ...a, acknowledged: acked.has(a.id) }));
+    });
+  }, []);
 
-  // ── Seed alerts on first mount so the bell count is accurate immediately ──
-  // This does NOT trigger any toast — Index.tsx's inventoryInitialized guard
-  // handles the toast side-effect and skips it on the first render.
+  // ── Load from backend ─────────────────────────────────────────────────────
+
+  const abortRef = useRef<AbortController | null>(null);
+
+  const loadInventory = useCallback(async () => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      const dtos  = await fetchInventory();
+      if (ctrl.signal.aborted) return;
+      const items = dtos.map(toInventoryItem);
+      setInventory(items);
+      generateAlerts(items);
+      setError(null);
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      setError(err.message ?? 'Failed to load inventory');
+    } finally {
+      setLoading(false);
+    }
+  }, [generateAlerts]);
+
   useEffect(() => {
-    generateAlerts(initialInventory);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // run once on mount only
+    loadInventory();
+    return () => { abortRef.current?.abort(); };
+  }, [loadInventory]);
 
-  const updateStock = useCallback((itemId: string, newStock: number) => {
-    setInventory(prev => {
-      const updated = prev.map(item =>
-        item.id === itemId
-          ? { ...item, currentStock: Math.max(0, Math.min(newStock, item.maxCapacity)) }
-          : item
-      );
-      generateAlerts(updated);
-      return updated;
-    });
-  }, [generateAlerts]);
+  // 30s poll
+  useEffect(() => {
+    const id = setInterval(loadInventory, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [loadInventory]);
 
-  const restockItem = useCallback((itemId: string, quantity: number) => {
-    setInventory(prev => {
-      const updated = prev.map(item =>
-        item.id === itemId
-          ? {
-              ...item,
-              currentStock: Math.min(item.currentStock + quantity, item.maxCapacity),
-              lastRestocked: new Date(),
-            }
-          : item
-      );
-      generateAlerts(updated);
-      return updated;
-    });
-  }, [generateAlerts]);
+  // ── updateStock ───────────────────────────────────────────────────────────
+  // Optimistic update — rollback on error
+
+  const updateStock = useCallback(async (itemId: string, newStock: number) => {
+    const prev = inventory.find(i => i.id === itemId);
+    if (!prev) return;
+
+    // Optimistic
+    setInventory(cur => cur.map(i =>
+      i.id === itemId
+        ? { ...i, currentStock: Math.max(0, Math.min(newStock, i.maxCapacity)) }
+        : i
+    ));
+
+    try {
+      const dto     = await updateInventoryStock(itemId, newStock);
+      const updated = toInventoryItem(dto);
+      setInventory(cur => {
+        const next = cur.map(i => i.id === itemId ? updated : i);
+        generateAlerts(next);
+        return next;
+      });
+    } catch (err: any) {
+      // Rollback
+      setInventory(cur => cur.map(i => i.id === itemId ? prev : i));
+      throw err;
+    }
+  }, [inventory, generateAlerts]);
+
+  // ── restockItem ───────────────────────────────────────────────────────────
+
+  const restockItem = useCallback(async (itemId: string, quantity: number) => {
+    const prev = inventory.find(i => i.id === itemId);
+    if (!prev) return;
+
+    // Optimistic
+    setInventory(cur => cur.map(i =>
+      i.id === itemId
+        ? { ...i, currentStock: Math.min(i.currentStock + quantity, i.maxCapacity), lastRestocked: new Date() }
+        : i
+    ));
+
+    try {
+      const dto     = await restockInventoryItem(itemId, quantity);
+      const updated = toInventoryItem(dto);
+      setInventory(cur => {
+        const next = cur.map(i => i.id === itemId ? updated : i);
+        generateAlerts(next);
+        return next;
+      });
+    } catch (err: any) {
+      setInventory(cur => cur.map(i => i.id === itemId ? prev : i));
+      throw err;
+    }
+  }, [inventory, generateAlerts]);
+
+  // ── deleteInventoryItem ───────────────────────────────────────────────────
+
+  const deleteInventoryItem = useCallback(async (itemId: string) => {
+    const prev = inventory;
+
+    // Optimistic
+    setInventory(cur => cur.filter(i => i.id !== itemId));
+
+    try {
+      await deleteInventoryItemApi(itemId);
+      generateAlerts(inventory.filter(i => i.id !== itemId));
+    } catch (err: any) {
+      setInventory(prev);
+      throw err;
+    }
+  }, [inventory, generateAlerts]);
+
+  // ── consumeForOrder (local best-effort — backend syncs on next poll) ──────
 
   const consumeForOrder = useCallback((order: Order) => {
     setInventory(prev => {
       let updated = [...prev];
-
       order.items.forEach(orderItem => {
-        const menuRecipe = menuIngredients.find(m => m.menuItemId === orderItem.id);
-        if (menuRecipe) {
-          menuRecipe.ingredients.forEach(ingredient => {
-            updated = updated.map(invItem =>
-              invItem.id === ingredient.itemId
-                ? {
-                    ...invItem,
-                    currentStock: Math.max(
-                      0,
-                      invItem.currentStock - ingredient.quantity * orderItem.quantity
-                    ),
-                  }
-                : invItem
+        const recipe = menuIngredients.find(m => m.menuItemId === orderItem.id);
+        if (recipe) {
+          recipe.ingredients.forEach(ingredient => {
+            updated = updated.map(inv =>
+              inv.id === ingredient.itemId
+                ? { ...inv, currentStock: Math.max(0, inv.currentStock - ingredient.quantity * orderItem.quantity) }
+                : inv
             );
           });
         }
       });
-
       generateAlerts(updated);
       return updated;
     });
   }, [generateAlerts]);
 
-  const addInventoryItem = useCallback((item: Omit<InventoryItem, 'id'>) => {
-    const newItem: InventoryItem = { ...item, id: `inv-${Date.now()}` };
-    setInventory(prev => [...prev, newItem]);
+  // ── acknowledgeAlert ──────────────────────────────────────────────────────
+
+  const acknowledgeAlert = useCallback((alertId: string) => {
+    setAlerts(prev =>
+      prev.map(a => a.id === alertId ? { ...a, acknowledged: true } : a)
+    );
   }, []);
 
-  const deleteInventoryItem = useCallback((itemId: string) => {
-    setInventory(prev => prev.filter(item => item.id !== itemId));
-  }, []);
+  // ── stats ─────────────────────────────────────────────────────────────────
 
   const stats = useMemo(() => {
     const totalItems      = inventory.length;
@@ -154,7 +281,9 @@ export function useInventory() {
     const totalValue      = inventory.reduce((s, i) => s + i.currentStock * i.costPerUnit, 0);
     const capacityUsed    = inventory.reduce((s, i) => s + i.currentStock, 0);
     const totalCapacity   = inventory.reduce((s, i) => s + i.maxCapacity, 0);
-    const overallCapacityPercent = Math.round((capacityUsed / totalCapacity) * 100);
+    const overallCapacityPercent = totalCapacity > 0
+      ? Math.round((capacityUsed / totalCapacity) * 100)
+      : 0;
 
     const byCategory = inventory.reduce((acc, item) => {
       if (!acc[item.category]) acc[item.category] = { count: 0, value: 0, lowStock: 0 };
@@ -176,22 +305,18 @@ export function useInventory() {
     };
   }, [inventory, alerts, getStockStatus]);
 
-  const acknowledgeAlert = useCallback((alertId: string) => {
-    setAlerts(prev =>
-      prev.map(alert => alert.id === alertId ? { ...alert, acknowledged: true } : alert)
-    );
-  }, []);
-
   return {
     inventory,
     alerts,
     stats,
+    loading,
+    error,
     getStockStatus,
     updateStock,
     restockItem,
     consumeForOrder,
-    addInventoryItem,
     deleteInventoryItem,
     acknowledgeAlert,
+    refresh: loadInventory,
   };
 }

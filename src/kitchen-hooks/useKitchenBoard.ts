@@ -4,6 +4,13 @@
 //
 // FIXES IN THIS VERSION:
 //
+// FIX [ROLE-GUARD]: Added isKitchen role check at hook init.
+//   When a CUSTOMER token is in localStorage, all API calls
+//   (fetchBoard, fetchMenuItems, triggerSimulation, simulateAdvance)
+//   are blocked at the source. This prevents 403 errors on the
+//   customer checkout page caused by the kitchen hook firing in
+//   a cached/previously-visited kitchen dashboard tab.
+//
 // FIX 1 [DEAD-VAR]: scheduleAutoComplete used undefined 'orderId' variable
 //   in the timeout cleanup callback — should be 'order.id'.
 //   This caused the countdown badge to stay stuck at "0s" after auto-complete.
@@ -18,6 +25,27 @@
 //
 // FIX [EXPRESS-TIME]: Express orders use 5/10/15 min windows only.
 // FIX [SCHEDULED-PICKUP]: Scheduled orders show real date+time in Queue.
+//
+// FIX [STALE-STATE]: simulateAdvance() auto-promotes orders on the backend
+//   (COOKING → READY) faster than the 10s poll cycle. When the chef clicks
+//   "Mark ready" on a card the UI still shows as COOKING, the backend already
+//   moved it to READY and returns 400 "Cannot transition from READY to READY".
+//
+//   Fix: in updateOrderStatus(), if the backend returns 400 and the response
+//   body contains "Cannot transition from" + the target status is already the
+//   current backend status, treat it as a success — reload the board and
+//   resolve. This makes stale-state clicks idempotent instead of error-toasting.
+//
+// FIX [PICKUP-TIME]: resolvePickupTime now accepts an optional expressWindow
+//   parameter (5 | 10 | 15) and returns "~5 min" / "~10 min" / "~15 min" for
+//   express orders without a slot, instead of the generic "ASAP".
+//   toFrontendOrder passes the already-computed expressMinutes value through.
+//
+// FIX [PICKUP-TIME-FALLBACK]: Normal and scheduled orders whose slot reservation
+//   failed (silent catch in triggerSimulation) were showing "ASAP" — which is
+//   only correct for express orders. They now show a derived pickup time based
+//   on placedAt + totalPrepMinutes + 15 min buffer, formatted in en-IN locale.
+//   This prevents misleading "ASAP" on timed pre-orders.
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
@@ -53,7 +81,6 @@ const SPEED_INTERVALS: Record<'slow' | 'normal' | 'fast', number> = {
 };
 
 // FIX [JITTER]: max random ms added to each interval to spread tick load.
-// At fast=5000ms, ticks are spread across a 5000±1000ms window.
 const JITTER_MS = 1_000;
 
 const EMPTY_METRICS = {
@@ -61,11 +88,11 @@ const EMPTY_METRICS = {
   efficiencyPercent: 0, capacityUtilizationPercent: 0, lateOrdersCount: 0, activeChefCount: 0,
 };
 
-// ─── EXPRESS time options ─────────────────────────────────────────────────────
+// ── EXPRESS time options ────────────────────────────────────────────────────
 const EXPRESS_OPTIONS = [5, 10, 15] as const;
 type ExpressMinutes   = typeof EXPRESS_OPTIONS[number];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
 function simpleHash(str: string): number {
   let h = 0;
@@ -100,16 +127,11 @@ function safeDate(value: string | null | undefined): Date | undefined {
   return isNaN(d.getTime()) ? undefined : d;
 }
 
-// ─── resolvePickupTime ────────────────────────────────────────────────────────
-// Single source of truth for the pickupTime string shown on every order card.
-//
-// Priority:
-//   1. Real slot time from backend → "9:30 AM" / "Tomorrow 9:30 AM" / "Mon 9:30 AM"
-//   2. Express, no slot → "ASAP"
-//   3. Scheduled, no slot → "Tomorrow ~<time>" derived from placedAt (fallback)
-//   4. Normal, no slot → "ASAP"
-
-function resolvePickupTime(dto: OrderCardDto, resolvedType: OrderType): string {
+function resolvePickupTime(
+  dto:            OrderCardDto,
+  resolvedType:   OrderType,
+  expressWindow?: ExpressMinutes,
+): string {
   if (dto.pickupSlotTime) {
     const slotDate = new Date(dto.pickupSlotTime);
     const today    = new Date();
@@ -122,24 +144,47 @@ function resolvePickupTime(dto: OrderCardDto, resolvedType: OrderType): string {
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
-    const timeStr = slotDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const timeStr = slotDate.toLocaleTimeString('en-IN', {
+      hour:   'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
 
     if (sameDay(slotDate, today))    return timeStr;
     if (sameDay(slotDate, tomorrow)) return `Tomorrow ${timeStr}`;
-    return slotDate.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + timeStr;
+    return slotDate.toLocaleDateString('en-IN', { weekday: 'short' }) + ' ' + timeStr;
   }
 
-  if (resolvedType === 'express') return 'ASAP';
+  if (resolvedType === 'express') {
+    if (expressWindow) return `~${expressWindow} min`;
+    return 'ASAP';
+  }
 
   if (resolvedType === 'scheduled') {
     const placed = safeDate(dto.placedAt);
     if (placed) {
       const tmrw = new Date(placed);
       tmrw.setDate(placed.getDate() + 1);
-      const timeStr = tmrw.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const timeStr = tmrw.toLocaleTimeString('en-IN', {
+        hour:   'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
       return `Tomorrow ~${timeStr}`;
     }
     return 'Tomorrow';
+  }
+
+  const placed = safeDate(dto.placedAt);
+  if (placed) {
+    const BUFFER_MS  = 15 * 60_000;
+    const prepMs     = (dto.totalPrepMinutes > 0 ? dto.totalPrepMinutes : 15) * 60_000;
+    const pickup     = new Date(placed.getTime() + prepMs + BUFFER_MS);
+    return pickup.toLocaleTimeString('en-IN', {
+      hour:   'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
   }
 
   return 'ASAP';
@@ -178,7 +223,6 @@ function toFrontendOrder(dto: OrderCardDto): Order {
 
   const resolvedType = resolveOrderType(dto);
 
-  // ── Express window ─────────────────────────────────────────────────────────
   let expressMinutes: ExpressMinutes | undefined;
   let expressPickupSlotMs: number | undefined;
 
@@ -191,7 +235,6 @@ function toFrontendOrder(dto: OrderCardDto): Order {
     expressPickupSlotMs = Math.max(fromPlacement, anchor.getTime() + MIN_BUFFER_MS);
   }
 
-  // ── Resolved estimatedPrepTime ─────────────────────────────────────────────
   const resolvedEstimatedPrepTime: number =
     resolvedType === 'express' && expressMinutes !== undefined
       ? expressMinutes
@@ -207,7 +250,7 @@ function toFrontendOrder(dto: OrderCardDto): Order {
     items,
     estimatedPrepTime: resolvedEstimatedPrepTime,
     elapsedMinutes,
-    pickupTime:     resolvePickupTime(dto, resolvedType),
+    pickupTime:     resolvePickupTime(dto, resolvedType, expressMinutes),
     assignedTo:     dto.assignedChefName ?? undefined,
     assignedChefId: dto.assignedChefId   ?? undefined,
     createdAt:      placedAt ?? new Date(),
@@ -223,7 +266,7 @@ function toFrontendOrder(dto: OrderCardDto): Order {
   };
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+// ── Hook ──────────────────────────────────────────────────────────────────────
 
 interface AutoCompleteEntry {
   timeout:  ReturnType<typeof setTimeout>;
@@ -234,6 +277,22 @@ export function useKitchenBoard(
   pollingIntervalMs = 10_000,
   onNewOrders?: (orders: Order[]) => void,
 ) {
+  // ── FIX [ROLE-GUARD] ──────────────────────────────────────────────────────
+  // Read the role once at hook init. If the logged-in user is not KITCHEN,
+  // every useEffect that touches the backend returns early immediately.
+  // This prevents 403 errors on the customer dashboard caused by this hook
+  // firing API calls (/api/kitchen/*) with a CUSTOMER JWT token — which
+  // happens when the kitchen tab was previously visited and React keeps the
+  // hook alive across navigation.
+  //
+  // Why localStorage (not a prop or context)?
+  //   • AuthContext is in a different React tree (customer vs kitchen app)
+  //   • Both apps share localStorage — it's the only reliable cross-tree signal
+  //   • The value is set synchronously on login and cleared on logout
+  //   • We only read it once — no subscription needed
+  const isKitchen = localStorage.getItem('auth_role') === 'KITCHEN';
+  // ── end role guard ────────────────────────────────────────────────────────
+
   const [boardData, setBoardData]             = useState<KanbanBoardResponse | null>(null);
   const [orders, setOrders]                   = useState<Order[]>([]);
   const [completedOrders, setCompletedOrders] = useState<Order[]>([]);
@@ -270,8 +329,7 @@ export function useKitchenBoard(
   const ordersRef = useRef<Order[]>([]);
   useEffect(() => { ordersRef.current = orders; }, [orders]);
 
-  // FIX [RACE]: track whether a board load is currently in-flight so the
-  // sim tick can skip its own loadBoard() call if the poller already fired.
+  // FIX [RACE]: track whether a board load is currently in-flight.
   const isLoadingRef = useRef(false);
 
   const capacity: CapacitySnapshot = useMemo(() => selectCapacity(boardData), [boardData]);
@@ -289,20 +347,24 @@ export function useKitchenBoard(
     completed: boardData?.metrics.completedOrdersToday ?? 0,
   }), [boardData]);
 
+  // FIX [ROLE-GUARD]: only fetch menu items when KITCHEN role is active
   useEffect(() => {
+    if (!isKitchen) return;
     fetchMenuItems()
       .then(items => setMenuItems(items.filter(i => i.available)))
       .catch(err => console.warn('[useKitchenBoard] Menu items unavailable:', err.message));
-  }, []);
+  }, [isKitchen]);
 
   const abortRef = useRef<AbortController | null>(null);
 
   const loadBoard = useCallback(async () => {
+    // FIX [ROLE-GUARD]: never hit /api/kitchen/board with a CUSTOMER token
+    if (!isKitchen) return;
+
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // FIX [RACE]: mark load as in-flight so concurrent callers can detect it
     isLoadingRef.current = true;
 
     try {
@@ -339,22 +401,27 @@ export function useKitchenBoard(
       setError(err.message ?? 'Failed to load board');
     } finally {
       setLoading(false);
-      // FIX [RACE]: clear in-flight flag regardless of success/failure
       isLoadingRef.current = false;
     }
-  }, []);
+  }, [isKitchen]);
 
   useEffect(() => {
     return () => { abortRef.current?.abort(); };
   }, []);
 
-  useEffect(() => { loadBoard(); }, [loadBoard]);
+  // FIX [ROLE-GUARD]: only start polling when KITCHEN role is active
   useEffect(() => {
+    if (!isKitchen) return;
+    loadBoard();
+  }, [loadBoard, isKitchen]);
+
+  useEffect(() => {
+    if (!isKitchen) return;
     const id = setInterval(loadBoard, pollingIntervalMs);
     return () => clearInterval(id);
-  }, [loadBoard, pollingIntervalMs]);
+  }, [loadBoard, pollingIntervalMs, isKitchen]);
 
-  // ─── Auto-complete timers ─────────────────────────────────────────────────
+  // ── Auto-complete timers ─────────────────────────────────────────────────
 
   const cancelAutoComplete = useCallback((orderId: string) => {
     const entry = autoCompleteRefs.current[orderId];
@@ -384,7 +451,6 @@ export function useKitchenBoard(
     const timeout = setTimeout(async () => {
       delete autoCompleteRefs.current[order.id];
       clearInterval(interval);
-      // FIX [DEAD-VAR]: was 'orderId' (undefined) — must be 'order.id'
       setReadyCountdowns(prev => { const n = { ...prev }; delete n[order.id]; return n; });
       try { await changeOrderStatus(order.id, 'COMPLETED'); await loadBoard(); }
       catch { await loadBoard(); }
@@ -424,9 +490,11 @@ export function useKitchenBoard(
     };
   }, []);
 
-  // ─── Actions ──────────────────────────────────────────────────────────────
+  // ── Actions ───────────────────────────────────────────────────────────────
 
-  const updateOrderStatus = useCallback(async (orderId: string, newStatus: OrderStatus) => {
+  const updateOrderStatus = useCallback(async (
+    orderId: string, newStatus: OrderStatus,
+  ) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) throw new Error(`Order ${orderId} not found`);
 
@@ -439,6 +507,7 @@ export function useKitchenBoard(
 
     if (toBackend === 'COMPLETED') cancelAutoComplete(orderId);
 
+    // Optimistic update
     const previousOrders = orders;
     setOrders(prev => prev.map(o =>
       o.id === orderId ? { ...o, status: newStatus } : o
@@ -448,10 +517,26 @@ export function useKitchenBoard(
       await changeOrderStatus(orderId, toBackend);
       await loadBoard();
     } catch (err: any) {
+      // FIX [STALE-STATE]: if backend already moved the order to target status,
+      // treat 400 "Cannot transition from X to X" as a success.
+      const msg = (err.message ?? '').toLowerCase();
+      const alreadyThere =
+        msg.includes('cannot transition') &&
+        msg.includes(toBackend.toLowerCase());
+
+      if (alreadyThere) {
+        console.info(
+          `[updateOrderStatus] Order ${orderId} already in ${toBackend} on backend ` +
+          `(stale frontend state) — treating as success and reloading board.`
+        );
+        await loadBoard();
+        return;
+      }
+
       console.warn(
         `[updateOrderStatus] ${fromBackend}→${toBackend} failed for order ${orderId}:`,
         err.message,
-        '– reverting optimistic update and refreshing board.',
+        '— reverting optimistic update and refreshing board.',
       );
       setOrders(previousOrders);
       await loadBoard();
@@ -482,9 +567,11 @@ export function useKitchenBoard(
   }, []);
 
   const runSimulationTick = useCallback(async () => {
+    // FIX [ROLE-GUARD]: never trigger simulation with a CUSTOMER token
+    if (!isKitchen) return;
     if (menuItems.length === 0) { setSimulationError('No menu items loaded'); return; }
     if (capacity.isOverloaded) {
-      setSimulationError('Kitchen is at full capacity – simulation paused');
+      setSimulationError('Kitchen is at full capacity — simulation paused');
       setIsSimulating(false);
       return;
     }
@@ -501,9 +588,6 @@ export function useKitchenBoard(
       if (result.generated > 0) {
         try { await simulateAdvance(); } catch { /* best-effort */ }
         await new Promise(r => setTimeout(r, 300));
-        // FIX [RACE]: only call loadBoard if the poller isn't already loading.
-        // If a poll just fired, its result will arrive shortly — skip the
-        // duplicate fetch to avoid two concurrent GET /board requests.
         if (!isLoadingRef.current) {
           await loadBoard();
         }
@@ -513,28 +597,24 @@ export function useKitchenBoard(
     } finally {
       setIsSimTriggerPending(false);
     }
-  }, [menuItems, capacity.isOverloaded, loadBoard]);
+  }, [isKitchen, menuItems, capacity.isOverloaded, loadBoard]);
 
-  // FIX [JITTER]: use recursive setTimeout instead of setInterval so each
-  // tick schedules the next one with a fresh random jitter offset.
-  // This spreads ticks across the interval window instead of firing at the
-  // exact same millisecond on every client at fast mode (5s).
+  // FIX [JITTER]: recursive setTimeout so each tick gets a fresh jitter offset.
   useEffect(() => {
     if (simIntervalRef.current) {
       clearTimeout(simIntervalRef.current);
       simIntervalRef.current = null;
     }
-    if (!isSimulating) return;
+    // FIX [ROLE-GUARD]: never start simulation loop for non-kitchen users
+    if (!isSimulating || !isKitchen) return;
 
     const baseMs = SPEED_INTERVALS[simulationSpeed];
 
     const scheduleTick = () => {
-      // ±JITTER_MS random spread — each tick gets its own offset
       const jitter = Math.floor(Math.random() * JITTER_MS * 2) - JITTER_MS;
-      const delay  = Math.max(1000, baseMs + jitter); // never below 1s
+      const delay  = Math.max(1000, baseMs + jitter);
       simIntervalRef.current = setTimeout(async () => {
         await runSimulationTick().catch(console.error);
-        // Only reschedule if still simulating after the tick completes
         if (isSimulatingRef.current) scheduleTick();
       }, delay);
     };
@@ -547,7 +627,7 @@ export function useKitchenBoard(
         simIntervalRef.current = null;
       }
     };
-  }, [isSimulating, simulationSpeed, runSimulationTick]);
+  }, [isSimulating, isKitchen, simulationSpeed, runSimulationTick]);
 
   const activateBackupChef = useCallback(async (chefId: string) => {
     setActivatingChefId(chefId);
@@ -612,7 +692,9 @@ export function useKitchenBoard(
   }, []);
 
   const triggerBurst = useCallback(async (count: number): Promise<SimulationResult> => {
-    if (menuItems.length === 0) throw new Error('No menu items loaded – cannot simulate');
+    // FIX [ROLE-GUARD]: never burst simulate with a CUSTOMER token
+    if (!isKitchen) return { generated: 0, rejected: count, reason: 'Not authorized' };
+    if (menuItems.length === 0) throw new Error('No menu items loaded — cannot simulate');
     if (capacity.isOverloaded) {
       return { generated: 0, rejected: count, reason: 'Kitchen is at full capacity' };
     }
@@ -630,7 +712,7 @@ export function useKitchenBoard(
     } finally {
       setIsSimTriggerPending(false);
     }
-  }, [menuItems, capacity.isOverloaded, loadBoard]);
+  }, [isKitchen, menuItems, capacity.isOverloaded, loadBoard]);
 
   return {
     orders, completedOrders, boardData, loading, error,

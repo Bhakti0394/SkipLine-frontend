@@ -1,5 +1,12 @@
 import { Order, Meal, TimeSlot, UserMetrics } from '../customer-types/dashboard';
 
+// FIX: ORD-DEMO2 status changed from 'preparing' → 'confirmed'.
+// 'preparing' is not a valid backend OrderStatus. The backend only emits:
+//   PENDING → COOKING → READY → COMPLETED
+// dtoToOrder maps: pending→confirmed, cooking→cooking, ready→ready.
+// OrderFlowMini's statusSteps also has no 'preparing' step, so any order
+// with status='preparing' would fall through to statusSteps[0] (confirmed)
+// and display the wrong count in the Pending column.
 export const mockOrders: Order[] = [
   {
     id: 'ORD-DEMO1',
@@ -26,7 +33,7 @@ export const mockOrders: Order[] = [
     meal: 'Hyderabadi Biryani',
     restaurant: 'Paradise Biryani',
     image: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400',
-    status: 'preparing',
+    status: 'confirmed', // FIX: was 'preparing' — not a valid backend status
     pickupTime: '1:00 PM',
     pickupSlotId: '4',
     estimatedReady: '12 min',
