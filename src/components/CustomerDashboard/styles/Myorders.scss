@@ -6,7 +6,6 @@
   position: relative;
   min-height: 100vh;
   overflow-x: hidden;
-  // ✅ REMOVED: margin-top: -50px — was causing content to hide under header
 
   // ============================================
   // FLOATING PARTICLES
@@ -85,7 +84,7 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 1rem;
-    flex-wrap: wrap;  // ✅ wraps on mobile
+    flex-wrap: wrap;
 
     @media (min-width: 640px) { flex-wrap: nowrap; gap: 1.5rem; }
     @media (min-width: 768px) { gap: 2rem; }
@@ -182,8 +181,6 @@
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     white-space: nowrap;
     flex-shrink: 0;
-
-    // Full width on mobile when wrapped
     width: 100%;
     justify-content: center;
 
@@ -215,7 +212,6 @@
 
   &__impact-stats {
     display: grid;
-    // ✅ 1 col mobile → 3 col tablet+
     grid-template-columns: 1fr;
     gap: 0.75rem;
     margin-bottom: 1.5rem;
@@ -242,7 +238,6 @@
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
 
-    // On 480–767 (3-col grid): stack vertically so content fits
     @media (min-width: 480px) and (max-width: 767px) {
       flex-direction: column;
       align-items: flex-start;
@@ -514,6 +509,24 @@
     @media (min-width: 640px) { width: 6rem; height: 6rem; border-radius: 1.25rem; }
 
     &--cancelled { filter: grayscale(100%); opacity: 0.5; }
+
+    // FIX: placeholder styles for backend orders that have no image URL
+    &--placeholder {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      object-fit: unset; // override img object-fit since this is a div
+    }
+  }
+
+  // FIX: icon inside the placeholder div
+  &__image-placeholder-icon {
+    width: 1.75rem; height: 1.75rem;
+    color: rgba(255, 255, 255, 0.25);
+
+    @media (min-width: 640px) { width: 2rem; height: 2rem; }
   }
 
   &__cooking-badge {
@@ -801,7 +814,7 @@
     padding-top: 1rem;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     gap: 0.75rem;
-    flex-wrap: wrap; // ✅ wraps on mobile
+    flex-wrap: wrap;
 
     @media (min-width: 640px) { padding-top: 1.5rem; flex-wrap: nowrap; gap: 1rem; }
   }
@@ -824,7 +837,6 @@
     padding: 0.2rem 0.4rem;
     border-radius: 0.375rem;
     font-size: 0.75rem;
-    // ✅ truncate if long
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -853,7 +865,6 @@
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     white-space: nowrap;
     flex-shrink: 0;
-    // Full width when stacked on mobile
     width: 100%;
     justify-content: center;
 
@@ -925,7 +936,6 @@
     padding: 4rem 1.5rem;
     text-align: center;
     min-height: 420px;
-    // ✅ REMOVED: margin-top: -250px — was causing major overflow
 
     @media (min-width: 640px) { padding: 5rem 2rem; min-height: 480px; }
     @media (min-width: 1024px) { padding: 6rem 2rem; }

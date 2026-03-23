@@ -4,11 +4,11 @@
 // ============================================
 // DESIGN TOKENS - Using CSS Variables
 // ============================================
-$breakpoint-xs: 475px;
-$breakpoint-sm: 640px;
-$breakpoint-md: 768px;
-$breakpoint-lg: 1024px;
-$breakpoint-xl: 1280px;
+$breakpoint-xs:  475px;
+$breakpoint-sm:  640px;
+$breakpoint-md:  768px;
+$breakpoint-lg:  1024px;
+$breakpoint-xl:  1280px;
 $breakpoint-2xl: 1536px;
 
 // ============================================
@@ -165,7 +165,47 @@ $breakpoint-2xl: 1536px;
   }
 }
 
-// Kanban View Layout
+// ============================================
+// SHARED SIDEBAR PATTERN
+// ─────────────────────────────────────────────
+// The sidebar is sticky and sized to the
+// visible viewport. It is a flex column:
+//   SimulationControls  — flex-shrink: 0 (never compressed)
+//   CapacityMeter       — flex: 1, min-height: 0
+//                         its staff list scrolls internally
+//
+// This means NO overflow-y on the sidebar itself
+// → no sidebar scrollbar ever appears.
+// ============================================
+%sidebar-base {
+  order: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  animation: slide-in-right 0.5s ease;
+
+  @media (min-width: $breakpoint-sm) { gap: 0.875rem; }
+
+  @media (min-width: $breakpoint-lg) {
+    order: 2;
+    position: sticky;
+    top: 1rem;
+    // No fixed height — sidebar grows with its content.
+    // CapacityMeter's staff list has its own max-height + scroll internally.
+    align-self: start;
+  }
+}
+
+// Wrapper around CapacityMeter in the sidebar.
+// Simple passthrough — no flex tricks needed.
+// The card uses a fixed max-height on its staff-scroll area internally.
+.sidebar-capacity-fill {
+  // no special styles needed — card manages its own height
+}
+
+// ============================================
+// KANBAN VIEW LAYOUT
+// ============================================
 .kanban-layout {
   display: grid;
   grid-template-columns: 1fr;
@@ -188,57 +228,58 @@ $breakpoint-2xl: 1536px;
   }
 
   &__sidebar {
-    order: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    animation: slide-in-right 0.5s ease;
-
-    @media (min-width: $breakpoint-sm) { gap: 0.875rem; }
-    @media (min-width: $breakpoint-lg) { order: 2; }
+    @extend %sidebar-base;
   }
 }
 
-// List View Layout
+// ============================================
+// LIST VIEW LAYOUT
+// ============================================
 .list-layout {
   display: grid;
   grid-template-columns: 1fr;
   gap: 0.75rem;
+  align-items: start;
 
   @media (min-width: $breakpoint-lg) {
-    grid-template-columns: 2fr 1fr;
+    grid-template-columns: 1fr 300px;
     gap: 1rem;
+    align-items: start;
   }
 
-  @media (min-width: $breakpoint-xl) { gap: 1.25rem; }
+  @media (min-width: $breakpoint-xl) {
+    grid-template-columns: 1fr 320px;
+    gap: 1.25rem;
+  }
 
   &__main {
     order: 2;
     animation: slide-in-left 0.5s ease;
-    @media (min-width: $breakpoint-lg) { order: 1; }
+
+    @media (min-width: $breakpoint-lg) {
+      order: 1;
+      min-height: calc(100vh - 220px);
+    }
   }
 
   &__sidebar {
-    order: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    animation: slide-in-right 0.5s ease;
-
-    @media (min-width: $breakpoint-sm) { gap: 0.875rem; }
-    @media (min-width: $breakpoint-lg) { order: 2; }
+    @extend %sidebar-base;
   }
 }
 
-// Analytics View Layout
+// ============================================
+// ANALYTICS VIEW LAYOUT
+// ============================================
 .analytics-layout {
   display: grid;
   grid-template-columns: 1fr;
   gap: 0.75rem;
+  align-items: start;
 
   @media (min-width: $breakpoint-lg) {
     grid-template-columns: 2fr 1fr;
     gap: 1rem;
+    align-items: start;
   }
 
   @media (min-width: $breakpoint-xl) { gap: 1.25rem; }
@@ -246,22 +287,21 @@ $breakpoint-2xl: 1536px;
   &__main {
     order: 2;
     animation: slide-in-left 0.5s ease;
-    @media (min-width: $breakpoint-lg) { order: 1; }
+
+    @media (min-width: $breakpoint-lg) {
+      order: 1;
+      min-height: calc(100vh - 220px);
+    }
   }
 
   &__sidebar {
-    order: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    animation: slide-in-right 0.5s ease;
-
-    @media (min-width: $breakpoint-sm) { gap: 0.875rem; }
-    @media (min-width: $breakpoint-lg) { order: 2; }
+    @extend %sidebar-base;
   }
 }
 
-// Inventory View Layout
+// ============================================
+// INVENTORY VIEW LAYOUT
+// ============================================
 .inventory-layout {
   animation: fade-in 0.4s ease;
 }
@@ -269,29 +309,18 @@ $breakpoint-2xl: 1536px;
 // ============================================
 // SIDEBAR GRID
 // ============================================
-//
-// FIX: Previously repeat(2,1fr) from mobile upward — both panels
-// were ~160px wide, causing staff names to wrap across two lines.
-//
-// New behaviour:
-//   mobile (<md)  → 1 column  — each panel gets full width, names fit
-//   tablet (md+)  → 2 columns — enough horizontal room for side-by-side
-//   desktop (lg+) → 1 column  — sidebar itself is already 300-320px narrow,
-//                               so 2 columns would crush content again
-//
 .sidebar-grid {
   display: grid;
-  grid-template-columns: 1fr;           // CHANGED: was repeat(2,1fr) — single col on mobile
-
+  grid-template-columns: 1fr;
   gap: 0.5rem;
 
   @media (min-width: $breakpoint-md) {
-    grid-template-columns: repeat(2, 1fr);  // wide enough between md–lg
+    grid-template-columns: repeat(2, 1fr);
     gap: 0.75rem;
   }
 
   @media (min-width: $breakpoint-lg) {
-    grid-template-columns: 1fr;             // back to 1 col inside narrow sidebar
+    grid-template-columns: 1fr;
     gap: 0.5rem;
   }
 }
@@ -301,9 +330,13 @@ $breakpoint-2xl: 1536px;
 // ============================================
 .premium-panel {
   @include premium-card;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 
   &__header {
     margin-bottom: 0.75rem;
+    flex-shrink: 0;
     @media (min-width: $breakpoint-sm) { margin-bottom: 1rem; }
   }
 
@@ -327,7 +360,10 @@ $breakpoint-2xl: 1536px;
     @media (min-width: $breakpoint-sm) { font-size: 0.875rem; }
   }
 
-  &__content {}
+  &__content {
+    flex: 1;
+    min-height: 0;
+  }
 }
 
 // ============================================
@@ -404,19 +440,20 @@ $breakpoint-2xl: 1536px;
 
 // ============================================
 // SCROLLBAR STYLING
+// — only applied to the internal staff scroll
+//   area, not the sidebar as a whole
 // ============================================
 * {
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--primary) / 0.3) transparent;
 }
 
-*::-webkit-scrollbar       { width: 8px; height: 8px; }
+*::-webkit-scrollbar       { width: 4px; height: 4px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
-  background: hsl(var(--primary) / 0.3);
+  background: hsl(var(--primary) / 0.2);
   border-radius: 4px;
-  transition: background 0.3s ease;
-  &:hover { background: hsl(var(--primary) / 0.5); }
+  &:hover { background: hsl(var(--primary) / 0.4); }
 }
 
 // ============================================

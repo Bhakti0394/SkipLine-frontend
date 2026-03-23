@@ -1,10 +1,13 @@
+// FIX: @use must come before everything else
+@use 'sass:color';
+
 // Premium Dark Theme Variables
 $bg-dark: #0a0a0b;
 $card-bg: #141416;
 $primary: #ff6b35;
 $accent: #ff8f66;
-$express: #22d3ee; // Teal for Express
-$express-accent: #06b6d4; // Darker teal
+$express: #22d3ee;
+$express-accent: #06b6d4;
 $success: #10b981;
 $warning: #f59e0b;
 $destructive: #ef4444;
@@ -36,7 +39,6 @@ $sm: 640px;
   display: flex;
   flex-direction: column;
 
-  // Express mode styling
   &--express {
     border-color: $express-border;
   }
@@ -54,7 +56,7 @@ $sm: 640px;
     z-index: 50;
   }
 
-  // Success State
+  // ── Success State ──────────────────────────────────────────────────────────
   &__success {
     display: flex;
     flex-direction: column;
@@ -98,9 +100,7 @@ $sm: 640px;
         background: linear-gradient(135deg, $schedule, transparent);
       }
 
-      .modal__success-check {
-        color: $schedule;
-      }
+      .modal__success-check { color: $schedule; }
     }
 
     &--express {
@@ -110,9 +110,7 @@ $sm: 640px;
         background: linear-gradient(135deg, $express, transparent);
       }
 
-      .modal__success-check {
-        color: $express;
-      }
+      .modal__success-check { color: $express; }
     }
 
     @media (max-width: $sm) {
@@ -139,9 +137,7 @@ $sm: 640px;
     margin-bottom: 0.625rem;
     color: $text-primary;
 
-    @media (max-width: $sm) {
-      font-size: 1.25rem;
-    }
+    @media (max-width: $sm) { font-size: 1.25rem; }
   }
 
   &__success-text {
@@ -149,9 +145,7 @@ $sm: 640px;
     font-size: 0.95rem;
     margin-bottom: 1rem;
 
-    @media (max-width: $sm) {
-      font-size: 0.875rem;
-    }
+    @media (max-width: $sm) { font-size: 0.875rem; }
   }
 
   &__success-schedule-info {
@@ -178,7 +172,6 @@ $sm: 640px;
     height: 1.125rem;
   }
 
-  // Express success info strip
   &__success-express-info {
     display: flex;
     align-items: center;
@@ -215,7 +208,7 @@ $sm: 640px;
     }
   }
 
-  // Form State
+  // ── Form State ─────────────────────────────────────────────────────────────
   &__form {
     display: flex;
     flex-direction: column;
@@ -223,15 +216,13 @@ $sm: 640px;
     max-height: 90vh;
   }
 
-  // Header
+  // ── Header ─────────────────────────────────────────────────────────────────
   &__header {
     position: relative;
     height: 11rem;
     flex-shrink: 0;
 
-    @media (max-width: $sm) {
-      height: 9rem;
-    }
+    @media (max-width: $sm) { height: 9rem; }
   }
 
   &__header-img {
@@ -265,7 +256,8 @@ $sm: 640px;
   }
 
   &__schedule-badge {
-    background: linear-gradient(135deg, $schedule, lighten($schedule, 8%));
+    // FIX: lighten($schedule, 8%) replaced with color.adjust()
+    background: linear-gradient(135deg, $schedule, color.adjust($schedule, $lightness: 8%));
   }
 
   &__express-badge {
@@ -296,11 +288,8 @@ $sm: 640px;
       border-color: $primary;
     }
 
-    // Express mode
     .modal--express & {
-      &:hover {
-        border-color: $express;
-      }
+      &:hover { border-color: $express; }
     }
   }
 
@@ -335,7 +324,6 @@ $sm: 640px;
       color: $primary;
       border: 1px solid rgba($primary, 0.3);
 
-      // Express mode
       .modal--express & {
         background: rgba($express, 0.25);
         color: $express;
@@ -365,9 +353,7 @@ $sm: 640px;
     color: $text-primary;
     margin-bottom: 0.25rem;
 
-    @media (max-width: $sm) {
-      font-size: 1.125rem;
-    }
+    @media (max-width: $sm) { font-size: 1.125rem; }
   }
 
   &__subtitle {
@@ -375,7 +361,7 @@ $sm: 640px;
     color: $text-secondary;
   }
 
-  // Content
+  // ── Content ────────────────────────────────────────────────────────────────
   &__content {
     flex: 1;
     overflow-y: auto;
@@ -389,29 +375,17 @@ $sm: 640px;
       gap: 1rem;
     }
 
-    &::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    &::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.02);
-    }
-
+    &::-webkit-scrollbar { width: 6px; }
+    &::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
     &::-webkit-scrollbar-thumb {
       background: rgba($primary, 0.3);
       border-radius: 3px;
 
-      &:hover {
-        background: rgba($primary, 0.5);
-      }
+      &:hover { background: rgba($primary, 0.5); }
 
-      // Express mode
       .modal--express & {
         background: rgba($express, 0.3);
-
-        &:hover {
-          background: rgba($express, 0.5);
-        }
+        &:hover { background: rgba($express, 0.5); }
       }
     }
   }
@@ -425,9 +399,7 @@ $sm: 640px;
     border: 1px solid rgba($schedule, 0.25);
     border-radius: 0.875rem;
 
-    @media (max-width: $sm) {
-      padding: 1rem;
-    }
+    @media (max-width: $sm) { padding: 1rem; }
   }
 
   &__schedule-banner-icon {
@@ -449,7 +421,6 @@ $sm: 640px;
     color: $text-secondary;
   }
 
-  // Express info banner
   &__express-banner {
     display: flex;
     align-items: center;
@@ -459,9 +430,7 @@ $sm: 640px;
     border: 1px solid rgba($express, 0.25);
     border-radius: 0.875rem;
 
-    @media (max-width: $sm) {
-      padding: 1rem;
-    }
+    @media (max-width: $sm) { padding: 1rem; }
   }
 
   &__express-banner-icon {
@@ -471,9 +440,7 @@ $sm: 640px;
     flex-shrink: 0;
   }
 
-  &__express-banner-text {
-    flex: 1;
-  }
+  &__express-banner-text { flex: 1; }
 
   &__express-banner-title {
     font-weight: 700;
@@ -508,10 +475,7 @@ $sm: 640px;
     height: 1.125rem;
     color: $primary;
 
-    // Express mode
-    .modal--express & {
-      color: $express;
-    }
+    .modal--express & { color: $express; }
   }
 
   &__info-currency {
@@ -519,10 +483,7 @@ $sm: 640px;
     font-weight: 700;
     color: $primary;
 
-    // Express mode
-    .modal--express & {
-      color: $express;
-    }
+    .modal--express & { color: $express; }
   }
 
   &__info-value {
@@ -536,7 +497,7 @@ $sm: 640px;
     color: $text-secondary;
   }
 
-  // Quantity
+  // ── Quantity ───────────────────────────────────────────────────────────────
   &__quantity {
     display: flex;
     align-items: center;
@@ -583,26 +544,18 @@ $sm: 640px;
       background: rgba(255, 255, 255, 0.05);
       color: $text-secondary;
 
-      &:hover {
-        background: rgba(255, 255, 255, 0.08);
-      }
+      &:hover { background: rgba(255, 255, 255, 0.08); }
     }
 
     &--plus {
       background: linear-gradient(135deg, $primary, $accent);
       color: white;
 
-      &:hover {
-        box-shadow: 0 4px 12px $glow;
-      }
+      &:hover { box-shadow: 0 4px 12px $glow; }
 
-      // Express mode
       .modal--express & {
         background: linear-gradient(135deg, $express, $express-accent);
-
-        &:hover {
-          box-shadow: 0 4px 12px $express-glow;
-        }
+        &:hover { box-shadow: 0 4px 12px $express-glow; }
       }
     }
   }
@@ -620,7 +573,7 @@ $sm: 640px;
     color: $text-primary;
   }
 
-  // Section
+  // ── Section ────────────────────────────────────────────────────────────────
   &__section {
     display: flex;
     flex-direction: column;
@@ -637,30 +590,11 @@ $sm: 640px;
     width: 1.125rem;
     height: 1.125rem;
 
-    &--flame {
-      color: $warning;
-    }
-
-    &--primary {
-      color: $primary;
-
-      // Express mode
-      .modal--express & {
-        color: $express;
-      }
-    }
-
-    &--success {
-      color: $success;
-    }
-
-    &--schedule {
-      color: $schedule;
-    }
-
-    &--express {
-      color: $express;
-    }
+    &--flame    { color: $warning; }
+    &--primary  { color: $primary; .modal--express & { color: $express; } }
+    &--success  { color: $success; }
+    &--schedule { color: $schedule; }
+    &--express  { color: $express; }
   }
 
   &__section-title {
@@ -675,7 +609,7 @@ $sm: 640px;
     margin-left: auto;
   }
 
-  // Spice Level
+  // ── Spice Level ────────────────────────────────────────────────────────────
   &__spice-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -701,7 +635,6 @@ $sm: 640px;
       background: rgba($primary, 0.15);
     }
 
-    // Express mode
     .modal--express & {
       &:hover {
         border-color: rgba($express, 0.3);
@@ -727,7 +660,7 @@ $sm: 640px;
     color: $text-secondary;
   }
 
-  // Add-ons
+  // ── Add-ons ────────────────────────────────────────────────────────────────
   &__addons-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -756,7 +689,6 @@ $sm: 640px;
       background: rgba($primary, 0.15);
     }
 
-    // Express mode
     .modal--express & {
       &:hover {
         border-color: rgba($express, 0.3);
@@ -770,15 +702,8 @@ $sm: 640px;
     }
   }
 
-  &__addon-icon {
-    font-size: 1.25rem;
-    flex-shrink: 0;
-  }
-
-  &__addon-info {
-    flex: 1;
-    min-width: 0;
-  }
+  &__addon-icon  { font-size: 1.25rem; flex-shrink: 0; }
+  &__addon-info  { flex: 1; min-width: 0; }
 
   &__addon-name {
     font-size: 0.775rem;
@@ -790,10 +715,7 @@ $sm: 640px;
     margin-bottom: 0.125rem;
   }
 
-  &__addon-price {
-    font-size: 0.65rem;
-    color: $text-secondary;
-  }
+  &__addon-price { font-size: 0.65rem; color: $text-secondary; }
 
   &__addon-check {
     width: 0.875rem;
@@ -801,13 +723,10 @@ $sm: 640px;
     color: $primary;
     flex-shrink: 0;
 
-    // Express mode
-    .modal--express & {
-      color: $express;
-    }
+    .modal--express & { color: $express; }
   }
 
-  // Textarea
+  // ── Textarea ───────────────────────────────────────────────────────────────
   &__textarea {
     width: 100%;
     padding: 0.875rem;
@@ -821,9 +740,7 @@ $sm: 640px;
     font-family: inherit;
     transition: all 0.3s;
 
-    &::placeholder {
-      color: $text-secondary;
-    }
+    &::placeholder { color: $text-secondary; }
 
     &:focus {
       outline: none;
@@ -831,7 +748,6 @@ $sm: 640px;
       background: rgba($primary, 0.05);
     }
 
-    // Express mode
     .modal--express & {
       &:focus {
         border-color: $express;
@@ -840,7 +756,7 @@ $sm: 640px;
     }
   }
 
-  // Time Slots (Regular mode)
+  // ── Time Slots (Regular) ───────────────────────────────────────────────────
   &__slots-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -887,20 +803,9 @@ $sm: 640px;
     height: 0.5rem;
     border-radius: 50%;
 
-    &--low {
-      background: $success;
-      box-shadow: 0 0 6px rgba($success, 0.5);
-    }
-
-    &--medium {
-      background: $warning;
-      box-shadow: 0 0 6px rgba($warning, 0.5);
-    }
-
-    &--high {
-      background: $destructive;
-      box-shadow: 0 0 6px rgba($destructive, 0.5);
-    }
+    &--low    { background: $success;     box-shadow: 0 0 6px rgba($success, 0.5); }
+    &--medium { background: $warning;     box-shadow: 0 0 6px rgba($warning, 0.5); }
+    &--high   { background: $destructive; box-shadow: 0 0 6px rgba($destructive, 0.5); }
   }
 
   &__slot-wait {
@@ -908,7 +813,7 @@ $sm: 640px;
     color: $text-secondary;
   }
 
-  // Scheduled Time Slots
+  // ── Scheduled Time Slots ───────────────────────────────────────────────────
   &__schedule-slots {
     display: flex;
     flex-direction: column;
@@ -934,9 +839,7 @@ $sm: 640px;
     grid-template-columns: repeat(3, 1fr);
     gap: 0.5rem;
 
-    @media (max-width: $sm) {
-      grid-template-columns: repeat(2, 1fr);
-    }
+    @media (max-width: $sm) { grid-template-columns: repeat(2, 1fr); }
   }
 
   &__schedule-slot {
@@ -961,9 +864,7 @@ $sm: 640px;
       background: rgba($schedule, 0.2);
 
       .modal__schedule-slot-icon,
-      .modal__schedule-slot-time {
-        color: $schedule;
-      }
+      .modal__schedule-slot-time { color: $schedule; }
     }
   }
 
@@ -981,7 +882,7 @@ $sm: 640px;
     transition: color 0.3s;
   }
 
-  // Express arrival picker — 3 cards (5 / 10 / 15 min)
+  // ── Express Arrival Picker ─────────────────────────────────────────────────
   &__express-arrival-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1014,14 +915,8 @@ $sm: 640px;
       background: rgba($express, 0.12);
       box-shadow: 0 0 0 1px rgba($express, 0.2), 0 8px 24px rgba($express, 0.2);
 
-      .modal__express-arrival-label {
-        color: $express;
-      }
-
-      .modal__express-arrival-time {
-        color: $express;
-        opacity: 1;
-      }
+      .modal__express-arrival-label { color: $express; }
+      .modal__express-arrival-time  { color: $express; opacity: 1; }
     }
   }
 
@@ -1079,7 +974,7 @@ $sm: 640px;
     }
   }
 
-  // Footer
+  // ── Footer ─────────────────────────────────────────────────────────────────
   &__footer {
     flex-shrink: 0;
     padding: 1.25rem;
@@ -1087,9 +982,7 @@ $sm: 640px;
     background: rgba($card-bg, 0.98);
     backdrop-filter: blur(12px);
 
-    @media (max-width: $sm) {
-      padding: 1rem;
-    }
+    @media (max-width: $sm) { padding: 1rem; }
   }
 
   &__total {
@@ -1099,16 +992,8 @@ $sm: 640px;
     margin-bottom: 1rem;
   }
 
-  &__total-label {
-    font-size: 0.825rem;
-    color: $text-secondary;
-  }
-
-  &__total-addon {
-    font-size: 0.7rem;
-    color: $text-secondary;
-    margin-top: 0.125rem;
-  }
+  &__total-label  { font-size: 0.825rem; color: $text-secondary; }
+  &__total-addon  { font-size: 0.7rem; color: $text-secondary; margin-top: 0.125rem; }
 
   &__total-price {
     font-size: 1.5rem;
@@ -1118,7 +1003,6 @@ $sm: 640px;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 
-    // Express mode
     .modal--express & {
       background: linear-gradient(135deg, $express, $express-accent);
       -webkit-background-clip: text;
@@ -1155,22 +1039,19 @@ $sm: 640px;
       transform: none;
     }
 
+    // FIX: lighten($schedule, 8%) replaced with color.adjust()
     &--schedule {
-      background: linear-gradient(135deg, $schedule, lighten($schedule, 8%));
+      background: linear-gradient(135deg, $schedule, color.adjust($schedule, $lightness: 8%));
       box-shadow: 0 8px 24px rgba($schedule, 0.3);
 
-      &:hover {
-        box-shadow: 0 12px 32px rgba($schedule, 0.4);
-      }
+      &:hover { box-shadow: 0 12px 32px rgba($schedule, 0.4); }
     }
 
     &--express {
       background: linear-gradient(135deg, $express, $express-accent);
       box-shadow: 0 8px 24px rgba($express, 0.3);
 
-      &:hover {
-        box-shadow: 0 12px 32px rgba($express, 0.4);
-      }
+      &:hover { box-shadow: 0 12px 32px rgba($express, 0.4); }
     }
   }
 
@@ -1180,7 +1061,7 @@ $sm: 640px;
     height: 1.125rem;
   }
 
-  // Button styles
+  // ── Buttons ────────────────────────────────────────────────────────────────
   &__btn {
     flex: 1;
     height: 3.25rem;
@@ -1210,11 +1091,8 @@ $sm: 640px;
         border-color: $primary;
       }
 
-      // Express mode
       .modal--express & {
-        &:hover {
-          border-color: $express;
-        }
+        &:hover { border-color: $express; }
       }
     }
 
@@ -1228,14 +1106,11 @@ $sm: 640px;
         transform: translateY(-2px);
       }
 
-      // Express mode
       .modal--express & {
         background: linear-gradient(135deg, $express, $express-accent);
         box-shadow: 0 6px 20px rgba($express, 0.3);
 
-        &:hover {
-          box-shadow: 0 8px 24px rgba($express, 0.4);
-        }
+        &:hover { box-shadow: 0 8px 24px rgba($express, 0.4); }
       }
     }
   }
@@ -1247,10 +1122,6 @@ $sm: 640px;
 }
 
 @keyframes pulse {
-  0%, 100% {
-    opacity: 0.2;
-  }
-  50% {
-    opacity: 0.4;
-  }
+  0%, 100% { opacity: 0.2; }
+  50%       { opacity: 0.4; }
 }
