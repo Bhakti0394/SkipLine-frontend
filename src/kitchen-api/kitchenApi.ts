@@ -2,7 +2,8 @@
 // src/kitchen-api/kitchenApi.ts
 // ============================================================
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/kitchen';
+const BASE_URL     = (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/kitchen';
+const CUSTOMER_URL = (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/customer';
 
 function authHeaders(): HeadersInit {
   const token = localStorage.getItem('auth_token');
@@ -17,7 +18,16 @@ function authHeadersNoBody(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// ─── DTOs ─────────────────────────────────────────────────────────────────────
+function customerAuthHeaders(): HeadersInit {
+  const token       = localStorage.getItem('auth_token');
+  const displayName = localStorage.getItem('auth_full_name');
+  return {
+    ...(token       ? { Authorization: `Bearer ${token}` }       : {}),
+    ...(displayName ? { 'X-Customer-Display-Name': displayName } : {}),
+  };
+}
+
+// ─── Kitchen DTOs ─────────────────────────────────────────────────────────────
 
 export interface OrderCardDto {
   id:               string;
@@ -36,10 +46,6 @@ export interface OrderCardDto {
   elapsedMinutes:   number;
   isLate:           boolean;
   priority?:        string;
-  // Authoritative order type from backend — derived from orderRef suffix at
-  // query time in OrderQueryService. Values: 'EXPRESS' | 'NORMAL' | 'SCHEDULED'.
-  // resolveOrderType() in useKitchenBoard reads this first; hash-table fallback
-  // only fires when this field is absent (legacy / seeded orders without suffix).
   orderType?:       string;
 }
 
@@ -76,7 +82,7 @@ export interface StaffRemovalValidationDto {
 }
 
 export interface SlotCapacityDto {
-  id:              string;
+  slotId:          string;
   slotTime:        string;
   maxCapacity:     number;
   currentBookings: number;
@@ -102,12 +108,16 @@ export interface MenuItemDto {
   name:            string;
   prepTimeMinutes: number;
   available:       boolean;
+  price:           number | null;
+  category:        string | null;
+  imageUrl:        string | null;
+  isExpress:       boolean;
 }
 
 export interface CreateStaffDto {
   name:                string;
   maxConcurrentOrders: number;
-  activeToday:         boolean;
+  status:              'ACTIVE' | 'BACKUP';
 }
 
 export interface SimulationResult {
@@ -116,13 +126,103 @@ export interface SimulationResult {
   reason?:   string;
 }
 
+// ─── Inventory DTOs ───────────────────────────────────────────────────────────
+
+export type FrontendStockStatus =
+  | 'in-stock'
+  | 'low-stock'
+  | 'critical'
+  | 'out-of-stock';
+
+export interface InventoryItemDto {
+  id:                string;
+  name:              string;
+  category:          string;
+  currentStock:      number;
+  maxCapacity:       number;
+  unit:              string;
+  minThreshold:      number;
+  criticalThreshold: number;
+  costPerUnit:       number;
+  supplier?:         string;
+  lastRestocked:     string;
+  expiryDate?:       string;
+  stockStatus:       FrontendStockStatus;
+}
+
+// ─── Customer Order DTOs ──────────────────────────────────────────────────────
+
+export interface CustomerOrderDto {
+  id:               string;
+  orderRef:         string;
+  status:           'pending' | 'cooking' | 'ready' | 'completed' | 'cancelled';
+  customerName:     string;
+  itemSummary:      string[];
+  totalPrice:       number;
+  pickupSlotTime:   string | null;
+  totalPrepMinutes: number;
+  placedAt:         string;
+  cookingStartedAt: string | null;
+  readyAt:          string | null;
+  completedAt:      string | null;
+}
+
+export interface PlaceOrderRequest {
+  orderRef:      string;
+  menuItemIds:   string[];
+  pickupSlotId?: string;
+}
+
+export interface CustomerMetricsDto {
+  ordersThisMonth:  number;
+  timeSaved:        number;
+  loyaltyPoints:    number;
+  foodWasteReduced: number;
+}
+
+export interface CustomerKitchenSummaryDto {
+  topDishName:       string;
+  topDishOrders:     number;
+  busiestHourTime:   string;
+  busiestHourOrders: number;
+  avgPrepMinutes:    number;
+  hasBottleneck:     boolean;
+  bottleneckReason:  string | null;
+}
+
+// NEW: Customer slot DTO returned by GET /api/customer/slots and /slots/tomorrow
+export interface CustomerSlotDto {
+  slotId:          string;
+  slotTime:        string;    // ISO-8601 UTC
+  displayTime:     string;    // "12:30 PM" — ready to render
+  period:          string;    // "Breakfast" | "Lunch" | "Afternoon" | "Dinner"
+  maxCapacity:     number;
+  currentBookings: number;
+  remaining:       number;
+}
+
+// NEW: Platform stats DTO returned by GET /api/customer/stats
+export interface CustomerPlatformStatsDto {
+  totalOrdersDelivered: number;
+  totalCustomers:       number;
+  totalMenuItems:       number;
+  avgRating:            string;
+}
+
 // ─── OrderRef helpers ─────────────────────────────────────────────────────────
 
-function generateOrderRef(customerName: string): string {
+export function generateOrderRef(customerName: string): string {
   const uid       = crypto.randomUUID().slice(0, 8).toUpperCase();
   const firstName = customerName.split(' ')[0];
   const ts        = Date.now().toString(36).toUpperCase().slice(-4);
   return `SIM-${firstName}${ts}-${uid}`;
+}
+
+export function generateCustomerOrderRef(customerName: string): string {
+  const uid       = crypto.randomUUID().slice(0, 8).toUpperCase();
+  const firstName = (customerName.split('@')[0]).split(' ')[0];
+  const ts        = Date.now().toString(36).toUpperCase().slice(-4);
+  return `ORD-${firstName}${ts}-${uid}`;
 }
 
 const SIM_CUSTOMER_NAMES = [
@@ -138,7 +238,6 @@ function randomCustomerName(): string {
 
 export type SimOrderType = 'express' | 'normal' | 'scheduled';
 
-// ~25% express, ~55% normal, ~20% scheduled
 const ORDER_TYPE_POOL: SimOrderType[] = [
   'express',   'express',   'express',   'express',   'express',
   'normal',    'normal',    'normal',    'normal',    'normal',
@@ -171,8 +270,8 @@ export function decodeOrderTypeFromRef(orderRef: string): SimOrderType {
 
 function pickNormalSlot(slots: SlotCapacityDto[]): SlotCapacityDto | null {
   const now      = Date.now();
-  const minAhead = 20 * 60 * 1000;
-  const maxAhead = 90 * 60 * 1000;
+  const minAhead = 20  * 60 * 1000;
+  const maxAhead = 120 * 60 * 1000;
   const candidates = slots.filter(s => {
     if (s.remaining <= 0) return false;
     const ms = new Date(s.slotTime).getTime();
@@ -199,9 +298,7 @@ function pickScheduledSlot(slots: SlotCapacityDto[]): SlotCapacityDto | null {
 
 export async function fetchBoard(signal?: AbortSignal): Promise<KanbanBoardResponse> {
   const res = await fetch(`${BASE_URL}/board`, {
-    credentials: 'include',
-    headers: authHeadersNoBody(),
-    signal,
+    credentials: 'include', headers: authHeadersNoBody(), signal,
   });
   if (!res.ok) throw new Error(`Failed to fetch board: ${res.status}`);
   return res.json();
@@ -211,6 +308,14 @@ export async function fetchBoard(signal?: AbortSignal): Promise<KanbanBoardRespo
 
 export async function fetchMenuItems(): Promise<MenuItemDto[]> {
   const res = await fetch(`${BASE_URL}/menu-items`, {
+    credentials: 'include', headers: authHeadersNoBody(),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch menu items: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchCustomerMenuItems(): Promise<MenuItemDto[]> {
+  const res = await fetch(`${CUSTOMER_URL}/menu-items`, {
     credentials: 'include', headers: authHeadersNoBody(),
   });
   if (!res.ok) throw new Error(`Failed to fetch menu items: ${res.status}`);
@@ -230,7 +335,7 @@ export async function fetchStaff(): Promise<StaffWorkloadDto[]> {
 export async function createStaff(dto: CreateStaffDto): Promise<StaffWorkloadDto> {
   const res = await fetch(`${BASE_URL}/staff`, {
     method: 'POST', credentials: 'include', headers: authHeaders(),
-    body: JSON.stringify(dto),
+    body: JSON.stringify({ name: dto.name, maxConcurrentOrders: dto.maxConcurrentOrders, status: dto.status }),
   });
   if (!res.ok) throw new Error((await res.text()) || `Create staff failed: ${res.status}`);
   return res.json();
@@ -260,12 +365,10 @@ export async function removeChefFromShift(chefId: string): Promise<StaffWorkload
   return res.json();
 }
 
-// ─── Orders ───────────────────────────────────────────────────────────────────
+// ─── Orders (kitchen sim) ─────────────────────────────────────────────────────
 
 export async function createOrder(
-  orderRef:    string,
-  menuItemIds: string[],
-  customerName?: string,
+  orderRef: string, menuItemIds: string[], customerName?: string,
 ): Promise<string> {
   const res = await fetch(`${BASE_URL}/orders`, {
     method: 'POST', credentials: 'include', headers: authHeaders(),
@@ -276,15 +379,14 @@ export async function createOrder(
 }
 
 export async function reservePickupSlot(orderId: string, slotId: string): Promise<void> {
-  const res = await fetch(
-    `${BASE_URL}/orders/${orderId}/reserve-slot?slotId=${slotId}`,
-    { method: 'PATCH', credentials: 'include', headers: authHeadersNoBody() },
-  );
+  const res = await fetch(`${BASE_URL}/orders/${orderId}/reserve-slot?slotId=${slotId}`, {
+    method: 'PATCH', credentials: 'include', headers: authHeadersNoBody(),
+  });
   if (!res.ok) throw new Error((await res.text()) || `Reserve slot failed: ${res.status}`);
 }
 
 export async function changeOrderStatus(
-  orderId:      string,
+  orderId: string,
   targetStatus: 'PENDING' | 'COOKING' | 'READY' | 'COMPLETED' | 'CANCELLED',
 ): Promise<void> {
   const res = await fetch(`${BASE_URL}/orders/${orderId}/status`, {
@@ -302,7 +404,159 @@ export async function assignChef(orderId: string, chefId: string): Promise<void>
   if (!res.ok) throw new Error((await res.text()) || `Chef assignment failed: ${res.status}`);
 }
 
-// ─── Metrics ──────────────────────────────────────────────────────────────────
+// ─── Customer Orders ──────────────────────────────────────────────────────────
+
+export async function placeCustomerOrder(req: PlaceOrderRequest): Promise<CustomerOrderDto> {
+  const res = await fetch(`${CUSTOMER_URL}/orders`, {
+    method: 'POST', credentials: 'include', headers: authHeaders(),
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `Order failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchCustomerOrders(): Promise<CustomerOrderDto[]> {
+  const res = await fetch(`${CUSTOMER_URL}/orders`, {
+    credentials: 'include', headers: customerAuthHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch orders: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchCustomerOrder(orderId: string): Promise<CustomerOrderDto> {
+  const res = await fetch(`${CUSTOMER_URL}/orders/${orderId}`, {
+    credentials: 'include', headers: customerAuthHeaders(),
+  });
+  if (!res.ok) throw new Error(`Order not found: ${res.status}`);
+  return res.json();
+}
+
+// ─── Customer Metrics ─────────────────────────────────────────────────────────
+
+export async function fetchCustomerMetrics(): Promise<CustomerMetricsDto> {
+  const res = await fetch(`${CUSTOMER_URL}/metrics`, {
+    credentials: 'include', headers: customerAuthHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch customer metrics: ${res.status}`);
+  return res.json();
+}
+
+// ─── Customer Streak ──────────────────────────────────────────────────────────
+
+export async function fetchCustomerStreak(): Promise<number> {
+  const res = await fetch(`${CUSTOMER_URL}/streak`, {
+    credentials: 'include', headers: customerAuthHeaders(),
+  });
+  if (!res.ok) return 0;
+  const data = await res.json();
+  return typeof data.streak === 'number' ? data.streak : 0;
+}
+
+// ─── Customer Kitchen Summary ─────────────────────────────────────────────────
+
+const KITCHEN_SUMMARY_FALLBACK: CustomerKitchenSummaryDto = {
+  topDishName: 'Butter Chicken', topDishOrders: 0,
+  busiestHourTime: '–', busiestHourOrders: 0,
+  avgPrepMinutes: 12, hasBottleneck: false, bottleneckReason: null,
+};
+
+export async function fetchCustomerKitchenSummary(): Promise<CustomerKitchenSummaryDto> {
+  try {
+    const res = await fetch(`${CUSTOMER_URL}/kitchen-summary`, {
+      credentials: 'include', headers: customerAuthHeaders(),
+    });
+    if (!res.ok) return KITCHEN_SUMMARY_FALLBACK;
+    return res.json();
+  } catch {
+    return KITCHEN_SUMMARY_FALLBACK;
+  }
+}
+
+// ─── Customer Slots ───────────────────────────────────────────────────────────
+// NEW: Fetches today's real pickup slots from backend.
+// Used by OrderModal for normal order slot selection.
+// Falls back to empty array on failure — OrderModal handles the empty state.
+export async function fetchCustomerSlots(): Promise<CustomerSlotDto[]> {
+  try {
+    const res = await fetch(`${CUSTOMER_URL}/slots`, {
+      credentials: 'include', headers: customerAuthHeaders(),
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+// NEW: Fetches tomorrow's pickup slots for scheduled orders.
+// Used by OrderModal for schedule-mode slot picker.
+export async function fetchCustomerSlotsTomorrow(): Promise<CustomerSlotDto[]> {
+  try {
+    const res = await fetch(`${CUSTOMER_URL}/slots/tomorrow`, {
+      credentials: 'include', headers: customerAuthHeaders(),
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+// ─── Customer Platform Stats ──────────────────────────────────────────────────
+// NEW: Fetches real platform-wide stats for BrowseMenu hero section.
+// Replaces hardcoded 12847 orders / 3421 customers numbers.
+const STATS_FALLBACK: CustomerPlatformStatsDto = {
+  totalOrdersDelivered: 0,
+  totalCustomers:       0,
+  totalMenuItems:       0,
+  avgRating:            '4.8',
+};
+
+export async function fetchCustomerPlatformStats(): Promise<CustomerPlatformStatsDto> {
+  try {
+    const res = await fetch(`${CUSTOMER_URL}/stats`, {
+      credentials: 'include', headers: authHeadersNoBody(),
+    });
+    if (!res.ok) return STATS_FALLBACK;
+    return res.json();
+  } catch {
+    return STATS_FALLBACK;
+  }
+}
+
+// ─── SSE subscription ─────────────────────────────────────────────────────────
+
+export function subscribeToOrderStatus(
+  orderId:  string,
+  onStatus: (status: string) => void,
+  onError?: (err: Event) => void,
+): () => void {
+  const token = localStorage.getItem('auth_token');
+  const url   = `${CUSTOMER_URL}/sse/orders/${orderId}/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  const es    = new EventSource(url, { withCredentials: true });
+
+  es.addEventListener('status_update', (event: MessageEvent) => {
+    try {
+      const payload = JSON.parse(event.data) as { orderId: string; status: string };
+      if (payload.orderId === orderId) onStatus(payload.status);
+    } catch {
+      console.warn('[SSE] Could not parse status_update payload:', event.data);
+    }
+  });
+
+  es.addEventListener('connected', () => {
+    console.debug(`[SSE] Connected for order ${orderId}`);
+  });
+
+  es.onerror = (err) => {
+    console.warn(`[SSE] Error for order ${orderId}`, err);
+    onError?.(err);
+  };
+
+  return () => { es.close(); };
+}
+
+// ─── Metrics (kitchen) ────────────────────────────────────────────────────────
 
 export async function fetchMetrics(date?: string): Promise<KitchenMetricsDto> {
   const url = date ? `${BASE_URL}/metrics?date=${date}` : `${BASE_URL}/metrics`;
@@ -324,10 +578,6 @@ export async function fetchServerTime(): Promise<ServerTimeDto> {
 }
 
 // ─── Simulate Advance ─────────────────────────────────────────────────────────
-//
-// Tells the backend to fill available cooking slots immediately — express orders
-// first. Called after each simulation batch so orders don't pile up in PENDING.
-// Non-fatal: a non-ok response returns { promoted: 0 } so simulation continues.
 
 export async function simulateAdvance(): Promise<{ promoted: number }> {
   const res = await fetch(`${BASE_URL}/simulate-advance`, {
@@ -344,26 +594,21 @@ export async function triggerSimulation(
   availableMenuItems: MenuItemDto[],
   availableSlots:     SlotCapacityDto[] = [],
 ): Promise<SimulationResult> {
-  if (availableMenuItems.length === 0) {
+  if (availableMenuItems.length === 0)
     throw new Error('No menu items available — cannot simulate orders');
-  }
 
   const slotTracker = availableSlots.map(s => ({ ...s }));
-
-  const payloads = Array.from({ length: count }, () => {
+  const payloads    = Array.from({ length: count }, () => {
     const customerName = randomCustomerName();
     const orderType    = randomSimOrderType();
     const itemCount    = Math.floor(Math.random() * 3) + 1;
     const menuItemIds  = [...availableMenuItems]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, itemCount)
-      .map(m => m.id);
-    const orderRef     = encodeOrderRef(generateOrderRef(customerName), orderType);
+      .sort(() => Math.random() - 0.5).slice(0, itemCount).map(m => m.id);
+    const orderRef = encodeOrderRef(generateOrderRef(customerName), orderType);
     return { orderRef, menuItemIds, customerName, orderType };
   });
 
-  let generated = 0;
-  let rejected  = 0;
+  let generated = 0, rejected = 0;
   let lastRejectionReason: string | undefined;
   let kitchenFull = false;
 
@@ -373,16 +618,13 @@ export async function triggerSimulation(
     const results = await Promise.allSettled(
       batch.map(async ({ orderRef, menuItemIds, customerName, orderType }) => {
         const orderId = await createOrder(orderRef, menuItemIds, customerName);
-
         if (orderType === 'normal' || orderType === 'scheduled') {
           const slot = orderType === 'normal'
-            ? pickNormalSlot(slotTracker)
-            : pickScheduledSlot(slotTracker);
-
+            ? pickNormalSlot(slotTracker) : pickScheduledSlot(slotTracker);
           if (slot) {
             try {
-              await reservePickupSlot(orderId, slot.id);
-              const tracked = slotTracker.find(s => s.id === slot.id);
+              await reservePickupSlot(orderId, slot.slotId);
+              const tracked = slotTracker.find(s => s.slotId === slot.slotId);
               if (tracked) tracked.remaining = Math.max(0, tracked.remaining - 1);
             } catch (slotErr: any) {
               console.warn(`[Sim] Slot reservation failed for ${orderRef}:`, slotErr.message);
@@ -391,34 +633,52 @@ export async function triggerSimulation(
         }
       }),
     );
-
     for (const result of results) {
-      if (result.status === 'fulfilled') {
-        generated++;
-      } else {
+      if (result.status === 'fulfilled') { generated++; }
+      else {
         rejected++;
         lastRejectionReason = result.reason?.message;
-        if (lastRejectionReason?.includes('full capacity')) {
-          kitchenFull = true;
-        }
+        if (lastRejectionReason?.includes('full capacity')) kitchenFull = true;
       }
     }
-
-    // After each batch, tell the backend to fill cooking slots immediately.
-    // Express orders are promoted first (sorted by ORDER_TYPE_WEIGHT in
-    // promoteNextPendingOrder). Non-fatal — simulation continues regardless.
     if (generated > 0 && !kitchenFull) {
-      try {
-        await simulateAdvance();
-      } catch {
-        // swallow — advance is best-effort
-      }
+      try { await simulateAdvance(); } catch { /* swallow */ }
     }
   }
+  return { generated, rejected, ...(lastRejectionReason ? { reason: lastRejectionReason } : {}) };
+}
 
-  return {
-    generated,
-    rejected,
-    ...(lastRejectionReason ? { reason: lastRejectionReason } : {}),
-  };
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+export async function fetchInventory(): Promise<InventoryItemDto[]> {
+  const res = await fetch(`${BASE_URL}/inventory`, {
+    credentials: 'include', headers: authHeadersNoBody(),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch inventory: ${res.status}`);
+  return res.json();
+}
+
+export async function updateInventoryStock(itemId: string, newStock: number): Promise<InventoryItemDto> {
+  const res = await fetch(`${BASE_URL}/inventory/${itemId}/stock`, {
+    method: 'PATCH', credentials: 'include', headers: authHeaders(),
+    body: JSON.stringify({ newStock }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `Update stock failed: ${res.status}`);
+  return res.json();
+}
+
+export async function restockInventoryItem(itemId: string, quantity: number): Promise<InventoryItemDto> {
+  const res = await fetch(`${BASE_URL}/inventory/${itemId}/restock`, {
+    method: 'PATCH', credentials: 'include', headers: authHeaders(),
+    body: JSON.stringify({ quantity }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `Restock failed: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteInventoryItem(itemId: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/inventory/${itemId}`, {
+    method: 'DELETE', credentials: 'include', headers: authHeadersNoBody(),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `Delete failed: ${res.status}`);
 }
