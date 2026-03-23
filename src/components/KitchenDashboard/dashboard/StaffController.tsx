@@ -24,10 +24,9 @@ interface StaffControllerProps {
   externalActivateId?:       string | null;
   onExternalActivateHandled?: () => void;
 
-  // Lets Index.tsx open the Add Chef form from the no-backup toast
   openAddChef?:      boolean;
   onAddChefHandled?: () => void;
-  onChefAdded?:      () => void;  // triggers board refresh after add
+  onChefAdded?:      () => void;
 }
 
 const MODAL_BACKDROP: React.CSSProperties = {
@@ -68,11 +67,18 @@ export function StaffController({
   const [showAddChef,   setShowAddChef]   = useState(false);
   const [addChefName,   setAddChefName]   = useState('');
   const [addChefSlots,  setAddChefSlots]  = useState(3);
+
+  // FIX: was a boolean `activeToday` mirroring the old CreateStaffDto.
+  // Now matches CreateStaffDto.status: 'ACTIVE' | 'BACKUP'.
+  // The backend StaffController.CreateStaffRequest reads `status: StaffStatus`
+  // and the old `activeToday` field didn't exist on it — it was silently dropped,
+  // so chefs were always created as BACKUP regardless of the user's selection.
   const [addChefStatus, setAddChefStatus] = useState<'ACTIVE' | 'BACKUP'>('BACKUP');
+
   const [isAddingChef,  setIsAddingChef]  = useState(false);
   const [addChefError,  setAddChefError]  = useState<string | null>(null);
 
-  // Open Add Chef form from external trigger (no-backup toast button)
+  // Open Add Chef form from external trigger
   useEffect(() => {
     if (openAddChef) {
       setAddChefName(''); setAddChefSlots(3);
@@ -106,7 +112,7 @@ export function StaffController({
     [activateCandidate, currentCapacity],
   );
 
-  // ── Add Chef handlers ─────────────────────────────────────────────────────
+  // ── Add Chef handlers ──────────────────────────────────────────────────────
 
   const handleAddChefOpen = useCallback(() => {
     setAddChefName(''); setAddChefSlots(3);
@@ -119,6 +125,9 @@ export function StaffController({
     setShowAddChef(false); setAddChefError(null);
   }, [isAddingChef]);
 
+  // FIX: createStaff now receives `status` instead of `activeToday`.
+  // This matches CreateStaffDto (and therefore StaffController.CreateStaffRequest)
+  // so the backend actually honours the ACTIVE/BACKUP selection the user makes.
   const handleAddChefSubmit = useCallback(async () => {
     if (!addChefName.trim()) { setAddChefError('Chef name is required.'); return; }
     if (addChefSlots < 1 || addChefSlots > 10) { setAddChefError('Slots must be between 1 and 10.'); return; }
@@ -127,7 +136,7 @@ export function StaffController({
       await createStaff({
         name:                addChefName.trim(),
         maxConcurrentOrders: addChefSlots,
-        activeToday:         addChefStatus === 'ACTIVE',
+        status:              addChefStatus,   // FIX: was activeToday: addChefStatus === 'ACTIVE'
       });
       setShowAddChef(false);
       onChefAdded?.();
@@ -138,7 +147,7 @@ export function StaffController({
     }
   }, [addChefName, addChefSlots, addChefStatus, onChefAdded]);
 
-  // ── Activate handlers ─────────────────────────────────────────────────────
+  // ── Activate handlers ──────────────────────────────────────────────────────
 
   const handleActivateRequest = useCallback((chefId: string) => {
     setActivateTargetId(chefId); setActivateError(null);
@@ -162,7 +171,7 @@ export function StaffController({
     setActivateTargetId(null); setActivateError(null);
   }, [isActivating]);
 
-  // ── Remove handlers ───────────────────────────────────────────────────────
+  // ── Remove handlers ────────────────────────────────────────────────────────
 
   const handleRemoveRequest = useCallback(async (chefId: string) => {
     setValidateError(null);
@@ -182,7 +191,7 @@ export function StaffController({
     setRemoveError(null); onCancelRemoval();
   }, [isConfirmingRemoval, onCancelRemoval]);
 
-  // ── Styles ────────────────────────────────────────────────────────────────
+  // ── Styles ─────────────────────────────────────────────────────────────────
 
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '0.5rem 0.75rem',
@@ -276,6 +285,8 @@ export function StaffController({
               </div>
 
               {/* Status */}
+              {/* FIX: buttons now set addChefStatus to 'ACTIVE' or 'BACKUP' (string literals)
+                  instead of a boolean. This maps directly to the backend StaffStatus enum. */}
               <div>
                 <label style={labelStyle}>Starting Status</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>

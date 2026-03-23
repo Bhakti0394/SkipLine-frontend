@@ -45,6 +45,14 @@ function resolveCookStartMs(order: Order): number | null {
 }
 
 // ── Resolve pickup ms from order ─────────────────────────────────────────────
+//
+// FIX [PICKUP-DISPLAY]: No longer tries to parse "~5 min" / "~10 min" /
+// "~15 min" as a Date — those strings are not parseable and always produced
+// an Invalid Date → null, causing the express pickup row to show "ASAP".
+//
+// For express orders the caller should pass expressDeadlineMs (from the hook)
+// directly as the pickup value. resolvePickupMs is now only used for
+// normal/scheduled orders that have a real slot time or a clock-time string.
 function resolvePickupMs(order: Order): number | null {
   if (order.pickupSlotMs) return order.pickupSlotMs;
   const o = order as any;
@@ -56,7 +64,10 @@ function resolvePickupMs(order: Order): number | null {
     if (!isNaN(ms)) return ms;
   }
   const display = order.pickupTime;
-  if (!display || display === 'TBD' || display === 'ASAP') return null;
+  // FIX: skip "~X min" strings — they are express window labels, not parseable times.
+  // expressDeadlineMs from the hook is the correct source for express pickup ms.
+  if (!display || display === 'TBD' || display === 'ASAP' || display.startsWith('~')) return null;
+  if (display.startsWith('Tomorrow')) return null; // scheduled — no epoch available from string
   if (display.includes('T') || display.includes('-')) {
     const ms = new Date(display).getTime();
     if (!isNaN(ms)) return ms;
@@ -66,15 +77,56 @@ function resolvePickupMs(order: Order): number | null {
 }
 
 // ── Render pickup value — never shows a bare dash ────────────────────────────
-// Priority:
-//   1. pickup ms → formatted clock time  e.g. "5:24 PM"
-//   2. pickupTime === 'ASAP' → orange ASAP badge
-//   3. pickupTime is a real string (not TBD/empty) → show it directly
-//   4. fallback → "TBD" (muted, explicit, not a dash)
-function PickupValue({ pickup, pickupTime, orderType }: { pickup: number | null; pickupTime: string; orderType: string }) {
+//
+// FIX [PICKUP-DISPLAY]: Added expressDeadlineMs parameter.
+// Priority order:
+//   1. expressDeadlineMs (express orders) → formatted clock time e.g. "7:35 PM"
+//   2. pickup ms (normal/scheduled slot)  → formatted clock time e.g. "6:45 PM"
+//   3. pickupTime is "~X min"             → show directly e.g. "~10 min"
+//   4. pickupTime is "ASAP"               → orange ASAP badge
+//   5. pickupTime is a real string        → show it directly
+//   6. fallback                           → "Tomorrow" (scheduled) or "TBD"
+//
+// Before this fix, express orders with no pickupSlotMs fell straight to
+// branch 4 ("ASAP") because resolvePickupMs returned null for "~X min" strings
+// and expressDeadlineMs was never consulted here.
+function PickupValue({
+  pickup,
+  pickupTime,
+  orderType,
+  expressDeadlineMs,
+}: {
+  pickup:            number | null;
+  pickupTime:        string;
+  orderType:         string;
+  expressDeadlineMs: number | null;
+}) {
+  // 1. Express with a computed deadline → show clock time
+  if (expressDeadlineMs) {
+    return (
+      <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {clockTime(expressDeadlineMs)}
+      </span>
+    );
+  }
+
+  // 2. Normal/scheduled slot ms → show clock time
   if (pickup) {
     return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{clockTime(pickup)}</span>;
   }
+
+  // 3. Express window label e.g. "~5 min", "~10 min", "~15 min"
+  if (pickupTime && pickupTime.startsWith('~') && pickupTime.endsWith('min')) {
+    return (
+      <span style={{
+        color: '#fb923c', fontWeight: 700, fontSize: '0.72rem', letterSpacing: '0.04em',
+      }}>
+        {pickupTime}
+      </span>
+    );
+  }
+
+  // 4. Generic ASAP badge
   if (pickupTime === 'ASAP') {
     return (
       <span style={{
@@ -84,10 +136,13 @@ function PickupValue({ pickup, pickupTime, orderType }: { pickup: number | null;
       </span>
     );
   }
+
+  // 5. Real string (e.g. "Tomorrow 11:00 AM", "Wed 2:00 PM")
   if (pickupTime && pickupTime !== 'TBD' && pickupTime !== '—') {
     return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pickupTime}</span>;
   }
-  // Scheduled + no slot = tomorrow. Others = TBD.
+
+  // 6. Fallback
   const label = orderType === 'scheduled' ? 'Tomorrow' : 'TBD';
   const color = orderType === 'scheduled' ? '#6ee7b7' : 'rgba(148,163,184,0.55)';
   return (
@@ -157,7 +212,10 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
     }
 
     if (order.status === 'cooking') {
-      const pickup   = resolvePickupMs(order) ?? expressDeadlineMs ?? null;
+      // FIX: use expressDeadlineMs for express, resolvePickupMs for normal/scheduled
+      const pickup   = isExpress
+        ? (expressDeadlineMs ?? resolvePickupMs(order))
+        : resolvePickupMs(order);
       const secsLeft = pickup ? Math.max(0, Math.floor((pickup - serverNow()) / 1000)) : null;
       const isLate   = pickup !== null && serverNow() > pickup;
       return (
@@ -286,8 +344,17 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
 
   // ── COOKING full – clean 3-row layout ─────────────────────────────────────
   if (order.status === 'cooking') {
-    const startMs  = resolveCookStartMs(order);
-    const pickup   = resolvePickupMs(order) ?? expressDeadlineMs ?? null;
+    const startMs = resolveCookStartMs(order);
+
+    // FIX [PICKUP-DISPLAY]: For express orders use expressDeadlineMs from the
+    // hook — this is pre-buffered (cookStart + 2 min floor) and always valid.
+    // For normal/scheduled use resolvePickupMs which reads pickupSlotMs.
+    // Previously both paths called resolvePickupMs which returned null for
+    // express orders with a "~X min" pickupTime → pickup was null → ASAP shown.
+    const pickup = isExpress
+      ? (expressDeadlineMs ?? resolvePickupMs(order))
+      : resolvePickupMs(order);
+
     const now      = serverNow();
     const secsLeft = pickup !== null ? Math.max(0, Math.floor((pickup - now) / 1000)) : null;
     const isLate   = pickup !== null && now > pickup;
@@ -320,26 +387,25 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
         </div>
 
         {/* Row 2 – Pickup
-            FIX: was `pickup ? clockTime(pickup) : (order.pickupTime === 'ASAP' ? 'ASAP' : '—')`
-            For normal/scheduled orders with no pickupSlotMs, pickup is null AND
-            pickupTime is 'TBD' → the old code fell through to '—'.
-            Now uses <PickupValue> which always shows something meaningful:
-            clock time → ASAP (orange) → pickupTime string → 'TBD' (muted).
-            Never shows a bare dash. */}
+            FIX [PICKUP-DISPLAY]: PickupValue now receives expressDeadlineMs so
+            express orders show a real clock time ("7:35 PM") instead of "ASAP".
+            Priority: expressDeadlineMs → pickup ms → "~X min" label → ASAP → TBD */}
         <div className="order-timer__row">
           <span className="order-timer__row-label">
             <Clock className="order-timer__row-icon" />
             Pickup
           </span>
           <span className="order-timer__row-value" style={{ fontVariantNumeric: 'tabular-nums' }}>
-            <PickupValue pickup={pickup} pickupTime={order.pickupTime} orderType={order.orderType} />
+            <PickupValue
+              pickup={pickup}
+              pickupTime={order.pickupTime}
+              orderType={order.orderType}
+              expressDeadlineMs={isExpress ? expressDeadlineMs : null}
+            />
           </span>
         </div>
 
-        {/* Row 3 – Time left: always counts DOWN to 0, then shows overdue.
-            express → secsLeft from pickup deadline (already a countdown)
-            normal  → eta from hook = prepTimeSecs - cookingElapsed (countdown)
-            0 = done, chef should mark ready. Overdue = red +time. */}
+        {/* Row 3 – Time left */}
         <div className="order-timer__row">
           <span className="order-timer__row-label">
             <Timer className="order-timer__row-icon" />

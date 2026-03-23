@@ -18,18 +18,18 @@ import '../styles/Header.scss';
 type ViewMode = 'kanban' | 'list' | 'analytics' | 'inventory';
 
 interface HeaderProps {
-  viewMode: ViewMode;
-  setViewMode: (mode: ViewMode) => void;
-  pendingCount: number;
-  notifications: Notification[];
-  onMarkAsRead: (id: string) => void;
-  onMarkAllAsRead: () => void;
-  onDeleteNotification: (id: string) => void;
+  viewMode:                ViewMode;
+  setViewMode:             (mode: ViewMode) => void;
+  pendingCount:            number;
+  notifications:           Notification[];
+  onMarkAsRead:            (id: string) => void;
+  onMarkAllAsRead:         () => void;
+  onDeleteNotification:    (id: string) => void;
   onClearAllNotifications: () => void;
-  settings: KitchenSettings;
-  onSettingsChange: (settings: KitchenSettings) => void;
-  onLogout?: () => void;
-  onProfileUpdate?: (user: { name: string; email: string; role: string; initials: string }) => void;
+  settings:                KitchenSettings;
+  onSettingsChange:        (settings: KitchenSettings) => void;
+  onLogout?:               () => void;
+  onProfileUpdate?:        (user: { name: string; email: string; role: string; initials: string }) => void;
 }
 
 const sheetStyles: React.CSSProperties = {
@@ -38,18 +38,26 @@ const sheetStyles: React.CSSProperties = {
     'linear-gradient(180deg, #131210 0%, #0e0d0c 35%, #0a0909 100%)',
   ].join(', '),
   backgroundColor: '#0e0d0c',
-  borderRight: '1px solid rgba(249, 115, 22, 0.15)',
-  borderLeft: 'none',
-  borderTop: 'none',
-  borderBottom: 'none',
-  boxShadow: '6px 0 60px rgba(0,0,0,0.95), 0 0 100px rgba(249,115,22,0.05)',
-  color: '#f1f5f9',
-  width: '300px',
-  maxWidth: '85vw',
-  padding: 0,
-  display: 'flex',
-  flexDirection: 'column',
+  borderRight:     '1px solid rgba(249, 115, 22, 0.15)',
+  borderLeft:      'none',
+  borderTop:       'none',
+  borderBottom:    'none',
+  boxShadow:       '6px 0 60px rgba(0,0,0,0.95), 0 0 100px rgba(249,115,22,0.05)',
+  color:           '#f1f5f9',
+  width:           '300px',
+  maxWidth:        '85vw',
+  padding:         0,
+  display:         'flex',
+  flexDirection:   'column',
 };
+
+// FIX: derive initials from a display name string
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'KS';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 export function Header({
   viewMode,
@@ -67,11 +75,17 @@ export function Header({
 }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // FIX: read the real logged-in kitchen user from localStorage.
+  // Previously hardcoded to "Jordan Davis / jordan.davis@SkipLine.com".
+  // localStorage keys are set by AuthContext on login (auth_full_name, auth_email).
+  // Falls back to sensible defaults if somehow not set.
+  const rawName  = localStorage.getItem('auth_full_name') ?? '';
+  const rawEmail = localStorage.getItem('auth_email') ?? '';
   const userProfile = {
-    name: 'Jordan Davis',
-    email: 'jordan.davis@SkipLine.com',
-    role: 'Kitchen Manager',
-    initials: 'JD',
+    name:     rawName  || 'Kitchen Staff',
+    email:    rawEmail || '',
+    role:     'Kitchen Manager',
+    initials: getInitials(rawName || 'Kitchen Staff'),
   };
 
   const views: { mode: ViewMode; icon: React.ElementType; label: string }[] = [
@@ -90,7 +104,7 @@ export function Header({
     <header className="header">
       <div className="header__container">
 
-        {/* ── Left ── */}
+        {/* -- Left -- */}
         <div className="header__left">
 
           {/* Mobile hamburger */}
@@ -106,11 +120,11 @@ export function Header({
 
                 {/* Top orange glow line */}
                 <div style={{
-                  position: 'absolute',
+                  position:       'absolute',
                   top: 0, left: 0, right: 0,
-                  height: '1px',
-                  background: 'linear-gradient(90deg, transparent 0%, rgba(249,115,22,0.6) 40%, rgba(251,146,60,0.8) 60%, transparent 100%)',
-                  pointerEvents: 'none',
+                  height:         '1px',
+                  background:     'linear-gradient(90deg, transparent 0%, rgba(249,115,22,0.6) 40%, rgba(251,146,60,0.8) 60%, transparent 100%)',
+                  pointerEvents:  'none',
                 }} />
 
                 <SheetHeader>
@@ -140,8 +154,8 @@ export function Header({
                       className="header__search-input"
                       style={{
                         background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid rgba(249,115,22,0.2)',
-                        color: '#f1f5f9',
+                        border:     '1px solid rgba(249,115,22,0.2)',
+                        color:      '#f1f5f9',
                       }}
                     />
                   </div>
@@ -149,7 +163,6 @@ export function Header({
 
                 {/* Mobile nav */}
                 <div className="header__mobile-nav">
-                  {/* ✅ Fixed: was header__mobile-nav-label — same name as btn text, causing style bleed */}
                   <div className="header__mobile-nav-heading">Navigation</div>
 
                   {views.map(({ mode, icon: Icon, label }) => (
@@ -161,30 +174,29 @@ export function Header({
                       }`}
                       onClick={() => handleViewChange(mode)}
                       style={viewMode === mode ? {
-                        background: 'linear-gradient(90deg, rgba(249,115,22,0.15) 0%, rgba(249,115,22,0.04) 100%)',
-                        border: '1px solid rgba(249,115,22,0.2)',
-                        color: '#fb923c',
+                        background:   'linear-gradient(90deg, rgba(249,115,22,0.15) 0%, rgba(249,115,22,0.04) 100%)',
+                        border:       '1px solid rgba(249,115,22,0.2)',
+                        color:        '#fb923c',
                         borderRadius: '0.75rem',
                       } : {
-                        color: '#94a3b8',
-                        border: '1px solid transparent',
+                        color:        '#94a3b8',
+                        border:       '1px solid transparent',
                       }}
                     >
                       <div
                         className="header__mobile-nav-icon-wrapper"
                         style={viewMode === mode ? {
                           background: 'rgba(249,115,22,0.18)',
-                          boxShadow: '0 0 16px rgba(249,115,22,0.35)',
-                          border: '1px solid rgba(249,115,22,0.3)',
+                          boxShadow:  '0 0 16px rgba(249,115,22,0.35)',
+                          border:     '1px solid rgba(249,115,22,0.3)',
                         } : {
                           background: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(255,255,255,0.08)',
+                          border:     '1px solid rgba(255,255,255,0.08)',
                         }}
                       >
                         <Icon className="header__mobile-nav-icon" />
                       </div>
 
-                      {/* ✅ Fixed: was header__mobile-nav-label — renamed to header__mobile-nav-text */}
                       <span className="header__mobile-nav-text">{label}</span>
 
                       {viewMode === mode && (
@@ -198,15 +210,15 @@ export function Header({
                 <div
                   className="header__mobile-user-section"
                   style={{
-                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    borderTop:  '1px solid rgba(255,255,255,0.06)',
                     background: 'linear-gradient(180deg, transparent, rgba(249,115,22,0.04))',
                   }}
                 >
                   <div
                     className="header__mobile-user-info"
                     style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.08)',
+                      background:   'rgba(255,255,255,0.04)',
+                      border:       '1px solid rgba(255,255,255,0.08)',
                       borderRadius: '0.75rem',
                     }}
                   >
@@ -252,7 +264,7 @@ export function Header({
           </div>
         </div>
 
-        {/* ── Right ── */}
+        {/* -- Right -- */}
         <div className="header__right">
           <div className="header__clock">
             <LiveClock />
@@ -296,4 +308,3 @@ export function Header({
     </header>
   );
 }
-

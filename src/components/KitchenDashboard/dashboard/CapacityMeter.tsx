@@ -1,3 +1,10 @@
+// ============================================================
+// src/components/KitchenDashboard/dashboard/CapacityMeter.tsx
+// ============================================================
+// FIX: staff list (active + backup) is now wrapped in
+// capacity-meter__staff-scroll so it scrolls internally
+// on desktop — the card never overflows its sidebar container.
+
 import React, { memo, useMemo, useState, useCallback } from 'react';
 import { Plus } from 'lucide-react';
 import { CapacitySnapshot } from '../../../kitchen-types/order';
@@ -55,7 +62,7 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
   const activeStaff = staff.filter(s => s.onShift);
   const backupStaff = staff.filter(s => !s.onShift);
 
-  // ── Activate modal ────────────────────────────────────────────────────────
+  // ── Activate modal ─────────────────────────────────────────────────────────
   const [activateId,  setActivateId]  = useState<string | null>(null);
   const [activateErr, setActivateErr] = useState<string | null>(null);
   const [activating,  setActivating]  = useState(false);
@@ -69,7 +76,7 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
     finally { setActivating(false); }
   }, [activateId, activating, onActivateChef]);
 
-  // ── Remove modal ──────────────────────────────────────────────────────────
+  // ── Remove modal ───────────────────────────────────────────────────────────
   const [removeErr, setRemoveErr] = useState<string | null>(null);
   const removingChef = useMemo(() => staff.find(s => s.chefId === removalTargetId) ?? null, [removalTargetId, staff]);
 
@@ -79,7 +86,7 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
     catch (e: any) { setRemoveErr(e.message ?? 'Removal failed'); }
   }, [onConfirmRemoval]);
 
-  // ── Add chef modal ────────────────────────────────────────────────────────
+  // ── Add chef modal ─────────────────────────────────────────────────────────
   const [showAdd,    setShowAdd]    = useState(false);
   const [chefName,   setChefName]   = useState('');
   const [chefSlots,  setChefSlots]  = useState(3);
@@ -122,16 +129,6 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
       </div>
 
       {/* ── Summary row ── */}
-      {/*
-        FIX: was "activeLoad/totalSlots orders" which showed e.g. "45/15 orders"
-        — activeLoad = cooking + pending, totalSlots = chef slot capacity.
-        45/15 implied 45 slots which is wrong and confusing.
-
-        Now shows: "13/15 slots · 17 queued"
-          cooking/totalSlots = how many slots are actively in use
-          pendingCount       = how many are waiting in the queue
-        Both numbers are immediately verifiable against the Kanban columns.
-      */}
       <div className="capacity-meter__summary">
         <span className="capacity-meter__summary-stat">
           <strong style={{ color: breakdown.cookingCount >= breakdown.totalSlots ? '#ef4444' : TIER_COLORS[tier] }}>
@@ -155,55 +152,58 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
       {/* ── Divider ── */}
       <div className="capacity-meter__divider" />
 
-      {/* ── Active staff ── */}
-      {activeStaff.length > 0 && (
-        <>
-          <p className="capacity-meter__section-label">ON SHIFT ({activeStaff.length})</p>
-          {activeStaff.map(s => (
-            <div key={s.chefId} className="capacity-meter__chef-row">
-              <div className={`capacity-meter__avatar capacity-meter__avatar--${
-                s.loadPercent >= 100 ? 'full' : s.loadPercent >= 50 ? 'busy' : 'free'
-              }`}>
-                {s.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
-              </div>
-              <span className="capacity-meter__chef-name">{s.name}</span>
-              <span className="capacity-meter__chef-load">{s.activeOrders}/{s.maxCapacity}</span>
-              <button
-                className="capacity-meter__btn capacity-meter__btn--remove"
-                onClick={() => onRemoveChef(s.chefId)}
-                disabled={isValidatingRemoval && removalTargetId === s.chefId}
-              >
-                {isValidatingRemoval && removalTargetId === s.chefId ? '…' : 'End Shift'}
-              </button>
-            </div>
-          ))}
-        </>
-      )}
+      {/* ── Staff list — scrolls internally on desktop ── */}
+      <div className="capacity-meter__staff-scroll">
 
-      {/* ── Backup staff ── */}
-      {backupStaff.length > 0 && (
-        <>
-          <p className="capacity-meter__section-label capacity-meter__section-label--backup">
-            BACKUP ({backupStaff.length})
-          </p>
-          {backupStaff.map(s => (
-            <div key={s.chefId} className="capacity-meter__chef-row capacity-meter__chef-row--backup">
-              <div className="capacity-meter__avatar capacity-meter__avatar--off">
-                {s.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
+        {activeStaff.length > 0 && (
+          <>
+            <p className="capacity-meter__section-label">ON SHIFT ({activeStaff.length})</p>
+            {activeStaff.map(s => (
+              <div key={s.chefId} className="capacity-meter__chef-row">
+                <div className={`capacity-meter__avatar capacity-meter__avatar--${
+                  s.loadPercent >= 100 ? 'full' : s.loadPercent >= 50 ? 'busy' : 'free'
+                }`}>
+                  {s.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
+                </div>
+                <span className="capacity-meter__chef-name">{s.name}</span>
+                <span className="capacity-meter__chef-load">{s.activeOrders}/{s.maxCapacity}</span>
+                <button
+                  className="capacity-meter__btn capacity-meter__btn--remove"
+                  onClick={() => onRemoveChef(s.chefId)}
+                  disabled={isValidatingRemoval && removalTargetId === s.chefId}
+                >
+                  {isValidatingRemoval && removalTargetId === s.chefId ? '…' : 'End Shift'}
+                </button>
               </div>
-              <span className="capacity-meter__chef-name">{s.name}</span>
-              <span className="capacity-meter__chef-load">{s.maxCapacity} slots</span>
-              <button
-                className="capacity-meter__btn capacity-meter__btn--activate"
-                onClick={() => { setActivateId(s.chefId); setActivateErr(null); }}
-                disabled={activatingChefId === s.chefId}
-              >
-                {activatingChefId === s.chefId ? '…' : 'Activate'}
-              </button>
-            </div>
-          ))}
-        </>
-      )}
+            ))}
+          </>
+        )}
+
+        {backupStaff.length > 0 && (
+          <>
+            <p className="capacity-meter__section-label capacity-meter__section-label--backup">
+              BACKUP ({backupStaff.length})
+            </p>
+            {backupStaff.map(s => (
+              <div key={s.chefId} className="capacity-meter__chef-row capacity-meter__chef-row--backup">
+                <div className="capacity-meter__avatar capacity-meter__avatar--off">
+                  {s.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
+                </div>
+                <span className="capacity-meter__chef-name">{s.name}</span>
+                <span className="capacity-meter__chef-load">{s.maxCapacity} slots</span>
+                <button
+                  className="capacity-meter__btn capacity-meter__btn--activate"
+                  onClick={() => { setActivateId(s.chefId); setActivateErr(null); }}
+                  disabled={activatingChefId === s.chefId}
+                >
+                  {activatingChefId === s.chefId ? '…' : 'Activate'}
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+
+      </div>{/* end __staff-scroll */}
 
       {/* ── Add Chef ── */}
       <button className="capacity-meter__add-btn" onClick={openAdd}>
