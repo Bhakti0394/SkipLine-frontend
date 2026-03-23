@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Meal } from '@/types/dashboard';
+// FIX: was '@/types/dashboard' which doesn't exist — corrected to actual path
+import { Meal } from '../customer-types/dashboard';
 
 const STORAGE_KEY = 'SkipLine_favorites';
 
@@ -9,9 +10,7 @@ export function useFavorites() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        setFavorites(JSON.parse(saved));
-      }
+      if (saved) setFavorites(JSON.parse(saved));
     } catch {
       setFavorites([]);
     }
@@ -34,9 +33,7 @@ export function useFavorites() {
 
   const toggleFavorite = useCallback((meal: Meal) => {
     setFavorites(prev => {
-      if (prev.some(f => f.id === meal.id)) {
-        return prev.filter(f => f.id !== meal.id);
-      }
+      if (prev.some(f => f.id === meal.id)) return prev.filter(f => f.id !== meal.id);
       return [...prev, meal];
     });
   }, []);
