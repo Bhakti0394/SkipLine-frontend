@@ -1,61 +1,106 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
-const AuthContext = createContext({
-  user: null,
-  loading: true,
-  logout: async () => {},
-});
+const AuthContext = createContext(null);
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '');
 
+export function AuthProvider({ children }) {
+  const [user,    setUser]    = useState(null);   // { email, fullName, role }
+  const [loading, setLoading] = useState(true);   // true until session restore completes
+
+  // ── Restore session on mount ───────────────────────────────────────────────
+  // Reads token + user info from localStorage synchronously so the first
+  // render already has the correct auth state (avoids a flash of demo data
+  // followed by a refetch when the token is present but user was still null).
   useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const res = await fetch("http://localhost:8080/api/auth/me", {
-          method: "GET",
-          credentials: "include",
-        });
+    const token    = localStorage.getItem('auth_token');
+    const role     = localStorage.getItem('auth_role');
+    const email    = localStorage.getItem('auth_email');
+    const fullName = localStorage.getItem('auth_full_name');
 
-        if (res.ok) {
-          const data = await res.json();
-          console.log("[AuthContext] ✅ User:", data);
-          setUser({ email: data.email, role: data.role });
-        } else {
-          console.warn("[AuthContext] ❌ Not authenticated:", res.status);
-          setUser(null);
-        }
-      } catch (e) {
-        console.error("[AuthContext] Fetch failed (CORS or network):", e.message);
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkSession();
+    if (token && role && email) {
+      setUser({ email, fullName: fullName ?? email, role });
+    }
+    // FIX: setLoading(false) AFTER setUser so consumers never see
+    // (loading=false, user=null) when a valid session exists.
+    setLoading(false);
   }, []);
 
-  const logout = async () => {
-    try {
-      await fetch("http://localhost:8080/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch (e) {
-      console.error("[AuthContext] Logout error:", e);
-    } finally {
-      setUser(null);
-      window.location.href = "/auth?mode=login";
-    }
+  // ── Customer login ─────────────────────────────────────────────────────────
+  const login = async (email, password) => {
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+      method:      'POST',
+      credentials: 'include',
+      headers:     { 'Content-Type': 'application/json' },
+      body:        JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message ?? 'Login failed');
+
+    // Store token + metadata in localStorage so:
+    //   • kitchenApi.ts authHeaders() can attach Bearer token to all requests
+    //   • AuthContext can restore the session on next page load (above useEffect)
+    //   • SkipLineContext re-fetches real data when `user` changes (its useEffect
+    //     depends on `user` from useAuth())
+    localStorage.setItem('auth_token',     data.token);
+    localStorage.setItem('auth_role',      data.role);
+    localStorage.setItem('auth_email',     data.email);
+    localStorage.setItem('auth_full_name', data.fullName ?? data.email);
+
+    const userData = {
+      email:    data.email,
+      fullName: data.fullName ?? data.email,
+      role:     data.role,
+    };
+    setUser(userData);   // ← triggers SkipLineContext useEffect([user]) → real fetch
+    return userData;
   };
 
+  // ── Customer register ──────────────────────────────────────────────────────
+  const register = async (fullName, email, password) => {
+    const res = await fetch(`${BASE_URL}/api/auth/register`, {
+      method:      'POST',
+      credentials: 'include',
+      headers:     { 'Content-Type': 'application/json' },
+      body:        JSON.stringify({ fullName, email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message ?? 'Registration failed');
+    return data;
+  };
+
+  // ── Logout ─────────────────────────────────────────────────────────────────
+  const logout = async () => {
+    await fetch(`${BASE_URL}/api/auth/logout`, {
+      method: 'POST', credentials: 'include',
+    }).catch(() => {});
+
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_role');
+    localStorage.removeItem('auth_email');
+    localStorage.removeItem('auth_full_name');
+    setUser(null);  // ← triggers SkipLineContext useEffect([user]) → demo data
+  };
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const isCustomer = user?.role === 'CUSTOMER';
+  const isKitchen  = user?.role === 'KITCHEN';
+  const isLoggedIn = !!user;
+
   return (
-    <AuthContext.Provider value={{ user, loading, logout }}>
+    <AuthContext.Provider value={{
+      user, loading,
+      login, register, logout,
+      isCustomer, isKitchen, isLoggedIn,
+    }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
 
-export const useAuth = () => useContext(AuthContext);
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
+}

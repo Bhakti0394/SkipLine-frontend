@@ -73,7 +73,14 @@ const AppRoutes = () => {
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      {/* FIX: future flags opt in to v7 behaviour early, silencing the two
+          console warnings about v7_startTransition and v7_relativeSplatPath */}
+      <BrowserRouter
+        future={{
+          v7_startTransition:   true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <AuthProvider>
           <SkipLineProvider>
             <TooltipProvider>
