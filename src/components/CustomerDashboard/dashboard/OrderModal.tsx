@@ -44,9 +44,6 @@ interface OrderModalProps {
 }
 
 // ── Static fallback add-ons ───────────────────────────────────────────────────
-// Used only when GET /api/customer/addons fails or isn't implemented yet.
-// Replace this with a real endpoint when add-on prices/availability need to
-// be managed from the kitchen side.
 const ADDONS_FALLBACK: AddOn[] = [
   { id: 'extra-cheese', name: 'Extra Cheese',  price: 30, icon: '🧀' },
   { id: 'extra-spicy',  name: 'Extra Spicy',   price:  0, icon: '🌶️' },
@@ -56,7 +53,7 @@ const ADDONS_FALLBACK: AddOn[] = [
   { id: 'papad',        name: 'Papad (2 pcs)', price: 20, icon: '🫓' },
 ];
 
-// ── Static product config (not database data — fine to keep static) ───────────
+// ── Static product config ─────────────────────────────────────────────────────
 const SPICE_LEVELS = [
   { id: 'mild',      label: 'Mild',      icon: '🌶️'     },
   { id: 'medium',    label: 'Medium',    icon: '🌶️🌶️'   },
@@ -64,7 +61,6 @@ const SPICE_LEVELS = [
   { id: 'extra-hot', label: 'Extra Hot', icon: '🔥'      },
 ];
 
-// Express arrival windows — filtered at render time by meal.prepTime ✅
 const ALL_EXPRESS_ARRIVAL_OPTIONS = [
   { id: 'express-5',  minutes:  5, label:  '5 mins', sublabel: 'Just around the corner', emoji: '🏃' },
   { id: 'express-10', minutes: 10, label: '10 mins', sublabel: 'On my way now',           emoji: '🚶' },
@@ -89,7 +85,6 @@ function queueLevel(remaining: number, max: number): 'low' | 'medium' | 'high' {
 }
 
 // ── Add-ons fetch ─────────────────────────────────────────────────────────────
-// Module-level cache so all modal instances share one fetch.
 let addonsCache: AddOn[] | null = null;
 
 async function fetchAddons(): Promise<AddOn[]> {
@@ -106,7 +101,6 @@ async function fetchAddons(): Promise<AddOn[]> {
     addonsCache = data.length > 0 ? data : ADDONS_FALLBACK;
     return addonsCache;
   } catch {
-    // Endpoint not implemented yet or network error → use fallback
     addonsCache = ADDONS_FALLBACK;
     return addonsCache;
   }
@@ -131,35 +125,29 @@ export function OrderModal({
   const [spiceLevel,            setSpiceLevel]            = useState('medium');
   const [specialInstructions,   setSpecialInstructions]   = useState('');
   const [showSuccess,           setShowSuccess]           = useState(false);
+  const [addons,                setAddons]                = useState<AddOn[]>(ADDONS_FALLBACK);
+  const [addonsLoaded,          setAddonsLoaded]          = useState(false);
+  const [todaySlots,            setTodaySlots]            = useState<CustomerSlotDto[]>([]);
+  const [tomorrowSlots,         setTomorrowSlots]         = useState<CustomerSlotDto[]>([]);
+  const [slotsLoading,          setSlotsLoading]          = useState(false);
 
-  // FIX: add-ons loaded from backend (with static fallback)
-  const [addons,       setAddons]       = useState<AddOn[]>(ADDONS_FALLBACK);
-  const [addonsLoaded, setAddonsLoaded] = useState(false);
-
-  // Slots from backend
-  const [todaySlots,    setTodaySlots]    = useState<CustomerSlotDto[]>([]);
-  const [tomorrowSlots, setTomorrowSlots] = useState<CustomerSlotDto[]>([]);
-  const [slotsLoading,  setSlotsLoading]  = useState(false);
-
-  if (!meal) return null;
-
+  // ── Derived values (safe to compute even when meal is null) ───────────────
   const isScheduleMode = orderMode === 'schedule';
-  const isExpressMode  = !isScheduleMode && (meal.isExpress || forceExpressMode);
-  const orderType: OrderType = isScheduleMode ? 'scheduled' : isExpressMode ? 'express' : 'normal';
-  const tomorrowDate   = getTomorrowDate();
+  const isExpressMode  = !isScheduleMode && !!meal && (meal.isExpress || forceExpressMode);
 
   // FIX: fetch real add-ons when modal opens (cached after first load)
+  // Guards handle the meal-null case so hooks always run unconditionally.
   useEffect(() => {
-    if (!isOpen || addonsLoaded) return;
+    if (!isOpen || !meal || addonsLoaded) return;
     fetchAddons().then(data => {
       setAddons(data);
       setAddonsLoaded(true);
     });
-  }, [isOpen, addonsLoaded]);
+  }, [isOpen, meal, addonsLoaded]);
 
   // Fetch real slots when modal opens
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !meal) return;
     if (isExpressMode) return;
 
     let cancelled = false;
@@ -176,9 +164,15 @@ export function OrderModal({
     }
 
     return () => { cancelled = true; };
-  }, [isOpen, isScheduleMode, isExpressMode]);
+  }, [isOpen, meal, isScheduleMode, isExpressMode]);
 
-  // Express options filtered to only those achievable for this dish
+  // ── FIX: early return AFTER all hooks ────────────────────────────────────
+  if (!meal) return null;
+
+  // ── Everything below here is safe — meal is guaranteed non-null ───────────
+  const orderType: OrderType = isScheduleMode ? 'scheduled' : isExpressMode ? 'express' : 'normal';
+  const tomorrowDate   = getTomorrowDate();
+
   const expressArrivalOptions = ALL_EXPRESS_ARRIVAL_OPTIONS.filter(
     o => o.minutes >= meal.prepTime
   );
@@ -188,7 +182,6 @@ export function OrderModal({
     ? getPickupTimeFromMinutes(selectedExpressArrival.minutes)
     : null;
 
-  // Group tomorrow slots by period for scheduled view
   const tomorrowSlotsByPeriod = tomorrowSlots.reduce((acc, slot) => {
     const p = slot.period;
     if (!acc[p]) acc[p] = [];
@@ -212,7 +205,6 @@ export function OrderModal({
       prev.includes(addOnId) ? prev.filter(id => id !== addOnId) : [...prev, addOnId]
     );
 
-  // FIX: use dynamic addons list for price calculation
   const selectedAddOnObjects = addons.filter(a => selectedAddOns.includes(a.id));
   const addOnsTotal          = selectedAddOnObjects.reduce((t, a) => t + a.price, 0);
   const totalPrice           = (meal.price + addOnsTotal) * quantity;
@@ -434,7 +426,7 @@ export function OrderModal({
                       </div>
                     )}
 
-                    {/* FIX: Add-ons — now from backend (with fallback) */}
+                    {/* Add-ons */}
                     <div className="modal__section">
                       <div className="modal__section-header">
                         <ChefHat className={`modal__section-icon ${isExpressMode ? 'modal__section-icon--express' : 'modal__section-icon--primary'}`} />
@@ -489,7 +481,7 @@ export function OrderModal({
                         <span className="modal__required">*Required</span>
                       </div>
 
-                      {/* EXPRESS — filtered by meal.prepTime ✅ */}
+                      {/* EXPRESS */}
                       {isExpressMode ? (
                         <div className="modal__express-arrival-grid">
                           {expressArrivalOptions.map((option) => {

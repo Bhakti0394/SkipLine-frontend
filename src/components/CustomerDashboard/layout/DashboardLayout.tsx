@@ -1,17 +1,25 @@
 // components/CustomerDashboard/layout/DashboardLayout.tsx
 //
 // FIX [MISSING-MEMBER-TIER]: Header now receives a real `memberTier` prop.
+// FIX [TIER-DOUBLE-COUNT]: totalOrders calculation corrected.
 //
-// BEFORE: DashboardLayout only passed `userName` and `streak` to Header.
-//   Header had a `memberTier` prop added in the last fix but DashboardLayout
-//   never passed it — so Header always fell back to the default "Member" and
-//   the hardcoded "Premium" fix had no effect.
+// BEFORE (broken tier calc):
+//   const totalOrders = (metrics.ordersThisMonth ?? 0) + (orderHistory?.length ?? 0);
 //
-// AFTER: memberTier is computed here from real order count (same thresholds
-//   as Profile.tsx) and passed through to Header. Both Profile page and Header
-//   badge now show the same tier.
+//   This DOUBLE-COUNTS because ordersThisMonth is the count of orders placed
+//   this calendar month, and orderHistory contains ALL completed orders ever —
+//   including those placed this month. A user with 10 total orders (all this
+//   month) would show totalOrders = 10 + 10 = 20, jumping straight to Gold
+//   tier even though they only have 10 real orders.
 //
-// Tier thresholds:
+// AFTER:
+//   totalOrders = orderHistory.length + activeOrders.length
+//
+//   orderHistory = all completed orders (from SkipLineContext, fetched from backend)
+//   orders (active) = in-flight orders not yet completed
+//   Together they represent the true all-time order count without double-counting.
+//
+// Tier thresholds (same as Profile.tsx):
 //   Member     < 10 total orders
 //   Silver    >= 10
 //   Gold      >= 25
@@ -39,8 +47,8 @@ function computeMemberTier(totalOrders: number): string {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user }                  = useAuth();
-  const { metrics, orderHistory } = useSkipLine();
+  const { user }                           = useAuth();
+  const { metrics, orders, orderHistory }  = useSkipLine();
 
   const displayName =
     user?.fullName?.split(' ')[0] ??
@@ -49,13 +57,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const streak = metrics.streak ?? 0;
 
-  // FIX: compute real tier — same logic as Profile.tsx
-  const totalOrders = (metrics.ordersThisMonth ?? 0) + (orderHistory?.length ?? 0);
+  // FIX: all-time order count = completed (history) + currently active.
+  // Does NOT include ordersThisMonth which would double-count completed orders.
+  const totalOrders = (orderHistory?.length ?? 0) + (orders?.length ?? 0);
   const memberTier  = computeMemberTier(totalOrders);
 
   return (
     <div className="customer-app">
-      {/* FIX: pass memberTier so Header badge shows real tier, not hardcoded "Premium" */}
       <Header userName={displayName} streak={streak} memberTier={memberTier} />
       <Navigation />
 

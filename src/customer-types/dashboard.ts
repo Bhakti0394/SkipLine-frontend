@@ -9,6 +9,10 @@
 //     which meant order placement was impossible without scraping meal.id.
 //     Now addToCart() receives menuItemId explicitly from OrderModal so the
 //     Checkout page can build the correct payload without guessing.
+//   • Order.orderType? added — Checkout.tsx passes orderType inside addOrder();
+//     without this field TypeScript rejects the extra property on object literals.
+//   • Order.wasSwapped? and Order.originalMeal? added — used by OrderSuccess.tsx
+//     and SkipLineContext to track swap state on active orders.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type OrderType = 'express' | 'normal' | 'scheduled';
@@ -88,6 +92,12 @@ export interface Order {
   createdAt:            number;
   timeSaved:            number;
   orderRef?:            string;
+  // FIX: Checkout.tsx passes orderType inside addOrder() — must be on Order
+  // or TypeScript rejects the extra property on the object literal.
+  orderType?:           OrderType;
+  // FIX: OrderSuccess.tsx and SkipLineContext track these on active orders.
+  wasSwapped?:          boolean;
+  originalMeal?:        string;
 }
 
 export interface TimeSlot {

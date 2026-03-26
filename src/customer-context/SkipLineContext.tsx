@@ -10,29 +10,28 @@ import {
 } from '../kitchen-api/kitchenApi';
 import { useAuth } from '../context/AuthContext';
 
-// -- Static asset imports --
-import butterChicken    from '../customer-assets/butter-chicken.jpg';
-import chocolateDonuts  from '../customer-assets/chocolate-donuts.jpg';
-import choleBhature     from '../customer-assets/chole-bhature.jpg';
-import dalMakhani       from '../customer-assets/dal-makhani.jpg';
-import gulabJamun       from '../customer-assets/gulab-jamun.jpg';
-import hydrebadiBiryani from '../customer-assets/hydrebadi-biryani.jpg';
-import idliSambhar      from '../customer-assets/idli-sambhar.jpg';
-import lucknowiBiryani  from '../customer-assets/lucknowi-biryani.jpg';
-import masalaDosa       from '../customer-assets/masala-dosa.jpg';
-import paneerTikka      from '../customer-assets/paneer-tikka.jpg';
-import pizza            from '../customer-assets/pizza.jpg';
-import poha             from '../customer-assets/poha.jpg';
-import rajasthaniThali  from '../customer-assets/rajasthani-thali.jpg';
-import samosa           from '../customer-assets/samosa.jpg';
-import vadaPav          from '../customer-assets/vada-pav.jpg';
-// FIX: 6 missing dish images added — same set added to BrowseMenu and OrderSuccess
-import kadaiPaneer      from '../customer-assets/kadai-paneer.jpg';
-import palakPaneer      from '../customer-assets/palak-paneer.jpg';
-import chickenKorma     from '../customer-assets/chicken-korma.jpg';
-import prawnMasala      from '../customer-assets/prawn-masala.jpg';
-import muttonRoganJosh  from '../customer-assets/mutton-rogan-josh.jpg';
-import butterGarlicNaan from '../customer-assets/butter-garlic-naan.jpg';
+// -- Static asset paths (served from public/customer-assets/) --
+const butterChicken    = '/customer-assets/butter-chicken.jpg';
+const chocolateDonuts  = '/customer-assets/chocolate-donuts.jpg';
+const choleBhature     = '/customer-assets/chole-bhature.jpg';
+const dalMakhani       = '/customer-assets/dal-makhani.jpg';
+const gulabJamun       = '/customer-assets/gulab-jamun.jpg';
+const hydrebadiBiryani = '/customer-assets/hydrebadi-biryani.jpg';
+const idliSambhar      = '/customer-assets/idli-sambhar.jpg';
+const lucknowiBiryani  = '/customer-assets/lucknowi-biryani.jpg';
+const masalaDosa       = '/customer-assets/masala-dosa.jpg';
+const paneerTikka      = '/customer-assets/paneer-tikka.jpg';
+const pizza            = '/customer-assets/pizza.jpg';
+const poha             = '/customer-assets/poha.jpg';
+const rajasthaniThali  = '/customer-assets/rajasthani-thali.jpg';
+const samosa           = '/customer-assets/samosa.jpg';
+const vadaPav          = '/customer-assets/vada-pav.jpg';
+const kadaiPaneer      = '/customer-assets/kadai-paneer.jpg';
+const palakPaneer      = '/customer-assets/palak-paneer.jpg';
+const chickenKorma     = '/customer-assets/chicken-korma.jpg';
+const prawnMasala      = '/customer-assets/prawn-masala.jpg';
+const muttonRoganJosh  = '/customer-assets/mutton-rogan-josh.jpg';
+const butterGarlicNaan = '/customer-assets/butter-garlic-naan.jpg';
 
 // -- Meal image lookup --
 const MEAL_IMAGE_MAP: Record<string, string> = {
@@ -51,7 +50,6 @@ const MEAL_IMAGE_MAP: Record<string, string> = {
   'Rajasthani Thali':   rajasthaniThali,
   'Samosa':             samosa,
   'Vada Pav':           vadaPav,
-  // FIX: 6 previously missing dishes
   'Kadai Paneer':       kadaiPaneer,
   'Palak Paneer':       palakPaneer,
   'Chicken Korma':      chickenKorma,
@@ -96,8 +94,11 @@ interface SkipLineContextType {
   metrics:                 UserMetrics;
   updateMetrics:           (updates: Partial<UserMetrics>) => void;
   resetDemo:               () => void;
-  simulateKitchenProgress: () => void;
+ simulateKitchenProgress: () => void;
+  loading: boolean;
+  error:   string | null;
 }
+
 
 const SkipLineContext = createContext<SkipLineContextType | undefined>(undefined);
 
@@ -213,8 +214,9 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
   const [kitchenState, setKitchenState] = useState<KitchenState>({
     activeOrders: [], queuedOrders: [],
   });
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
   const sseUnsubscribers = useRef<Map<string, () => void>>(new Map());
-
   // -- SSE status handler --
   const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string) => {
     const statusMap: Record<string, Order['status']> = {
@@ -326,6 +328,8 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
     }
 
     // -- Logged in -> fetch real data --
+   setLoading(true);
+    setError(null);
     fetchCustomerOrders()
       .then((dtos: CustomerOrderDto[]) => {
         const active = dtos
@@ -335,9 +339,6 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
           .filter(d => d.status === 'completed')
           .map(dtoToOrder);
 
-        // FIX: do NOT fall back to demo data for authenticated users.
-        // A new user with zero orders should see an empty state, not fake orders.
-        // Demo data is only for the unauthenticated branch above.
         setOrders(active);
         setOrderHistory(completed);
         setKitchenState({
@@ -347,12 +348,11 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
       })
       .catch(err => {
         console.warn('[SkipLineContext] Orders fetch failed:', err.message);
-        // On network failure, restore from localStorage cache (real data, not demo)
+        setError(err.message ?? 'Failed to load orders');
         try {
           const s = localStorage.getItem(STORAGE_KEYS.ORDERS);
           const h = localStorage.getItem(STORAGE_KEYS.HISTORY);
           const k = localStorage.getItem(STORAGE_KEYS.KITCHEN);
-          // FIX: only use cached data if it exists; otherwise stay with empty arrays
           if (s) setOrders(JSON.parse(s));
           if (h) setOrderHistory(JSON.parse(h));
           if (k) setKitchenState(JSON.parse(k));
@@ -384,23 +384,17 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
         } catch { /* ignore */ }
       });
 
-    // FIX: server streak always wins over localStorage.
-    // Previously, if fetchCustomerStreak() failed silently, the local streak
-    // (computed in addOrder()) would persist — meaning a user on a new device
-    // would see streak = 0 even if the server had a real value.
-    // Now: server value overwrites whatever is in state. If fetch fails,
-    // we keep whatever is already in state (from localStorage restore above).
     fetchCustomerStreak()
       .then(streak => {
         setMetrics(prev => ({ ...prev, streak }));
-        // Also persist so next session starts with server value
         try {
           const existing = localStorage.getItem(STORAGE_KEYS.METRICS);
           const parsed = existing ? JSON.parse(existing) : {};
           localStorage.setItem(STORAGE_KEYS.METRICS, JSON.stringify({ ...parsed, streak }));
         } catch { /* ignore */ }
       })
-      .catch(err => console.warn('[SkipLineContext] Streak fetch failed — keeping local value:', err.message));
+       .catch(err => console.warn('[SkipLineContext] Streak fetch failed — keeping local value:', err.message))
+      .finally(() => setLoading(false));
 
   }, [user, authLoading]);
 
@@ -473,15 +467,25 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
     const today     = new Date().toDateString();
     const yesterday = new Date(Date.now() - 86400000).toDateString();
     const lastDate  = localStorage.getItem('SkipLine_last_order_date');
-    let streakDelta = 0;
+
+    let absoluteStreak: number | null = null;
     if (lastDate !== today) {
-      streakDelta = (lastDate === yesterday || !lastDate) ? 1 : 1 - metrics.streak;
       localStorage.setItem('SkipLine_last_order_date', today);
+      if (!lastDate || lastDate === yesterday) {
+        absoluteStreak = null;
+      } else {
+        absoluteStreak = 1;
+      }
     }
 
     setMetrics(prev => {
-      const newStreak = Math.max(1, prev.streak + streakDelta);
-      if (streakDelta > 0 && [3, 7, 14, 21, 30].includes(newStreak)) {
+      const newStreak = absoluteStreak !== null
+        ? absoluteStreak
+        : lastDate !== today
+          ? prev.streak + 1
+          : prev.streak;
+
+      if (newStreak > prev.streak && [3, 7, 14, 21, 30].includes(newStreak)) {
         window.dispatchEvent(new CustomEvent('streak-milestone', {
           detail: { streak: newStreak },
         }));
@@ -508,7 +512,7 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
     }));
 
     return newOrder;
-  }, [orders, metrics.streak, subscribeOrder]);
+  }, [orders, subscribeOrder]);
 
   // -- updateOrderStatus --
   const updateOrderStatus = useCallback((orderId: string, status: Order['status']) => {
@@ -567,7 +571,8 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
     <SkipLineContext.Provider value={{
       cart, addToCart, removeFromCart, updateCartItem, clearCart, cartTotal, cartItemsCount,
       orders, addOrder, updateOrderStatus, orderHistory, kitchenState, getQueuePosition,
-      metrics, updateMetrics, resetDemo, simulateKitchenProgress,
+       metrics, updateMetrics, resetDemo, simulateKitchenProgress,
+      loading, error,
     }}>
       {children}
     </SkipLineContext.Provider>

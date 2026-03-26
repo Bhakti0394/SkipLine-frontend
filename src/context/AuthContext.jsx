@@ -12,20 +12,38 @@ export function AuthProvider({ children }) {
   // Reads token + user info from localStorage synchronously so the first
   // render already has the correct auth state (avoids a flash of demo data
   // followed by a refetch when the token is present but user was still null).
-  useEffect(() => {
-    const token    = localStorage.getItem('auth_token');
-    const role     = localStorage.getItem('auth_role');
-    const email    = localStorage.getItem('auth_email');
-    const fullName = localStorage.getItem('auth_full_name');
+ useEffect(() => {
+  const token    = localStorage.getItem('auth_token');
+  const role     = localStorage.getItem('auth_role');
+  const email    = localStorage.getItem('auth_email');
+  const fullName = localStorage.getItem('auth_full_name');
 
-    if (token && role && email) {
-      setUser({ email, fullName: fullName ?? email, role });
+  if (token && role && email) {
+    // Decode exp from JWT payload — no library needed
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const isExpired = payload.exp * 1000 < Date.now();
+
+      if (isExpired) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_role');
+        localStorage.removeItem('auth_email');
+        localStorage.removeItem('auth_full_name');
+        // user stays null — ProtectedRoute redirects to /auth?mode=login
+      } else {
+        setUser({ email, fullName: fullName ?? email, role });
+      }
+    } catch {
+      // Malformed token — treat as expired, clear storage
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('auth_role');
+      localStorage.removeItem('auth_email');
+      localStorage.removeItem('auth_full_name');
     }
-    // FIX: setLoading(false) AFTER setUser so consumers never see
-    // (loading=false, user=null) when a valid session exists.
-    setLoading(false);
-  }, []);
+  }
 
+  setLoading(false);
+}, []);
   // ── Customer login ─────────────────────────────────────────────────────────
   const login = async (email, password) => {
     const res = await fetch(`${BASE_URL}/api/auth/login`, {
@@ -93,6 +111,7 @@ export function AuthProvider({ children }) {
       user, loading,
       login, register, logout,
       isCustomer, isKitchen, isLoggedIn,
+setUser,
     }}>
       {children}
     </AuthContext.Provider>

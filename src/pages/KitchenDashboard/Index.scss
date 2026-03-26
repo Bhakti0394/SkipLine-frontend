@@ -1,9 +1,8 @@
-// Index.scss - Premium Hackathon-Winning Dashboard
-// Orange & Charcoal Theme with Advanced Responsiveness
 
-// ============================================
-// DESIGN TOKENS - Using CSS Variables
-// ============================================
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 $breakpoint-xs:  475px;
 $breakpoint-sm:  640px;
 $breakpoint-md:  768px;

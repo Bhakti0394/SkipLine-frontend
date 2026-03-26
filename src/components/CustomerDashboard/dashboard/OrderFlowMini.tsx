@@ -7,19 +7,25 @@ import { useSkipLine } from '../../../customer-context/SkipLineContext';
 import { useState } from 'react';
 import '../overview-styles/OrderFlowMini.scss';
 
-// FIX: Removed 'preparing' step — backend OrderStatus enum has no PREPARING.
+// FIX [LABEL-MISMATCH]: 'confirmed' step label changed from 'Pending' → 'Order Confirmed'
+// to match the label used in MyOrders.tsx statusConfig.
+//
+// Root cause: dtoToOrder() in SkipLineContext maps backend 'pending' → frontend 'confirmed'.
+// OrderFlowMini was labelling that status 'Pending' while MyOrders labelled it
+// 'Order Confirmed', so the Overview and Orders pages showed different text for
+// the same order — confusing users into thinking the statuses disagreed.
+//
+// The backend enum has no PREPARING state.
 // Valid backend statuses: PENDING → COOKING → READY → COMPLETED.
 // Frontend mapping (dtoToOrder in SkipLineContext):
-//   "pending"   → status: 'confirmed'  (shown as "Pending")
+//   "pending"   → status: 'confirmed'  (shown as "Order Confirmed")  ← fixed
 //   "cooking"   → status: 'cooking'    (shown as "Cooking")
-//   "ready"     → status: 'ready'      (shown as "Ready")
+//   "ready"     → status: 'ready'      (shown as "Ready! 🎉")
 //   "completed" → moves to order history
-// The old 4-step flow had 'preparing' betweesn Pending and Cooking which could
-// never be populated from real backend data, always showing 0.
 const statusSteps = [
-  { key: 'confirmed', label: 'Pending',   icon: Clock,        color: 'blue'   },
-  { key: 'cooking',   label: 'Cooking',   icon: Flame,        color: 'orange' },
-  { key: 'ready',     label: 'Ready! 🎉', icon: CheckCircle2, color: 'green'  },
+  { key: 'confirmed', label: 'Order Confirmed', icon: Clock,        color: 'blue'   },
+  { key: 'cooking',   label: 'Cooking',         icon: Flame,        color: 'orange' },
+  { key: 'ready',     label: 'Ready! 🎉',       icon: CheckCircle2, color: 'green'  },
 ];
 
 // Perks shown in the empty state to encourage ordering

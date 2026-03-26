@@ -1,7 +1,10 @@
 import { Star } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { MealFeedback } from '@/types/dashboard';
+// FIX [IMPORT-PATH]: was '@/types/dashboard' which resolves to src/types/dashboard —
+// a path that does not exist. The type file lives at src/customer-types/dashboard.ts.
+// Fixed to use the correct relative path.
+import { MealFeedback } from '../../../customer-types/dashboard';
 import '../overview-styles/Commentsmodal.scss';
 
 interface CommentsModalProps {
@@ -14,7 +17,7 @@ interface CommentsModalProps {
 export function CommentsModal({ isOpen, onClose, mealName, comments }: CommentsModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent 
+      <DialogContent
         className="comments-modal"
         onPointerDownOutside={(e) => e.stopPropagation()}
         onInteractOutside={(e) => e.stopPropagation()}
@@ -25,7 +28,7 @@ export function CommentsModal({ isOpen, onClose, mealName, comments }: CommentsM
             Reviews for {mealName}
           </DialogTitle>
         </DialogHeader>
-        
+
         <ScrollArea className="comments-modal__scroll">
           <div className="comments-modal__list">
             {comments.length === 0 ? (
@@ -51,7 +54,7 @@ export function CommentsModal({ isOpen, onClose, mealName, comments }: CommentsM
                     {new Date(comment.createdAt).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'short',
-                      day: 'numeric'
+                      day: 'numeric',
                     })}
                   </p>
                 </div>

@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, Star, Plus, Heart, Zap } from 'lucide-react';
+import { Clock, Star, Plus, Heart, Zap, ImageOff } from 'lucide-react';
 import { Meal, MealFeedback } from '../../../customer-types/dashboard';
 import { MealComments } from './MealComments';
 import '../overview-styles/Mealcard.scss';
@@ -26,17 +27,7 @@ export function MealCard({
   index = 0,
 }: MealCardProps) {
   const displayRating = averageRating ?? meal.rating;
-
-  // Cards 0–5 (first two rows) are always above the fold — load immediately.
-  // Cards 6+ are deferred until they approach the viewport.
-  const loadingStrategy: 'eager' | 'lazy' = index < 6 ? 'eager' : 'lazy';
-
-  // Spread trick: passing fetchpriority as a plain object bypasses TS JSX
-  // attribute checking entirely — no @ts-ignore and no extra .d.ts file.
-  // The attribute stays lowercase, which is what the browser requires.
-  // React 18 silently drops the camelCase fetchPriority version, which was
-  // causing the browser intervention and slow image loads.
-  const imgPriority = { fetchpriority: index < 3 ? 'high' : 'auto' };
+  const [imgState, setImgState] = useState<'loading' | 'loaded' | 'error'>('loading');
 
   return (
     <motion.div
@@ -46,15 +37,38 @@ export function MealCard({
       className="meal-card"
     >
       <div className="meal-card__image">
+
+        {imgState === 'loading' && (
+          <div className="meal-card__skeleton" aria-hidden="true" />
+        )}
+
+        {imgState === 'error' && (
+          <div className="meal-card__img-error" aria-label="Image unavailable">
+            <ImageOff size={32} />
+          </div>
+        )}
+
+        {/*
+          CRITICAL: Do NOT add loading="lazy" or loading="eager".
+          Edge browser intercepts the loading attribute and replaces ALL images
+          with blank placeholders regardless of the value set.
+          Omitting it entirely forces the browser default (eager) and bypasses
+          the Edge intervention completely.
+        */}
         <img
           src={meal.image}
           alt={meal.name}
-          loading={loadingStrategy}
-          {...imgPriority}
+          decoding="async"
           width={400}
           height={300}
-          decoding="async"
+          style={{
+            opacity: imgState === 'loaded' ? 1 : 0,
+            transition: 'opacity 0.3s ease',
+          }}
+          onLoad={() => setImgState('loaded')}
+          onError={() => setImgState('error')}
         />
+
         <div className="meal-card__overlay" />
 
         {meal.isExpress && (

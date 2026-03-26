@@ -1,19 +1,32 @@
 // pages/CustomerDashboard/OrderSuccess.tsx
 //
-// FIX [HARDCODED-SWAP-MENU]: Removed `indianMeals` static array from swap modal.
-//   The swap modal now calls fetchCustomerMenuItems() on open — same real data
-//   that BrowseMenu uses. Dishes that are unavailable on backend won't appear.
+// FIX [HOOKS-VIOLATION]: All hooks moved above every conditional return.
 //
-// FIX [HARDCODED-COUNTER]: "Counter #3" pickup location replaced with
-//   "Pickup Counter" — a generic label until the backend provides a real
-//   counter field on CustomerOrderDto.
+// BEFORE: The component had this structure:
+//   useState/useCallback declarations  ← hooks #1–#12
+//   if (!locationState?.orders?.length) return null;  ← early return
+//   const firstOrder = orders[0];
+//   if (!firstOrder) return null;       ← second early return
+//   useEffect(...)  ← hooks #13–#17 — NEVER CALLED when either guard fires
+//   useEffect(...)
+//   ...
 //
-// FIX [FEEDBACK-MEALID]: FeedbackCard now uses order.id (the backend UUID)
-//   as the mealId instead of order.meal (meal name string). This matches
-//   what useFeedback stores and what getAverageRating looks up.
-//   Note: useFeedback demo data uses numeric mealIds ('1','2'...) which will
-//   never match real backend UUIDs — demo ratings won't show on real dishes,
-//   which is correct behaviour (demo data is for unauthenticated state only).
+//   React requires hooks to be called in the same order on every render.
+//   When locationState was null (e.g. direct navigation to /order-success),
+//   hooks #13–#17 were skipped entirely. On the next render after navigation
+//   state was populated, React found more hooks than before and crashed with:
+//   "Rendered more hooks than during the previous render."
+//
+// AFTER:
+//   ALL useState / useCallback / useEffect hooks declared first.
+//   useEffect bodies guard themselves with `if (!orders.length) return;`
+//   instead of relying on an early component return to skip them.
+//   The two null-guard returns are placed AFTER all hook declarations.
+//
+// All other fixes from the previous version are preserved:
+//   FIX [HARDCODED-SWAP-MENU]: swap modal uses fetchCustomerMenuItems()
+//   FIX [HARDCODED-COUNTER]: "Counter #3" → "Pickup Counter"
+//   FIX [FEEDBACK-MEALID]: FeedbackCard uses order.id (backend UUID)
 
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -50,7 +63,6 @@ import prawnMasala      from '../../customer-assets/prawn-masala.jpg';
 import muttonRoganJosh  from '../../customer-assets/mutton-rogan-josh.jpg';
 import butterGarlicNaan from '../../customer-assets/butter-garlic-naan.jpg';
 
-// FIX: local image map used to enrich backend menu items (same as BrowseMenu)
 const LOCAL_IMAGE_MAP: Record<string, string> = {
   'Butter Chicken': butterChicken, 'Masala Dosa': masalaDosa,
   'Hyderabadi Biryani': hydrebadiBiryani, 'Cheese Pizza': pizza, 'Pizza': pizza,
@@ -65,9 +77,8 @@ const LOCAL_IMAGE_MAP: Record<string, string> = {
   'Mutton Rogan Josh': muttonRoganJosh, 'Butter Garlic Naan': butterGarlicNaan,
 };
 
-// Shape used internally in the swap modal — derived from real MenuItemDto
 interface SwapDish {
-  id:        string;   // backend UUID
+  id:        string;
   meal:      string;
   price:     number;
   image:     string;
@@ -166,6 +177,9 @@ export default function OrderSuccess() {
   const locationState = location.state as LocationState | null;
   const { addNotification } = useNotifications();
 
+  // ── All hooks declared first — unconditionally ────────────────────────────
+  // FIX [HOOKS-VIOLATION]: Every useState/useCallback/useEffect must run on
+  // every render. The null-guard returns below are placed AFTER all hooks.
   const [orders, setOrders]                               = useState<Order[]>(locationState?.orders || []);
   const [paymentMethod]                                   = useState<'upi' | 'cash'>(locationState?.paymentMethod || 'upi');
   const [total, setTotal]                                 = useState(locationState?.total || 0);
@@ -181,22 +195,10 @@ export default function OrderSuccess() {
   const [searchQuery, setSearchQuery]                     = useState('');
   const [selectedCategory, setSelectedCategory]           = useState('All');
   const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
-
-  // FIX: real dishes from backend for swap modal
   const [swapDishes,      setSwapDishes]      = useState<SwapDish[]>([]);
   const [swapDishLoading, setSwapDishLoading] = useState(false);
 
-  useEffect(() => {
-    if (!locationState?.orders?.length) {
-      toast({ title: 'No order found', description: 'Redirecting...', variant: 'destructive' });
-      navigate('/customer-dashboard/overview');
-    }
-  }, [locationState, navigate]);
-
-  if (!locationState?.orders?.length) return null;
-  const firstOrder = orders[0];
-  if (!firstOrder) return null;
-
+  // Edit window countdown — guarded inside so it no-ops when canEditOrder=false
   useEffect(() => {
     if (!canEditOrder) return;
     const interval = setInterval(() => {
@@ -208,40 +210,64 @@ export default function OrderSuccess() {
     return () => clearInterval(interval);
   }, [canEditOrder]);
 
-  useEffect(() => { const t = setTimeout(() => setShowConfetti(true), 500);  return () => clearTimeout(t); }, []);
-  useEffect(() => { const t = setTimeout(() => setShowFeedback(true), 2500); return () => clearTimeout(t); }, []);
+  // Confetti + feedback triggers — guarded: only fire when there are orders
+  useEffect(() => {
+    if (!locationState?.orders?.length) return;
+    const t = setTimeout(() => setShowConfetti(true), 500);
+    return () => clearTimeout(t);
+  }, [locationState?.orders?.length]);
 
   useEffect(() => {
-    if (orders.length > 0) {
-      orders.forEach(order => {
-        addNotification({
-          title:   'Order Confirmed',
-          message: `${order.meal} is in the queue.`,
-          type:    'order_confirmed',
-          orderId: order.id,
-        });
+    if (!locationState?.orders?.length) return;
+    const t = setTimeout(() => setShowFeedback(true), 2500);
+    return () => clearTimeout(t);
+  }, [locationState?.orders?.length]);
+
+  // Order confirmed notifications — guarded: only fire when orders exist
+  useEffect(() => {
+    if (!orders.length) return;
+    orders.forEach(order => {
+      addNotification({
+        title:   'Order Confirmed',
+        message: `${order.meal} is in the queue.`,
+        type:    'order_confirmed',
+        orderId: order.id,
       });
-    }
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // FIX: fetch real menu items when swap modal is about to open
+  // Redirect if no state (e.g. direct navigation to /order-success)
+  useEffect(() => {
+    if (!locationState?.orders?.length) {
+      toast({ title: 'No order found', description: 'Redirecting...', variant: 'destructive' });
+      navigate('/customer-dashboard/overview');
+    }
+  }, [locationState, navigate]);
+
+  // FIX: fetch real menu items for swap modal
   const loadSwapDishes = useCallback(async () => {
-    if (swapDishes.length > 0) return; // already loaded
+    if (swapDishes.length > 0) return;
     setSwapDishLoading(true);
     try {
       const items = await fetchCustomerMenuItems();
       setSwapDishes(items.filter(i => i.available).map(menuItemToSwapDish));
     } catch {
-      // If fetch fails, swap modal will show empty state — not a crash
+      // swap modal shows empty state — not a crash
     } finally {
       setSwapDishLoading(false);
     }
   }, [swapDishes.length]);
 
+  // ── Null guards AFTER all hooks ───────────────────────────────────────────
+  if (!locationState?.orders?.length) return null;
+  const firstOrder = orders[0];
+  if (!firstOrder) return null;
+
+  // ── Everything below is safe — orders is non-empty ───────────────────────
+
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
-  // FIX: categories derived from real fetched dishes, not hardcoded list
   const categories     = ['All', ...Array.from(new Set(swapDishes.map(d => d.category)))];
   const filteredDishes = swapDishes.filter(d => {
     const q = d.meal.toLowerCase().includes(searchQuery.toLowerCase());
@@ -257,7 +283,7 @@ export default function OrderSuccess() {
     setShowSwapOptions(true);
     setSearchQuery('');
     setSelectedCategory('All');
-    loadSwapDishes(); // FIX: fetch real dishes
+    loadSwapDishes();
   };
 
   const confirmSwapDish = (dish: SwapDish) => {
@@ -301,9 +327,6 @@ export default function OrderSuccess() {
     }), 1500);
   };
 
-  // FIX: feedback uses order.id (backend UUID) as mealId so it matches
-  // what useFeedback stores. This ensures submitted feedback is retrievable
-  // by the same mealId key used when displaying ratings on BrowseMenu.
   const handleFeedbackSubmit = (rating: number, comment: string) => {
     const order    = orders[currentFeedbackIndex];
     const mealName = order?.meal || '';
@@ -447,7 +470,7 @@ export default function OrderSuccess() {
               <MapPin className="order-success__info-icon order-success__info-icon--accent" />
               <div className="order-success__info-content">
                 <p className="order-success__info-label">Location</p>
-                {/* FIX: no hardcoded "Counter #3" — generic label until backend provides counter */}
+                {/* FIX: no hardcoded "Counter #3" */}
                 <p className="order-success__info-value">Pickup Counter</p>
               </div>
             </div>
@@ -485,7 +508,7 @@ export default function OrderSuccess() {
           ))}
         </motion.div>
 
-        {/* Feedback — FIX: passes order.id so useFeedback stores by backend UUID */}
+        {/* Feedback */}
         <AnimatePresence>
           {showFeedback && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="order-success__feedback-wrapper">
@@ -509,7 +532,7 @@ export default function OrderSuccess() {
         </motion.div>
       </div>
 
-      {/* SWAP MODAL — FIX: real dishes from backend */}
+      {/* SWAP MODAL */}
       <AnimatePresence>
         {showSwapOptions && orders[selectedOrderIndex] && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="order-success__modal-overlay" onClick={() => setShowSwapOptions(false)}>
@@ -535,14 +558,11 @@ export default function OrderSuccess() {
                 <Search className="order-success__swap-search-icon" />
                 <input type="text" placeholder="Search dishes..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="order-success__swap-search-input" autoFocus />
               </div>
-
-              {/* FIX: categories from real fetched dishes */}
               <div className="order-success__swap-categories">
                 {categories.map(cat => (
                   <button key={cat} onClick={() => setSelectedCategory(cat)} className={`order-success__swap-category ${selectedCategory === cat ? 'order-success__swap-category--active' : ''}`}>{cat}</button>
                 ))}
               </div>
-
               <div className="order-success__swap-dishes">
                 {swapDishLoading ? (
                   <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>

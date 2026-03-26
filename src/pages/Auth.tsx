@@ -28,7 +28,7 @@ const Auth = () => {
   // were never fetched (causing 401/403 on every page load).
   //
   // Now: login() → setUser() → SkipLineContext re-runs → real data fetched ✓
-  const { login } = useAuth();
+ const { login, setUser } = useAuth();
 
   const [mode,          setMode]          = useState<Mode>("login");
   const [role,          setRole]          = useState<Role>("customer");
@@ -101,6 +101,12 @@ const Auth = () => {
       if (data.role)     localStorage.setItem("auth_role",      data.role);
       if (data.email)    localStorage.setItem("auth_email",     data.email);
       if (data.fullName) localStorage.setItem("auth_full_name", data.fullName);
+
+      setUser({
+  email:    data.email,
+  fullName: data.fullName ?? data.email,
+  role:     data.role,
+});
 
       window.location.href = "/kitchen-dashboard";
     } catch (error: any) {

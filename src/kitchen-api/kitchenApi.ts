@@ -27,7 +27,17 @@ function customerAuthHeaders(): HeadersInit {
   };
 }
 
-// ─── Kitchen DTOs ─────────────────────────────────────────────────────────────
+// ── 401 handler ───────────────────────────────────────────────────────────────
+function handle401(res: Response): void {
+  if (res.status === 401) {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_role');
+    localStorage.removeItem('auth_email');
+    localStorage.removeItem('auth_full_name');
+    window.location.href = '/auth?mode=login';
+  }
+}
+// ── Kitchen DTOs ──────────────────────────────────────────────────────────────
 
 export interface OrderCardDto {
   id:               string;
@@ -126,7 +136,7 @@ export interface SimulationResult {
   reason?:   string;
 }
 
-// ─── Inventory DTOs ───────────────────────────────────────────────────────────
+// ── Inventory DTOs ────────────────────────────────────────────────────────────
 
 export type FrontendStockStatus =
   | 'in-stock'
@@ -150,7 +160,7 @@ export interface InventoryItemDto {
   stockStatus:       FrontendStockStatus;
 }
 
-// ─── Customer Order DTOs ──────────────────────────────────────────────────────
+// ── Customer Order DTOs ───────────────────────────────────────────────────────
 
 export interface CustomerOrderDto {
   id:               string;
@@ -190,18 +200,16 @@ export interface CustomerKitchenSummaryDto {
   bottleneckReason:  string | null;
 }
 
-// NEW: Customer slot DTO returned by GET /api/customer/slots and /slots/tomorrow
 export interface CustomerSlotDto {
   slotId:          string;
-  slotTime:        string;    // ISO-8601 UTC
-  displayTime:     string;    // "12:30 PM" — ready to render
-  period:          string;    // "Breakfast" | "Lunch" | "Afternoon" | "Dinner"
+  slotTime:        string;
+  displayTime:     string;
+  period:          string;
   maxCapacity:     number;
   currentBookings: number;
   remaining:       number;
 }
 
-// NEW: Platform stats DTO returned by GET /api/customer/stats
 export interface CustomerPlatformStatsDto {
   totalOrdersDelivered: number;
   totalCustomers:       number;
@@ -209,7 +217,7 @@ export interface CustomerPlatformStatsDto {
   avgRating:            string;
 }
 
-// ─── OrderRef helpers ─────────────────────────────────────────────────────────
+// ── OrderRef helpers ──────────────────────────────────────────────────────────
 
 export function generateOrderRef(customerName: string): string {
   const uid       = crypto.randomUUID().slice(0, 8).toUpperCase();
@@ -266,7 +274,7 @@ export function decodeOrderTypeFromRef(orderRef: string): SimOrderType {
   return 'normal';
 }
 
-// ─── Slot selection helpers ───────────────────────────────────────────────────
+// ── Slot selection helpers ────────────────────────────────────────────────────
 
 function pickNormalSlot(slots: SlotCapacityDto[]): SlotCapacityDto | null {
   const now      = Date.now();
@@ -294,40 +302,43 @@ function pickScheduledSlot(slots: SlotCapacityDto[]): SlotCapacityDto | null {
   return candidates[0];
 }
 
-// ─── Board ────────────────────────────────────────────────────────────────────
+// ── Board ─────────────────────────────────────────────────────────────────────
 
 export async function fetchBoard(signal?: AbortSignal): Promise<KanbanBoardResponse> {
   const res = await fetch(`${BASE_URL}/board`, {
     credentials: 'include', headers: authHeadersNoBody(), signal,
   });
+  handle401(res);
   if (!res.ok) throw new Error(`Failed to fetch board: ${res.status}`);
   return res.json();
 }
 
-// ─── Menu ─────────────────────────────────────────────────────────────────────
+// ── Menu ──────────────────────────────────────────────────────────────────────
 
 export async function fetchMenuItems(): Promise<MenuItemDto[]> {
   const res = await fetch(`${BASE_URL}/menu-items`, {
     credentials: 'include', headers: authHeadersNoBody(),
   });
+  handle401(res);
   if (!res.ok) throw new Error(`Failed to fetch menu items: ${res.status}`);
   return res.json();
 }
 
 export async function fetchCustomerMenuItems(): Promise<MenuItemDto[]> {
-  const res = await fetch(`${CUSTOMER_URL}/menu-items`, {
-    credentials: 'include', headers: authHeadersNoBody(),
-  });
+  const token = localStorage.getItem('auth_token');
+  const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetch(`${CUSTOMER_URL}/menu-items`, { headers });
   if (!res.ok) throw new Error(`Failed to fetch menu items: ${res.status}`);
   return res.json();
 }
 
-// ─── Staff ────────────────────────────────────────────────────────────────────
+// ── Staff ─────────────────────────────────────────────────────────────────────
 
 export async function fetchStaff(): Promise<StaffWorkloadDto[]> {
   const res = await fetch(`${BASE_URL}/staff`, {
     credentials: 'include', headers: authHeadersNoBody(),
   });
+ handle401(res);
   if (!res.ok) throw new Error(`Failed to fetch staff: ${res.status}`);
   return res.json();
 }
@@ -337,6 +348,7 @@ export async function createStaff(dto: CreateStaffDto): Promise<StaffWorkloadDto
     method: 'POST', credentials: 'include', headers: authHeaders(),
     body: JSON.stringify({ name: dto.name, maxConcurrentOrders: dto.maxConcurrentOrders, status: dto.status }),
   });
+ handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Create staff failed: ${res.status}`);
   return res.json();
 }
@@ -345,6 +357,7 @@ export async function activateChef(chefId: string): Promise<StaffWorkloadDto[]> 
   const res = await fetch(`${BASE_URL}/staff/${chefId}/activate`, {
     method: 'PATCH', credentials: 'include', headers: authHeadersNoBody(),
   });
+  handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Activate chef failed: ${res.status}`);
   return res.json();
 }
@@ -353,6 +366,7 @@ export async function validateRemoval(chefId: string): Promise<StaffRemovalValid
   const res = await fetch(`${BASE_URL}/staff/${chefId}/validate-removal`, {
     credentials: 'include', headers: authHeadersNoBody(),
   });
+  handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Validate removal failed: ${res.status}`);
   return res.json();
 }
@@ -361,11 +375,12 @@ export async function removeChefFromShift(chefId: string): Promise<StaffWorkload
   const res = await fetch(`${BASE_URL}/staff/${chefId}/remove-from-shift`, {
     method: 'PATCH', credentials: 'include', headers: authHeadersNoBody(),
   });
+  handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Remove from shift failed: ${res.status}`);
   return res.json();
 }
 
-// ─── Orders (kitchen sim) ─────────────────────────────────────────────────────
+// ── Orders (kitchen sim) ──────────────────────────────────────────────────────
 
 export async function createOrder(
   orderRef: string, menuItemIds: string[], customerName?: string,
@@ -374,6 +389,7 @@ export async function createOrder(
     method: 'POST', credentials: 'include', headers: authHeaders(),
     body: JSON.stringify({ orderRef, menuItemIds, customerName }),
   });
+ handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Create order failed: ${res.status}`);
   return res.json();
 }
@@ -382,6 +398,7 @@ export async function reservePickupSlot(orderId: string, slotId: string): Promis
   const res = await fetch(`${BASE_URL}/orders/${orderId}/reserve-slot?slotId=${slotId}`, {
     method: 'PATCH', credentials: 'include', headers: authHeadersNoBody(),
   });
+ handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Reserve slot failed: ${res.status}`);
 }
 
@@ -393,6 +410,7 @@ export async function changeOrderStatus(
     method: 'PATCH', credentials: 'include', headers: authHeaders(),
     body: JSON.stringify({ targetStatus }),
   });
+    handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Status change failed: ${res.status}`);
 }
 
@@ -401,70 +419,88 @@ export async function assignChef(orderId: string, chefId: string): Promise<void>
     method: 'PATCH', credentials: 'include', headers: authHeaders(),
     body: JSON.stringify({ chefId }),
   });
+   handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Chef assignment failed: ${res.status}`);
 }
 
-// ─── Customer Orders ──────────────────────────────────────────────────────────
+// ── Customer Orders ───────────────────────────────────────────────────────────
+// FIX [CUSTOMER-403]: removed `credentials: 'include'` from all /api/customer/**
+// fetch calls. The Vite proxy forwards /api/* to localhost:8080, so the browser
+// origin is localhost:5173. Cookies set by the backend are scoped to port 8080
+// and are NOT sent when credentials:include is used through the proxy — the
+// browser sees a cross-origin mismatch on the cookie domain/port.
+//
+// The Authorization: Bearer <token> header in customerAuthHeaders() is sufficient
+// for authentication (JwtAuthFilter reads it). Removing credentials:include means
+// no cookie is attempted, no CORS preflight conflict, and the Bearer token alone
+// authenticates the request correctly.
 
 export async function placeCustomerOrder(req: PlaceOrderRequest): Promise<CustomerOrderDto> {
   const res = await fetch(`${CUSTOMER_URL}/orders`, {
-    method: 'POST', credentials: 'include', headers: authHeaders(),
+    method: 'POST',
+    headers: { ...customerAuthHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
   });
+  handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Order failed: ${res.status}`);
   return res.json();
 }
 
 export async function fetchCustomerOrders(): Promise<CustomerOrderDto[]> {
   const res = await fetch(`${CUSTOMER_URL}/orders`, {
-    credentials: 'include', headers: customerAuthHeaders(),
+    headers: customerAuthHeaders(),
   });
+  handle401(res);
   if (!res.ok) throw new Error(`Failed to fetch orders: ${res.status}`);
   return res.json();
 }
 
 export async function fetchCustomerOrder(orderId: string): Promise<CustomerOrderDto> {
   const res = await fetch(`${CUSTOMER_URL}/orders/${orderId}`, {
-    credentials: 'include', headers: customerAuthHeaders(),
+    headers: customerAuthHeaders(),
   });
+   handle401(res);
   if (!res.ok) throw new Error(`Order not found: ${res.status}`);
   return res.json();
 }
 
-// ─── Customer Metrics ─────────────────────────────────────────────────────────
+// ── Customer Metrics ──────────────────────────────────────────────────────────
 
 export async function fetchCustomerMetrics(): Promise<CustomerMetricsDto> {
   const res = await fetch(`${CUSTOMER_URL}/metrics`, {
-    credentials: 'include', headers: customerAuthHeaders(),
+    headers: customerAuthHeaders(),
   });
+ handle401(res);
   if (!res.ok) throw new Error(`Failed to fetch customer metrics: ${res.status}`);
   return res.json();
 }
 
-// ─── Customer Streak ──────────────────────────────────────────────────────────
+// ── Customer Streak ───────────────────────────────────────────────────────────
 
 export async function fetchCustomerStreak(): Promise<number> {
   const res = await fetch(`${CUSTOMER_URL}/streak`, {
-    credentials: 'include', headers: customerAuthHeaders(),
+    headers: customerAuthHeaders(),
   });
+ handle401(res);
   if (!res.ok) return 0;
   const data = await res.json();
   return typeof data.streak === 'number' ? data.streak : 0;
 }
 
-// ─── Customer Kitchen Summary ─────────────────────────────────────────────────
+// ── Customer Kitchen Summary ──────────────────────────────────────────────────
 
 const KITCHEN_SUMMARY_FALLBACK: CustomerKitchenSummaryDto = {
   topDishName: 'Butter Chicken', topDishOrders: 0,
-  busiestHourTime: '–', busiestHourOrders: 0,
+  busiestHourTime: '—', busiestHourOrders: 0,
   avgPrepMinutes: 12, hasBottleneck: false, bottleneckReason: null,
 };
 
 export async function fetchCustomerKitchenSummary(): Promise<CustomerKitchenSummaryDto> {
   try {
     const res = await fetch(`${CUSTOMER_URL}/kitchen-summary`, {
-      credentials: 'include', headers: customerAuthHeaders(),
+      headers: customerAuthHeaders(),
     });
+    handle401(res);
     if (!res.ok) return KITCHEN_SUMMARY_FALLBACK;
     return res.json();
   } catch {
@@ -472,15 +508,14 @@ export async function fetchCustomerKitchenSummary(): Promise<CustomerKitchenSumm
   }
 }
 
-// ─── Customer Slots ───────────────────────────────────────────────────────────
-// NEW: Fetches today's real pickup slots from backend.
-// Used by OrderModal for normal order slot selection.
-// Falls back to empty array on failure — OrderModal handles the empty state.
+// ── Customer Slots ────────────────────────────────────────────────────────────
+
 export async function fetchCustomerSlots(): Promise<CustomerSlotDto[]> {
   try {
     const res = await fetch(`${CUSTOMER_URL}/slots`, {
-      credentials: 'include', headers: customerAuthHeaders(),
+      headers: customerAuthHeaders(),
     });
+   handle401(res);
     if (!res.ok) return [];
     return res.json();
   } catch {
@@ -488,13 +523,12 @@ export async function fetchCustomerSlots(): Promise<CustomerSlotDto[]> {
   }
 }
 
-// NEW: Fetches tomorrow's pickup slots for scheduled orders.
-// Used by OrderModal for schedule-mode slot picker.
 export async function fetchCustomerSlotsTomorrow(): Promise<CustomerSlotDto[]> {
   try {
     const res = await fetch(`${CUSTOMER_URL}/slots/tomorrow`, {
-      credentials: 'include', headers: customerAuthHeaders(),
+      headers: customerAuthHeaders(),
     });
+    handle401(res);
     if (!res.ok) return [];
     return res.json();
   } catch {
@@ -502,9 +536,8 @@ export async function fetchCustomerSlotsTomorrow(): Promise<CustomerSlotDto[]> {
   }
 }
 
-// ─── Customer Platform Stats ──────────────────────────────────────────────────
-// NEW: Fetches real platform-wide stats for BrowseMenu hero section.
-// Replaces hardcoded 12847 orders / 3421 customers numbers.
+// ── Customer Platform Stats ───────────────────────────────────────────────────
+
 const STATS_FALLBACK: CustomerPlatformStatsDto = {
   totalOrdersDelivered: 0,
   totalCustomers:       0,
@@ -515,8 +548,9 @@ const STATS_FALLBACK: CustomerPlatformStatsDto = {
 export async function fetchCustomerPlatformStats(): Promise<CustomerPlatformStatsDto> {
   try {
     const res = await fetch(`${CUSTOMER_URL}/stats`, {
-      credentials: 'include', headers: authHeadersNoBody(),
+      headers: authHeadersNoBody(),
     });
+     handle401(res);
     if (!res.ok) return STATS_FALLBACK;
     return res.json();
   } catch {
@@ -524,7 +558,7 @@ export async function fetchCustomerPlatformStats(): Promise<CustomerPlatformStat
   }
 }
 
-// ─── SSE subscription ─────────────────────────────────────────────────────────
+// ── SSE subscription ──────────────────────────────────────────────────────────
 
 export function subscribeToOrderStatus(
   orderId:  string,
@@ -549,23 +583,25 @@ export function subscribeToOrderStatus(
   });
 
   es.onerror = (err) => {
-    console.warn(`[SSE] Error for order ${orderId}`, err);
+    console.warn(`[SSE] Error for order ${orderId} — closing and handing off to polling`, err);
+    es.close();
     onError?.(err);
   };
 
   return () => { es.close(); };
 }
 
-// ─── Metrics (kitchen) ────────────────────────────────────────────────────────
+// ── Metrics (kitchen) ─────────────────────────────────────────────────────────
 
 export async function fetchMetrics(date?: string): Promise<KitchenMetricsDto> {
   const url = date ? `${BASE_URL}/metrics?date=${date}` : `${BASE_URL}/metrics`;
   const res = await fetch(url, { credentials: 'include', headers: authHeadersNoBody() });
+ handle401(res);
   if (!res.ok) throw new Error(`Failed to fetch metrics: ${res.status}`);
   return res.json();
 }
 
-// ─── Server time ──────────────────────────────────────────────────────────────
+// ── Server time ───────────────────────────────────────────────────────────────
 
 export interface ServerTimeDto { serverTimeMs: number; }
 
@@ -573,11 +609,12 @@ export async function fetchServerTime(): Promise<ServerTimeDto> {
   const res = await fetch(`${BASE_URL}/server-time`, {
     credentials: 'include', headers: authHeadersNoBody(),
   });
+  handle401(res);
   if (!res.ok) throw new Error(`Failed to fetch server time: ${res.status}`);
   return res.json();
 }
 
-// ─── Simulate Advance ─────────────────────────────────────────────────────────
+// ── Simulate Advance ──────────────────────────────────────────────────────────
 
 export async function simulateAdvance(): Promise<{ promoted: number }> {
   const res = await fetch(`${BASE_URL}/simulate-advance`, {
@@ -587,7 +624,7 @@ export async function simulateAdvance(): Promise<{ promoted: number }> {
   return res.json();
 }
 
-// ─── Simulation ───────────────────────────────────────────────────────────────
+// ── Simulation ────────────────────────────────────────────────────────────────
 
 export async function triggerSimulation(
   count:              number,
@@ -648,7 +685,7 @@ export async function triggerSimulation(
   return { generated, rejected, ...(lastRejectionReason ? { reason: lastRejectionReason } : {}) };
 }
 
-// ─── Inventory ────────────────────────────────────────────────────────────────
+// ── Inventory ─────────────────────────────────────────────────────────────────
 
 export async function fetchInventory(): Promise<InventoryItemDto[]> {
   const res = await fetch(`${BASE_URL}/inventory`, {

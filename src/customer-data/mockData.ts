@@ -1,18 +1,33 @@
 import { Order, Meal, TimeSlot, UserMetrics } from '../customer-types/dashboard';
 
-// FIX: ORD-DEMO2 status changed from 'preparing' → 'confirmed'.
-// 'preparing' is not a valid backend OrderStatus. The backend only emits:
-//   PENDING → COOKING → READY → COMPLETED
-// dtoToOrder maps: pending→confirmed, cooking→cooking, ready→ready.
-// OrderFlowMini's statusSteps also has no 'preparing' step, so any order
-// with status='preparing' would fall through to statusSteps[0] (confirmed)
-// and display the wrong count in the Pending column.
+const butterChicken     = '/customer-assets/butter-chicken.jpg';
+const masalaDosa        = '/customer-assets/masala-dosa.jpg';
+const hyderabadiBiryani = '/customer-assets/hydrebadi-biryani.jpg';
+const paneerTikka       = '/customer-assets/paneer-tikka.jpg';
+const choleBhature      = '/customer-assets/chole-bhature.jpg';
+const idliSambhar       = '/customer-assets/idli-sambhar.jpg';
+const vadaPav           = '/customer-assets/vada-pav.jpg';
+const dalMakhani        = '/customer-assets/dal-makhani.jpg';
+const gulabJamun        = '/customer-assets/gulab-jamun.jpg';
+const rajasthaniThali   = '/customer-assets/rajasthani-thali.jpg';
+const lucknowiBiryani   = '/customer-assets/lucknowi-biryani.jpg';
+const samosa            = '/customer-assets/samosa.jpg';
+const chocolateDonuts   = '/customer-assets/chocolate-donuts.jpg';
+const poha              = '/customer-assets/poha.jpg';
+const palakPaneer       = '/customer-assets/palak-paneer.jpg';
+const chickenKorma      = '/customer-assets/chicken-korma.jpg';
+const kadaiPaneer       = '/customer-assets/kadai-paneer.jpg';
+const pizza             = '/customer-assets/pizza.jpg';
+const butterGarlicNaan  = '/customer-assets/butter-garlic-naan.jpg';
+const muttonRoganJosh   = '/customer-assets/mutton-rogan-josh.jpg';
+const prawnMasala       = '/customer-assets/prawn-masala.jpg';
+
 export const mockOrders: Order[] = [
   {
     id: 'ORD-DEMO1',
     meal: 'Butter Chicken',
     restaurant: 'Punjab Grill',
-    image: 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=400',
+    image: butterChicken,
     status: 'cooking',
     pickupTime: '12:30 PM',
     pickupSlotId: '3',
@@ -32,8 +47,8 @@ export const mockOrders: Order[] = [
     id: 'ORD-DEMO2',
     meal: 'Hyderabadi Biryani',
     restaurant: 'Paradise Biryani',
-    image: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400',
-    status: 'confirmed', // FIX: was 'preparing' — not a valid backend status
+    image: hyderabadiBiryani,
+    status: 'confirmed',
     pickupTime: '1:00 PM',
     pickupSlotId: '4',
     estimatedReady: '12 min',
@@ -55,27 +70,29 @@ export const mockMeals: Meal[] = [
     id: '1',
     name: 'Butter Chicken',
     restaurant: 'Punjab Grill',
-    image: 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=400',
+    image: butterChicken,
     price: 249,
     prepTime: 15,
     rating: 4.9,
     category: 'North Indian',
+    isExpress: true,
   },
   {
     id: '2',
     name: 'Masala Dosa',
     restaurant: 'Saravana Bhavan',
-    image: 'https://images.unsplash.com/photo-1668236543090-82eb5eaf59fd?w=400',
+    image: masalaDosa,
     price: 129,
     prepTime: 10,
     rating: 4.8,
     category: 'South Indian',
+    isExpress: true,
   },
   {
     id: '3',
     name: 'Hyderabadi Biryani',
     restaurant: 'Paradise Biryani',
-    image: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400',
+    image: hyderabadiBiryani,
     price: 299,
     prepTime: 20,
     rating: 4.9,
@@ -83,33 +100,193 @@ export const mockMeals: Meal[] = [
   },
   {
     id: '4',
-    name: 'Pani Puri',
-    restaurant: 'Chaat Corner',
-    image: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=400',
-    price: 79,
-    prepTime: 5,
-    rating: 4.7,
-    category: 'Street Food',
+    name: 'Cheese Pizza',
+    restaurant: 'Pizza Express',
+    image: pizza,
+    price: 149,
+    prepTime: 10,
+    rating: 4.6,
+    category: 'Biryani',
+    isExpress: true,
   },
   {
     id: '5',
     name: 'Paneer Tikka',
     restaurant: 'Barbeque Nation',
-    image: 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400',
+    image: paneerTikka,
     price: 199,
     prepTime: 12,
     rating: 4.8,
     category: 'North Indian',
+    isExpress: true,
   },
   {
     id: '6',
     name: 'Chole Bhature',
-    restaurant: 'Haldiram\'s',
-    image: 'https://images.unsplash.com/photo-1626132647523-66c9af4e09f8?w=400',
+    restaurant: "Haldiram's",
+    image: choleBhature,
     price: 149,
     prepTime: 10,
     rating: 4.6,
     category: 'North Indian',
+    isExpress: true,
+  },
+  {
+    id: '7',
+    name: 'Idli Sambar',
+    restaurant: 'Saravana Bhavan',
+    image: idliSambhar,
+    price: 99,
+    prepTime: 8,
+    rating: 4.7,
+    category: 'South Indian',
+    isExpress: true,
+  },
+  {
+    id: '8',
+    name: 'Vada Pav',
+    restaurant: 'Mumbai Street',
+    image: vadaPav,
+    price: 49,
+    prepTime: 5,
+    rating: 4.5,
+    category: 'Street Food',
+    isExpress: true,
+  },
+  {
+    id: '9',
+    name: 'Dal Makhani',
+    restaurant: 'Punjab Grill',
+    image: dalMakhani,
+    price: 179,
+    prepTime: 15,
+    rating: 4.8,
+    category: 'North Indian',
+    isExpress: true,
+  },
+  {
+    id: '10',
+    name: 'Gulab Jamun',
+    restaurant: "Haldiram's",
+    image: gulabJamun,
+    price: 89,
+    prepTime: 5,
+    rating: 4.9,
+    category: 'Dessert',
+    isExpress: true,
+  },
+  {
+    id: '11',
+    name: 'Rajasthani Thali',
+    restaurant: 'Rajdhani',
+    image: rajasthaniThali,
+    price: 399,
+    prepTime: 20,
+    rating: 4.9,
+    category: 'Thali',
+  },
+  {
+    id: '12',
+    name: 'Lucknowi Biryani',
+    restaurant: 'Dum Pukht',
+    image: lucknowiBiryani,
+    price: 329,
+    prepTime: 25,
+    rating: 4.8,
+    category: 'Biryani',
+  },
+  {
+    id: '13',
+    name: 'Samosa (2 pcs)',
+    restaurant: "Haldiram's",
+    image: samosa,
+    price: 40,
+    prepTime: 5,
+    rating: 4.6,
+    category: 'Street Food',
+    isExpress: true,
+  },
+  {
+    id: '14',
+    name: 'Chocolate Donut',
+    restaurant: 'Dunkin',
+    image: chocolateDonuts,
+    price: 45,
+    prepTime: 3,
+    rating: 4.5,
+    category: 'Dessert',
+    isExpress: true,
+  },
+  {
+    id: '15',
+    name: 'Poha',
+    restaurant: 'Home Kitchen',
+    image: poha,
+    price: 60,
+    prepTime: 8,
+    rating: 4.5,
+    category: 'Breakfast',
+    isExpress: true,
+  },
+  {
+    id: '16',
+    name: 'Palak Paneer',
+    restaurant: 'Punjab Grill',
+    image: palakPaneer,
+    price: 199,
+    prepTime: 20,
+    rating: 4.7,
+    category: 'North Indian',
+  },
+  {
+    id: '17',
+    name: 'Chicken Korma',
+    restaurant: 'Dum Pukht',
+    image: chickenKorma,
+    price: 269,
+    prepTime: 22,
+    rating: 4.7,
+    category: 'North Indian',
+  },
+  {
+    id: '18',
+    name: 'Kadai Paneer',
+    restaurant: 'Barbeque Nation',
+    image: kadaiPaneer,
+    price: 219,
+    prepTime: 20,
+    rating: 4.7,
+    category: 'North Indian',
+  },
+  {
+    id: '19',
+    name: 'Butter Garlic Naan',
+    restaurant: 'Punjab Grill',
+    image: butterGarlicNaan,
+    price: 59,
+    prepTime: 8,
+    rating: 4.8,
+    category: 'Bread',
+  },
+  {
+    id: '20',
+    name: 'Mutton Rogan Josh',
+    restaurant: 'Dum Pukht',
+    image: muttonRoganJosh,
+    price: 349,
+    prepTime: 30,
+    rating: 4.8,
+    category: 'North Indian',
+  },
+  {
+    id: '21',
+    name: 'Prawn Masala',
+    restaurant: 'Coastal Kitchen',
+    image: prawnMasala,
+    price: 399,
+    prepTime: 25,
+    rating: 4.7,
+    category: 'Seafood',
   },
 ];
 

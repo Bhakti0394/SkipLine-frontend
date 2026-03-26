@@ -9,11 +9,11 @@ $border:         rgba(255, 107, 53, 0.1);
 $glow:           rgba(255, 107, 53, 0.15);
 
 @mixin glass-effect {
-  background:    $card-bg;
+  background:      $card-bg;
   backdrop-filter: blur(16px);
-  border:        1px solid $border;
-  box-shadow:    0 8px 32px rgba(0, 0, 0, 0.4),
-                 0 0 0 1px rgba(255, 255, 255, 0.03);
+  border:          1px solid $border;
+  box-shadow:      0 8px 32px rgba(0, 0, 0, 0.4),
+                   0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
 @mixin glow-effect {
@@ -52,18 +52,8 @@ $glow:           rgba(255, 107, 53, 0.15);
   }
 
   &__image {
-    position:   relative;
-    overflow:   hidden;
-
-    // FIX: use aspect-ratio instead of a fixed height so the browser
-    // always reserves the correct amount of vertical space before the
-    // image loads. This is the key to stopping the browser's lazy-load
-    // intervention — without a known height the browser cannot compute
-    // whether the image is "near" the viewport and falls back to
-    // placeholder mode.
-    //
-    // 4:3 aspect ratio matches width=400 height=300 on the <img> element.
-    // object-fit:cover makes the actual image fill the space perfectly.
+    position:     relative;
+    overflow:     hidden;
     aspect-ratio: 4 / 3;
     background:   linear-gradient(
       135deg,
@@ -72,7 +62,6 @@ $glow:           rgba(255, 107, 53, 0.15);
     );
 
     @media (max-width: 640px) {
-      // Slightly taller crop on mobile for a better visual proportion
       aspect-ratio: 3 / 2;
     }
 
@@ -80,8 +69,6 @@ $glow:           rgba(255, 107, 53, 0.15);
       width:      100%;
       height:     100%;
       object-fit: cover;
-      // FIX: display:block removes the 4px baseline gap browsers add
-      // to inline images — eliminates a common source of layout shift.
       display:    block;
       transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
       filter:     brightness(0.9);
@@ -93,12 +80,36 @@ $glow:           rgba(255, 107, 53, 0.15);
     }
   }
 
+  &__skeleton {
+    position:          absolute;
+    inset:             0;
+    background:        linear-gradient(
+      90deg,
+      #1e1e1e 25%,
+      #2a2a2a 50%,
+      #1e1e1e 75%
+    );
+    background-size:   200% 100%;
+    animation:         skeleton-shimmer 1.4s infinite linear;
+    z-index:           1;
+  }
+
+  &__img-error {
+    position:        absolute;
+    inset:           0;
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    background-color: #1a1a1a;
+    color:           #555;
+    z-index:         1;
+  }
+
   &__overlay {
-    position:   absolute;
-    inset:      0;
-    background: linear-gradient(to top, rgba($card-bg, 0.95) 0%, transparent 60%);
-    opacity:    0.6;
-    // FIX: pointer-events:none so clicks pass through to the add button
+    position:       absolute;
+    inset:          0;
+    background:     linear-gradient(to top, rgba($card-bg, 0.95) 0%, transparent 60%);
+    opacity:        0.6;
     pointer-events: none;
   }
 
@@ -120,8 +131,8 @@ $glow:           rgba(255, 107, 53, 0.15);
     transition:      all 0.3s;
 
     &:hover {
-      background:    rgba($card-bg, 1);
-      border-color:  $primary;
+      background:   rgba($card-bg, 1);
+      border-color: $primary;
     }
   }
 
@@ -234,26 +245,26 @@ $glow:           rgba(255, 107, 53, 0.15);
   }
 
   &__price {
-    font-size:              1.1rem;
-    font-weight:            700;
-    background:             linear-gradient(135deg, $primary, $accent);
+    font-size:               1.1rem;
+    font-weight:             700;
+    background:              linear-gradient(135deg, $primary, $accent);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    background-clip:        text;
-    flex-shrink:            0;
+    background-clip:         text;
+    flex-shrink:             0;
 
     @media (max-width: 640px) { font-size: 1rem; }
   }
 
   &__meta {
-    display:       flex;
-    align-items:   center;
-    gap:           1rem;
-    margin-top:    0.75rem;
-    padding-top:   0.75rem;
-    border-top:    1px solid rgba(255, 255, 255, 0.05);
-    font-size:     0.75rem;
-    color:         $text-secondary;
+    display:     flex;
+    align-items: center;
+    gap:         1rem;
+    margin-top:  0.75rem;
+    padding-top: 0.75rem;
+    border-top:  1px solid rgba(255, 255, 255, 0.05);
+    font-size:   0.75rem;
+    color:       $text-secondary;
 
     @media (max-width: 640px) {
       font-size: 0.7rem;
@@ -347,7 +358,7 @@ $glow:           rgba(255, 107, 53, 0.15);
 }
 
 // ============================================================
-// EXPRESS BADGE ANIMATIONS
+// ANIMATIONS
 // ============================================================
 
 @keyframes express-pulse {
@@ -366,7 +377,13 @@ $glow:           rgba(255, 107, 53, 0.15);
   50%       { transform: scale(1.2) rotate(-10deg); }
 }
 
+@keyframes skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .meal-card__express-badge { animation: none !important; }
   .meal-card__express-icon  { animation: none !important; }
+  .meal-card__skeleton      { animation: none !important; }
 }
