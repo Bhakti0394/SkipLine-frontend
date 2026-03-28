@@ -5,7 +5,7 @@
 // capacity-meter__staff-scroll so it scrolls internally
 // on desktop — the card never overflows its sidebar container.
 
-import React, { memo, useMemo, useState, useCallback } from 'react';
+import React, { memo, useMemo, useState, useCallback, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import { CapacitySnapshot } from '../../../kitchen-types/order';
 import { StaffWorkloadDto, StaffRemovalValidationDto, createStaff } from '../../../kitchen-api/kitchenApi';
@@ -59,8 +59,8 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
   const tier    = breakdown.tier;
   const cssTier = TIER_CSS[tier];
 
-  const activeStaff = staff.filter(s => s.onShift);
-  const backupStaff = staff.filter(s => !s.onShift);
+  const activeStaff = useMemo(() => staff.filter(s => s.onShift),  [staff]);
+  const backupStaff = useMemo(() => staff.filter(s => !s.onShift), [staff]);
 
   // ── Activate modal ─────────────────────────────────────────────────────────
   const [activateId,  setActivateId]  = useState<string | null>(null);
@@ -77,8 +77,15 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
   }, [activateId, activating, onActivateChef]);
 
   // ── Remove modal ───────────────────────────────────────────────────────────
-  const [removeErr, setRemoveErr] = useState<string | null>(null);
-  const removingChef = useMemo(() => staff.find(s => s.chefId === removalTargetId) ?? null, [removalTargetId, staff]);
+ const [removeErr, setRemoveErr] = useState<string | null>(null);
+
+  const removingChef = useMemo(() => {
+    return staff.find(s => s.chefId === removalTargetId) ?? null;
+  }, [removalTargetId, staff]);
+
+  useEffect(() => {
+    setRemoveErr(null);
+  }, [removalTargetId]);
 
   const handleRemoveConfirm = useCallback(async () => {
     setRemoveErr(null);
@@ -102,7 +109,7 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
     if (!chefName.trim()) { setAddErr('Name is required'); return; }
     setAdding(true); setAddErr(null);
     try {
-      await createStaff({ name: chefName.trim(), maxConcurrentOrders: chefSlots, activeToday: chefStatus === 'ACTIVE' });
+      await createStaff({ name: chefName.trim(), maxConcurrentOrders: chefSlots, status: chefStatus });
       setShowAdd(false); onChefAdded();
     } catch (e: any) { setAddErr(e.message ?? 'Failed to add chef'); }
     finally { setAdding(false); }
@@ -169,7 +176,7 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
                 <span className="capacity-meter__chef-load">{s.activeOrders}/{s.maxCapacity}</span>
                 <button
                   className="capacity-meter__btn capacity-meter__btn--remove"
-                  onClick={() => onRemoveChef(s.chefId)}
+               onClick={() => { setRemoveErr(null); setActivateErr(null); onRemoveChef(s.chefId); }}
                   disabled={isValidatingRemoval && removalTargetId === s.chefId}
                 >
                   {isValidatingRemoval && removalTargetId === s.chefId ? '…' : 'End Shift'}

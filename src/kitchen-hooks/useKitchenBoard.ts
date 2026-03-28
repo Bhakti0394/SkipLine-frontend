@@ -191,8 +191,8 @@ function resolvePickupTime(
 }
 
 function toFrontendOrder(dto: OrderCardDto): Order {
-  const items = dto.itemSummary.map((summary, i) => {
-    const match = summary.match(/^(\d+)x (.+)$/);
+ const items = dto.itemSummary.map((summary, i) => {
+    const match = summary.match(/^(\d+)[x×] (.+)$/);
     return {
       id:         `${dto.id}-item-${i}`,
       menuItemId: '',
@@ -217,7 +217,7 @@ function toFrontendOrder(dto: OrderCardDto): Order {
     const cookEnd = completedAt ?? readyAt;
     if (cookEnd) {
       const ms = cookEnd.getTime() - cookingStartedAt.getTime();
-      if (ms > 0 && ms < 8 * 60 * 60 * 1000) elapsedMinutes = ms / 60_000;
+     if (ms > 0 && ms < 24 * 60 * 60 * 1000) elapsedMinutes = ms / 60_000;
     }
   }
 
@@ -290,7 +290,8 @@ export function useKitchenBoard(
   //   • Both apps share localStorage — it's the only reliable cross-tree signal
   //   • The value is set synchronously on login and cleared on logout
   //   • We only read it once — no subscription needed
-  const isKitchen = localStorage.getItem('auth_role') === 'KITCHEN';
+const isKitchenRef = useRef(localStorage.getItem('auth_role') === 'KITCHEN');
+const isKitchen    = isKitchenRef.current;
   // ── end role guard ────────────────────────────────────────────────────────
 
   const [boardData, setBoardData]             = useState<KanbanBoardResponse | null>(null);
@@ -298,7 +299,9 @@ export function useKitchenBoard(
   const [completedOrders, setCompletedOrders] = useState<Order[]>([]);
   const [loading, setLoading]                 = useState(true);
   const [error, setError]                     = useState<string | null>(null);
-  const [menuItems, setMenuItems]             = useState<MenuItemDto[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItemDto[]>([]);
+const menuItemsRef = useRef<MenuItemDto[]>([]);
+useEffect(() => { menuItemsRef.current = menuItems; }, [menuItems]);
 
   const [isSimulating, setIsSimulating]               = useState(false);
   const [simulationSpeed, setSimulationSpeed]         = useState<'slow' | 'normal' | 'fast'>('normal');
@@ -313,11 +316,12 @@ export function useKitchenBoard(
   const [activatingChefId, setActivatingChefId] = useState<string | null>(null);
   const [readyCountdowns, setReadyCountdowns]   = useState<Record<string, number>>({});
 
-  const simIntervalRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoCompleteRefs = useRef<Record<string, AutoCompleteEntry>>({});
-  const knownOrderIds    = useRef<Set<string>>(new Set());
-  const isFirstLoad      = useRef(true);
-  const onNewOrdersRef   = useRef(onNewOrders);
+const simIntervalRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoCompleteRefs    = useRef<Record<string, AutoCompleteEntry>>({});
+  const knownOrderIds       = useRef<Set<string>>(new Set());
+  const isFirstLoad         = useRef(true);
+  const onNewOrdersRef      = useRef(onNewOrders);
+  const simAdvancePendingRef = useRef(false);
   useEffect(() => { onNewOrdersRef.current = onNewOrders; }, [onNewOrders]);
 
   const isSimulatingRef = useRef(isSimulating);
@@ -357,14 +361,26 @@ export function useKitchenBoard(
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const loadBoard = useCallback(async () => {
-    // FIX [ROLE-GUARD]: never hit /api/kitchen/board with a CUSTOMER token
+const loadBoard = useCallback(async () => {
     if (!isKitchen) return;
+
+    // If a load is already in-flight, wait for it to finish then run again
+    // instead of silently dropping the request (which caused stale UI after
+    // action calls that complete faster than the poll cycle).
+    if (isLoadingRef.current) {
+      await new Promise<void>(resolve => {
+        const check = setInterval(() => {
+          if (!isLoadingRef.current) {
+            clearInterval(check);
+            resolve();
+          }
+        }, 100);
+      });
+    }
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-
     isLoadingRef.current = true;
 
     try {
@@ -448,13 +464,15 @@ export function useKitchenBoard(
       });
     }, 1000);
 
-    const timeout = setTimeout(async () => {
-      delete autoCompleteRefs.current[order.id];
-      clearInterval(interval);
-      setReadyCountdowns(prev => { const n = { ...prev }; delete n[order.id]; return n; });
-      try { await changeOrderStatus(order.id, 'COMPLETED'); await loadBoard(); }
-      catch { await loadBoard(); }
-    }, AUTO_COMPLETE_DELAY_MS);
+   const timeout = setTimeout(async () => {
+  delete autoCompleteRefs.current[order.id];
+  clearInterval(interval);
+  setReadyCountdowns(prev => { const n = { ...prev }; delete n[order.id]; return n; });
+  // FIX [AUTO-COMPLETE-GUARD]: skip if simulation was stopped before timeout fired
+  if (!isSimulatingRef.current) return;
+  try { await changeOrderStatus(order.id, 'COMPLETED'); await loadBoard(); }
+  catch { await loadBoard(); }
+}, AUTO_COMPLETE_DELAY_MS);
 
     autoCompleteRefs.current[order.id] = { timeout, interval };
   }, [loadBoard]);
@@ -492,31 +510,33 @@ export function useKitchenBoard(
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
-  const updateOrderStatus = useCallback(async (
-    orderId: string, newStatus: OrderStatus,
-  ) => {
-    const order = orders.find(o => o.id === orderId);
-    if (!order) throw new Error(`Order ${orderId} not found`);
+const updateOrderStatus = useCallback(async (
+  orderId: string, newStatus: OrderStatus,
+) => {
+  // Read from ref — always fresh, never stale
+  const order = ordersRef.current.find(o => o.id === orderId);
+  if (!order) throw new Error(`Order ${orderId} not found`);
 
-    const fromBackend = order.backendStatus ?? statusMapReverse[order.status];
-    const toBackend   = statusMapReverse[newStatus];
+  const fromBackend = order.backendStatus ?? statusMapReverse[order.status];
+  const toBackend   = statusMapReverse[newStatus];
 
-    if (!canTransition(fromBackend, toBackend)) {
-      throw new Error(`Illegal transition: ${fromBackend} → ${toBackend}`);
-    }
+  if (!canTransition(fromBackend, toBackend)) {
+    throw new Error(`Illegal transition: ${fromBackend} → ${toBackend}`);
+  }
 
-    if (toBackend === 'COMPLETED') cancelAutoComplete(orderId);
+  if (toBackend === 'COMPLETED') cancelAutoComplete(orderId);
 
-    // Optimistic update
-    const previousOrders = orders;
-    setOrders(prev => prev.map(o =>
-      o.id === orderId ? { ...o, status: newStatus } : o
-    ));
+  // Optimistic update — capture snapshot via functional updater to avoid stale ref
+  let snapshotBeforeUpdate: Order[] = [];
+  setOrders(prev => {
+    snapshotBeforeUpdate = prev;
+    return prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o);
+  });
 
-    try {
-      await changeOrderStatus(orderId, toBackend);
-      await loadBoard();
-    } catch (err: any) {
+  try {
+    await changeOrderStatus(orderId, toBackend);
+    await loadBoard();
+  } catch (err: any) {
       // FIX [STALE-STATE]: if backend already moved the order to target status,
       // treat 400 "Cannot transition from X to X" as a success.
       const msg = (err.message ?? '').toLowerCase();
@@ -538,11 +558,11 @@ export function useKitchenBoard(
         err.message,
         '— reverting optimistic update and refreshing board.',
       );
-      setOrders(previousOrders);
+      setOrders(snapshotBeforeUpdate);
       await loadBoard();
       throw err;
     }
-  }, [orders, loadBoard, cancelAutoComplete]);
+  }, [loadBoard, cancelAutoComplete]);
 
   const assignChef = useCallback(async (orderId: string, chefId: string) => {
     try {
@@ -569,8 +589,9 @@ export function useKitchenBoard(
   const runSimulationTick = useCallback(async () => {
     // FIX [ROLE-GUARD]: never trigger simulation with a CUSTOMER token
     if (!isKitchen) return;
-    if (menuItems.length === 0) { setSimulationError('No menu items loaded'); return; }
-    if (capacity.isOverloaded) {
+   const currentMenuItems = menuItemsRef.current;
+    if (currentMenuItems.length === 0) { setSimulationError('No menu items loaded'); return; }
+    if (selectCapacity(boardDataRef.current).isOverloaded) {
       setSimulationError('Kitchen is at full capacity — simulation paused');
       setIsSimulating(false);
       return;
@@ -578,26 +599,28 @@ export function useKitchenBoard(
     setIsSimTriggerPending(true);
     try {
       const slots: SlotCapacityDto[] = boardDataRef.current?.upcomingSlots ?? [];
-      const result: SimulationResult = await triggerSimulation(1, menuItems, slots);
+      const result: SimulationResult = await triggerSimulation(1, currentMenuItems, slots);
       if (result.rejected > 0 && result.reason) {
         setSimulationError(result.reason);
         if (result.reason.includes('full capacity')) setIsSimulating(false);
       } else {
         setSimulationError(null);
       }
-      if (result.generated > 0) {
-        try { await simulateAdvance(); } catch { /* best-effort */ }
-        await new Promise(r => setTimeout(r, 300));
-        if (!isLoadingRef.current) {
-          await loadBoard();
+     if (result.generated > 0) {
+        if (!simAdvancePendingRef.current) {
+          simAdvancePendingRef.current = true;
+          try { await simulateAdvance(); } catch { /* best-effort */ }
+          finally { simAdvancePendingRef.current = false; }
         }
+        await new Promise(r => setTimeout(r, 300));
+        await loadBoard();
       }
     } catch (err: any) {
       setSimulationError(err.message);
     } finally {
       setIsSimTriggerPending(false);
     }
-  }, [isKitchen, menuItems, capacity.isOverloaded, loadBoard]);
+ }, [isKitchen, loadBoard]);
 
   // FIX [JITTER]: recursive setTimeout so each tick gets a fresh jitter offset.
   useEffect(() => {
@@ -668,15 +691,18 @@ export function useKitchenBoard(
     }
   }, []);
 
-  const confirmStaffRemoval = useCallback(async () => {
+ const confirmStaffRemoval = useCallback(async () => {
     if (!removalTargetId) return;
     setIsConfirmingRemoval(true);
     try {
       await removeChefFromShift(removalTargetId);
-    } finally {
-      setIsConfirmingRemoval(false);
       setRemovalTargetId(null);
       setRemovalValidation(null);
+    } catch (err: any) {
+      // Error propagates to caller (CapacityMeter) which shows it in removeErr state
+      throw err;
+    } finally {
+      setIsConfirmingRemoval(false);
     }
   }, [removalTargetId, removeChefFromShift]);
 
@@ -694,25 +720,30 @@ export function useKitchenBoard(
   const triggerBurst = useCallback(async (count: number): Promise<SimulationResult> => {
     // FIX [ROLE-GUARD]: never burst simulate with a CUSTOMER token
     if (!isKitchen) return { generated: 0, rejected: count, reason: 'Not authorized' };
-    if (menuItems.length === 0) throw new Error('No menu items loaded — cannot simulate');
-    if (capacity.isOverloaded) {
+   const currentMenuItems = menuItemsRef.current;
+    if (currentMenuItems.length === 0) throw new Error('No menu items loaded — cannot simulate');
+    if (selectCapacity(boardDataRef.current).isOverloaded) {
       return { generated: 0, rejected: count, reason: 'Kitchen is at full capacity' };
     }
     setIsSimTriggerPending(true);
     try {
       const slots: SlotCapacityDto[] = boardDataRef.current?.upcomingSlots ?? [];
-      const result = await triggerSimulation(count, menuItems, slots);
-      if (result.generated > 0) {
-        try { await simulateAdvance(); } catch { /* best-effort */ }
+      const result = await triggerSimulation(count, currentMenuItems, slots);
+    if (result.generated > 0) {
+        if (!simAdvancePendingRef.current) {
+          simAdvancePendingRef.current = true;
+          try { await simulateAdvance(); } catch { /* best-effort */ }
+          finally { simAdvancePendingRef.current = false; }
+        }
         await new Promise(r => setTimeout(r, 300));
         await loadBoard();
       }
-      setSimulationError(result.reason ?? null);
+      setSimulationError(result.rejected > 0 ? (result.reason ?? null) : null);
       return result;
     } finally {
       setIsSimTriggerPending(false);
     }
-  }, [isKitchen, menuItems, capacity.isOverloaded, loadBoard]);
+}, [isKitchen, loadBoard]);
 
   return {
     orders, completedOrders, boardData, loading, error,

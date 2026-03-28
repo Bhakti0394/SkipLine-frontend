@@ -1,4 +1,4 @@
-import { useState, useCallback, ReactNode } from 'react';
+import { useState, useCallback, ReactNode, memo, useMemo, useEffect, useRef } from 'react';
 import { Order } from '../../../kitchen-types/order';
 import '../styles/Completedorders.scss';
 
@@ -11,15 +11,17 @@ function toDate(v: Date | string | undefined | null): Date | null {
 }
 
 function getElapsed(o: Order): number {
-  const start = toDate(o.startedAt ?? o.createdAt);
+  // prefer backend-computed elapsedMinutes (cook time only, excludes queue wait)
+  const v = Number(o.elapsedMinutes);
+  if (isFinite(v) && v > 0) return v;
+  // fallback: derive from cookingStartedAt → completedAt only (not createdAt)
+  const start = toDate((o as any).startedAt);
   const end   = toDate(o.completedAt);
   if (start && end) {
     const ms = end.getTime() - start.getTime();
-    if (ms > 0 && ms < 8 * 60 * 60 * 1000) return ms / 60_000;
+    if (ms > 0 && ms < 24 * 60 * 60 * 1000) return ms / 60_000;
   }
-  const v = Number(o.elapsedMinutes);
-  if (!isFinite(v) || v <= 0) return 0;
-  return v > 600 ? v / 60 : v; // >600 → seconds, convert
+  return 0;
 }
 
 function fmtMin(m: number) {
@@ -136,31 +138,42 @@ function OrderRow({ order, open, onToggle }: { order: Order; open: boolean; onTo
 // ─── Main ─────────────────────────────────────────────────────────────────────
 type SortKey = 'recent' | 'fastest' | 'slowest';
 
-export function CompletedOrders({ orders }: { orders: Order[] }) {
+export const CompletedOrders = memo(function CompletedOrders({ orders }: { orders: Order[] }) {
   const [search, setSearch] = useState('');
   const [sort,   setSort]   = useState<SortKey>('recent');
   const [filter, setFilter] = useState('All');
   const [openId, setOpenId] = useState<string | null>(null);
-  const toggle = useCallback((id: string) => setOpenId(p => p === id ? null : id), []);
+ const toggle = useCallback((id: string) => setOpenId(p => p === id ? null : id), []);
 
-  const m     = calcMetrics(orders);
-  const types = ['All', ...Array.from(new Set(orders.map(o => o.orderType))).sort()];
+  const prevLengthRef = useRef(orders.length);
+  useEffect(() => {
+    if (orders.length !== prevLengthRef.current) {
+      prevLengthRef.current = orders.length;
+      setOpenId(null);
+    }
+  }, [orders]);
 
-  let list = [...orders]
-    .sort((a, b) => (toDate(b.completedAt)?.getTime() ?? 0) - (toDate(a.completedAt)?.getTime() ?? 0))
-    .filter(o => filter === 'All' || o.orderType === filter)
-    .filter(o => {
-      const q = search.toLowerCase();
-      if (!q) return true;
-      return (
-        o.orderNumber.toLowerCase().includes(q) ||
-        (o.assignedTo ?? '').toLowerCase().includes(q) ||
-        o.items.some(i => i.name.toLowerCase().includes(q))
-      );
-    });
+  const { types, list, m } = useMemo(() => {
+    const types = ['All', ...Array.from(new Set(orders.map(o => o.orderType))).sort()];
 
-  if (sort === 'fastest') list.sort((a, b) => getElapsed(a) - getElapsed(b));
-  if (sort === 'slowest') list.sort((a, b) => getElapsed(b) - getElapsed(a));
+    let list = [...orders]
+      .sort((a, b) => (toDate(b.completedAt)?.getTime() ?? 0) - (toDate(a.completedAt)?.getTime() ?? 0))
+      .filter(o => filter === 'All' || o.orderType === filter)
+      .filter(o => {
+        const q = search.toLowerCase();
+        if (!q) return true;
+        return (
+          o.orderNumber.toLowerCase().includes(q) ||
+          (o.assignedTo ?? '').toLowerCase().includes(q) ||
+          o.items.some(i => i.name.toLowerCase().includes(q))
+        );
+      });
+
+    if (sort === 'fastest') list.sort((a, b) => getElapsed(a) - getElapsed(b));
+    if (sort === 'slowest') list.sort((a, b) => getElapsed(b) - getElapsed(a));
+
+    return { types, list, m: calcMetrics(list) };
+  }, [orders, filter, search, sort]);
 
   return (
     <div className="co-panel">
@@ -244,6 +257,6 @@ export function CompletedOrders({ orders }: { orders: Order[] }) {
 
     </div>
   );
-}
+});
 
 export default CompletedOrders;

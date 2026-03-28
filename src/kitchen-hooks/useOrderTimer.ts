@@ -20,6 +20,8 @@ const SERVER_TIME_URL =
 let serverClockOffsetMs = 0;
 let clockSyncPending    = false;
 let clockSyncDone       = false;
+let lastSyncSuccessAt   = 0;
+const SYNC_RETRY_COOLDOWN_MS = 60_000;
 
 function getAuthHeader(): HeadersInit {
   const token = localStorage.getItem('auth_token');
@@ -28,6 +30,8 @@ function getAuthHeader(): HeadersInit {
 
 async function syncServerClock(): Promise<void> {
   if (clockSyncPending) return;
+  // If last sync succeeded recently, skip — but always allow retry after failure
+  if (clockSyncDone && Date.now() - lastSyncSuccessAt < SYNC_RETRY_COOLDOWN_MS) return;
   clockSyncPending = true;
   try {
     const t0  = Date.now();
@@ -39,15 +43,16 @@ async function syncServerClock(): Promise<void> {
     if (!res.ok) return;
     const { serverTimeMs }: { serverTimeMs: number } = await res.json();
     serverClockOffsetMs = serverTimeMs - (t0 + (t1 - t0) / 2);
-    clockSyncDone = true;
+    clockSyncDone     = true;
+    lastSyncSuccessAt = Date.now(); // only stamp on success — failure stays retryable
   } catch {
     serverClockOffsetMs = 0;
+    // Do NOT set lastSyncSuccessAt — allows retry on next visibility change
     clockSyncDone = true;
   } finally {
     clockSyncPending = false;
   }
 }
-
 export function serverNow(): number {
   return Date.now() + serverClockOffsetMs;
 }
@@ -60,7 +65,13 @@ let   globalInterval: ReturnType<typeof setInterval> | null = null;
 
 function subscribeToTick(cb: TickCallback): () => void {
   tickSubscribers.add(cb);
-  if (!globalInterval) {
+  // Guard: only start interval when first real subscriber is added.
+  // In React StrictMode, effects run twice — the cleanup of the first
+  // run sets globalInterval = null, so the second run finds no interval
+  // and creates exactly one. Without this size check, a double-add with
+  // an existing interval would skip creation — but the size===1 guard
+  // ensures we only ever create the interval on the very first subscriber.
+  if (!globalInterval && tickSubscribers.size === 1) {
     globalInterval = setInterval(() => {
       const now = serverNow();
       tickSubscribers.forEach(fn => fn(now));
@@ -209,14 +220,17 @@ function resolvePickupSlotMs(order: Order): number | null {
   return isNaN(parsed.getTime()) ? null : parsed.getTime();
 }
 
-function resolveReadyAnchorMs(order: Order, mountTimeMs: number): number {
+function resolveReadyAnchorMs(order: Order, _mountTimeMs: number): number {
   const o       = order as any;
   const readyAt = toMs(o.readyAt);
   if (readyAt !== null) return readyAt;
   const placedAtMs = toMs(order.createdAt);
   const prepMs     = (order.estimatedPrepTime ?? 0) * 60 * 1000;
   if (placedAtMs !== null && prepMs > 0) return placedAtMs + prepMs;
-  return mountTimeMs;
+  // Use server time at the moment of first render for this ready order
+  // instead of hook mount time — mount may predate the READY transition
+  // by minutes, which would inflate the elapsed timer on first render.
+  return serverNow();
 }
 
 // ─── Format utilities (exported for OrderTimer.tsx) ───────────────────────────

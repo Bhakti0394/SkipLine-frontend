@@ -2,7 +2,7 @@
 // src/components/KitchenDashboard/dashboard/OrderQueue.tsx
 // ============================================================
 
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import { AlertTriangle, Zap, Users, Clock, ChefHat, CheckCircle2 } from 'lucide-react';
 import { Order, OrderStatus } from '../../../kitchen-types/order';
 import { StaffWorkloadDto, SlotCapacityDto } from '../../../kitchen-api/kitchenApi';
@@ -42,21 +42,45 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
   onStatusChange: (id: string, status: OrderStatus) => Promise<void>;
   onAssignChef?:  (id: string, chefId: string) => Promise<void>;
 }) {
+  const [selected,   setSelected]   = useState('');
+  const [assigning,  setAssigning]  = useState(false);
+  const [assignErr,  setAssignErr]  = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelected('');
+    setAssignErr(null);
+  }, [order.id, order.assignedTo]);
+
   const isOverdue = order.status === 'cooking'
     && order.elapsedMinutes != null
     && order.estimatedPrepTime != null
     && order.elapsedMinutes > order.estimatedPrepTime;
 
+  const isScheduledLocked = order.orderType === 'scheduled' && order.status === 'pending' && !order.assignedTo;
   const isUnassigned   = !order.assignedTo && order.status === 'pending';
   const delayMin       = isOverdue
     ? Math.round((order.elapsedMinutes ?? 0) - (order.estimatedPrepTime ?? 0))
     : 0;
   const availableChefs = staff.filter(s => s.onShift && s.status !== 'full');
 
-  // FIX: replaced garbled UTF-8 sequences with correct emoji characters
   const orderTypeEmoji =
     order.orderType === 'express'   ? '⚡' :
     order.orderType === 'scheduled' ? '📅' : '●';
+
+  const handleAssign = async (chefId: string) => {
+    if (!chefId || !onAssignChef || assigning) return;
+    setAssigning(true);
+    setAssignErr(null);
+    try {
+      await onAssignChef(order.id, chefId);
+      setSelected('');
+    } catch (e: any) {
+      setAssignErr(e?.message ?? 'Assign failed');
+      setSelected('');
+    } finally {
+      setAssigning(false);
+    }
+  };
 
   return (
     <div className={`oq-card oq-card--${isOverdue ? 'overdue' : 'unassigned'}`}>
@@ -67,8 +91,8 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
             {orderTypeEmoji} {order.orderType}
           </span>
         </div>
-        <span className={`oq-card__badge oq-card__badge--${isOverdue ? 'overdue' : 'unassigned'}`}>
-          {isOverdue ? `+${delayMin}m overdue` : 'Unassigned'}
+        <span className={`oq-card__badge oq-card__badge--${isOverdue ? 'overdue' : isScheduledLocked ? 'scheduled' : 'unassigned'}`}>
+          {isOverdue ? `+${delayMin}m overdue` : isScheduledLocked ? 'Pre-booked — assign chef' : 'Unassigned'}
         </span>
       </div>
 
@@ -92,18 +116,24 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
           </button>
         )}
         {isUnassigned && availableChefs.length > 0 && (
-          <select
-            className="oq-select"
-            defaultValue=""
-            onChange={e => { if (e.target.value && onAssignChef) onAssignChef(order.id, e.target.value); }}
-          >
-            <option value="" disabled>Assign chef</option>
-            {availableChefs.map(c => (
-              <option key={c.chefId} value={c.chefId}>
-                {c.name} ({c.activeOrders}/{c.maxCapacity})
-              </option>
-            ))}
-          </select>
+          <>
+            <select
+              className="oq-select"
+              value={selected}
+              disabled={assigning}
+              onChange={e => { setSelected(e.target.value); handleAssign(e.target.value); }}
+            >
+              <option value="" disabled>Assign chef</option>
+              {availableChefs.map(c => (
+                <option key={c.chefId} value={c.chefId}>
+                  {c.name} ({c.activeOrders}/{c.maxCapacity})
+                </option>
+              ))}
+            </select>
+            {assignErr && (
+              <span className="oq-card__no-chef" style={{ color: '#ef4444' }}>{assignErr}</span>
+            )}
+          </>
         )}
         {isUnassigned && availableChefs.length === 0 && (
           <span className="oq-card__no-chef">No chefs available</span>
@@ -112,10 +142,11 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
     </div>
   );
 }
-
 // -- Chef bar --
 function ChefBar({ chef }: { chef: StaffWorkloadDto }) {
-  const pct   = Math.min(100, Math.round((chef.activeOrders / chef.maxCapacity) * 100));
+ const pct   = chef.maxCapacity > 0
+    ? Math.min(100, Math.round((chef.activeOrders / chef.maxCapacity) * 100))
+    : 0;
   const state = chef.status === 'full' ? 'full' : chef.status === 'busy' ? 'busy' : 'free';
 
   return (
@@ -149,6 +180,7 @@ export function OrderQueue({
 }: OrderQueueProps) {
   const activeOrders = useMemo(() => orders.filter(o => o.status !== 'completed'), [orders]);
 
+ // AFTER — correct, self-contained:
   const attentionOrders = useMemo(() => {
     const overdue = activeOrders.filter(o =>
       o.status === 'cooking' &&
@@ -156,23 +188,29 @@ export function OrderQueue({
       o.estimatedPrepTime != null &&
       o.elapsedMinutes > o.estimatedPrepTime
     );
-    const unassigned = [...activeOrders.filter(o => o.status === 'pending' && !o.assignedTo)]
+  const unassigned = activeOrders
+      .filter(o => o.status === 'pending' && !o.assignedTo && o.orderType !== 'scheduled')
       .sort((a, b) => {
-        if (a.orderType === 'express' && b.orderType !== 'express') return -1;
-        if (b.orderType === 'express' && a.orderType !== 'express') return 1;
-        return 0;
+        const w = (a.orderType === 'express' ? 0 : 1) - (b.orderType === 'express' ? 0 : 1);
+        if (w !== 0) return w;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       });
-    return [...overdue, ...unassigned];
-  }, [activeOrders]);
+    return [...overdue, ...unassigned];  // ← this line was missing
+  }, [activeOrders]);                    // ← closing was missing
 
   const expressQueued  = useMemo(() => activeOrders.filter(o => o.orderType === 'express' && o.status === 'pending').length, [activeOrders]);
   const activeChefs    = useMemo(() => staff.filter(s => s.onShift), [staff]);
   const availableChefs = useMemo(() => activeChefs.filter(s => s.status !== 'full').length, [activeChefs]);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const timelineSlots = useMemo(() => {
     const now = Date.now();
     return upcomingSlots.filter(s => new Date(s.slotTime).getTime() > now).slice(0, 4);
-  }, [upcomingSlots]);
+  }, [upcomingSlots, tick]);
 
   return (
     <div className="order-queue">
@@ -269,7 +307,7 @@ export function OrderQueue({
               const pressure = slotPressure(slot);
               const fillPct  = Math.round((slot.currentBookings / slot.maxCapacity) * 100);
               return (
-                <div key={slot.id} className="order-queue__timeline-row">
+               <div key={slot.slotId} className="order-queue__timeline-row">
                   <span className="order-queue__timeline-time">{formatSlotTime(slot.slotTime)}</span>
                   <div className="order-queue__timeline-track">
                     <div

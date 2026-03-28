@@ -5,6 +5,7 @@
 // status values from StaffWorkloadDto: 'available' | 'busy' | 'full'
 // 'break' does not exist in backend — CoffeeIcon removed entirely.
 
+import { memo, useMemo } from 'react';
 import { StaffWorkloadDto } from '../../../kitchen-api/kitchenApi';
 import '../styles/Chefstations.scss';
 
@@ -44,7 +45,7 @@ interface ChefStationsProps {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function ChefStations({
+export const ChefStations = memo(function ChefStations({
   staff,
   onRemoveChef,
   onActivateChef,
@@ -52,10 +53,11 @@ export function ChefStations({
   activatingId,
 }: ChefStationsProps) {
 
-  const activeStaff = staff.filter(s => s.onShift);
-  const backupStaff = staff.filter(s => !s.onShift);
+  // Hooks MUST come before any conditional return — Rules of Hooks
+  const activeStaff = useMemo(() => staff.filter(s => s.onShift),  [staff]);
+  const backupStaff = useMemo(() => staff.filter(s => !s.onShift), [staff]);
 
-  // Empty state
+  // Empty state — safe to return after hooks
   if (staff.length === 0) {
     return (
       <div className="chef-stations">
@@ -191,6 +193,6 @@ export function ChefStations({
 
     </div>
   );
-}
+});
 
 export default ChefStations;
