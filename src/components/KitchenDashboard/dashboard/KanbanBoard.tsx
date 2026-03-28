@@ -7,7 +7,7 @@ import {
   DragDropContext, Droppable, Draggable,
   DropResult, DragStart,
 } from '@hello-pangea/dnd';
-import { AnimatePresence } from 'framer-motion';
+
 import { Clock, ChefHat, CheckCircle2, User, Lock, Calendar, AlertTriangle } from 'lucide-react';
 import { OrderTimer } from './OrderTimer';
 import {
@@ -119,9 +119,6 @@ function ScheduledLockBadge() {
 }
 
 function ScheduledInfoBanner({ pickupTime }: { pickupTime: string }) {
-  // Resolve a human-readable pickup label:
-  // TBD / empty → "tomorrow" (scheduled = placed today, pickup tomorrow)
-  // Any real time string → show it directly
   const pickupLabel = (!pickupTime || pickupTime === 'TBD' || pickupTime === '—')
     ? 'tomorrow'
     : pickupTime;
@@ -202,13 +199,8 @@ function CookingCardInner({
 
   const hasChef = !!(order.assignedChefId || order.assignedTo);
 
-  // FIX: Block "Mark Ready" rules:
-  //   1. Always blocked during API call (isPending)
-  //   2. Blocked when no chef assigned — nobody cooked it
-  //   3. Blocked while timer is still counting down (eta > 0, cookingState === 'cooking')
-  //      → enabled only when timer expires (isOverdue) = food is actually done
-  const isStillCooking   = !isOverdue && eta > 0;
-  const isButtonBlocked  = isPending || !hasChef || isStillCooking;
+  const isStillCooking  = !isOverdue && eta > 0;
+  const isButtonBlocked = isPending || !hasChef || isStillCooking;
 
   const btnStyle: React.CSSProperties = (() => {
     if (isPending) return {
@@ -224,13 +216,11 @@ function CookingCardInner({
       fontWeight: 600, cursor: 'not-allowed',
     };
     if (isStillCooking) return {
-      // Cooking — timer still running, button locked
       background: 'rgba(100,116,139,0.10)',
       color:      'rgba(148,163,184,0.40)',
       border:     '1px solid rgba(100,116,139,0.15)',
       fontWeight: 600, cursor: 'not-allowed',
     };
-    // Overdue — timer expired, button active
     return {
       background: '#dc2626',
       color:      '#ffffff',
@@ -277,7 +267,7 @@ function CookingCardInner({
         <OrderTypeBadge orderType={order.orderType ?? 'normal'} />
       </div>
 
-      {/* Row 2: Customer • Pickup time — always visible */}
+      {/* Row 2: Customer • Pickup time */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: '0.22rem',
         fontSize: '0.66rem', color: 'rgba(148,163,184,0.85)', minWidth: 0,
@@ -331,7 +321,7 @@ function CookingCardInner({
         )}
       </div>
 
-      {/* Row 4: Chef chip OR warning + assign dropdown (if no chef) */}
+      {/* Row 4: Chef chip OR warning + assign dropdown */}
       {hasChef ? (
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: '0.28rem',
@@ -346,7 +336,6 @@ function CookingCardInner({
           </span>
         </div>
       ) : (
-        // No chef in cooking state — show assign dropdown (edge case / race condition)
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.22rem' }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: '0.28rem',
@@ -360,7 +349,6 @@ function CookingCardInner({
             <AlertTriangle style={{ width: '0.6rem', height: '0.6rem', flexShrink: 0 }} />
             No chef assigned — assign to enable Mark Ready
           </div>
-          {/* Allow assigning chef even in cooking state to unblock the order */}
           {assignableChefs.length > 0 && (
             <Select value="" onValueChange={(val) => { if (val && val !== '__none__') onChefChange(val); }}>
               <SelectTrigger style={{
@@ -502,16 +490,37 @@ const MAX_PENDING_MS = 15_000;
 
 // ── KanbanBoard ────────────────────────────────────────────────────────────────
 
-export const KanbanBoard = React.memo(function KanbanBoard({
+export function KanbanBoard({
   orders, staff, readyCountdowns = {}, onStatusChange, onChefAssign, columnRefs = {},
 }: KanbanBoardProps) {
   const safeOrders = orders ?? [];
 
-  // ── Pending API set ──────────────────────────────────────────────────────────
+  // ── Refs — all grouped at the top ───────────────────────────────────────────
   const pendingIdsRef    = useRef<Set<string>>(new Set());
   const pendingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const [pendingOrderIds, setPendingOrderIds] = useState<Set<string>>(new Set());
+  // FIX: moved ordersRef here with all other refs (was misplaced mid-function body)
+  const ordersRef        = useRef(safeOrders);
+  const cookingStateRef  = useRef<Record<string, CookingState>>({});
 
+  // ── State ────────────────────────────────────────────────────────────────────
+  const [pendingOrderIds, setPendingOrderIds] = useState<Set<string>>(new Set());
+  const [draggingOrder,   setDraggingOrder]   = useState<Order | null>(null);
+
+  // ── Keep ordersRef current ───────────────────────────────────────────────────
+  useEffect(() => { ordersRef.current = safeOrders; }, [safeOrders]);
+
+  // ── Inject keyframe CSS once ─────────────────────────────────────────────────
+  // FIX: moved before all other useEffects so hook call order is consistent
+  useEffect(() => {
+    if (document.querySelector('style[data-kanban="keyframes"]')) return;
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('data-kanban', 'keyframes');
+    styleEl.textContent = KEYFRAMES;
+    document.head.appendChild(styleEl);
+    return () => { styleEl.remove(); };
+  }, []);
+
+  // ── Pending API set ──────────────────────────────────────────────────────────
   const setOrderPending = useCallback((id: string, val: boolean) => {
     if (val) {
       pendingIdsRef.current.add(id);
@@ -533,6 +542,7 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     setPendingOrderIds(new Set(pendingIdsRef.current));
   }, []);
 
+  // Clean up pending state for orders that have left the board
   useEffect(() => {
     const orderIdSet = new Set(safeOrders.map(o => o.id));
     let changed = false;
@@ -549,6 +559,7 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     if (changed) setPendingOrderIds(new Set(pendingIdsRef.current));
   }, [safeOrders]);
 
+  // Clean up all pending timers on unmount
   useEffect(() => {
     return () => {
       for (const id of Object.keys(pendingTimersRef.current)) {
@@ -558,12 +569,7 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     };
   }, []);
 
-  // ── Drag tracking ────────────────────────────────────────────────────────────
-  const [draggingOrder, setDraggingOrder] = useState<Order | null>(null);
-
-  // ── Cooking state tracking ───────────────────────────────────────────────────
-  const cookingStateRef = useRef<Record<string, CookingState>>({});
-
+  // Clean up cooking state for orders no longer cooking
   useEffect(() => {
     const cookingIds = new Set(
       safeOrders.filter(o => o.status === 'cooking').map(o => o.id)
@@ -605,13 +611,13 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     setDraggingOrder(safeOrders.find(o => o.id === start.draggableId) ?? null);
   }, [safeOrders]);
 
+  // FIX: added missing semicolon after closing paren of useCallback
   const handleDragEnd = useCallback(async (result: DropResult) => {
     setDraggingOrder(null);
     if (!result.destination) return;
-
     const orderId   = result.draggableId;
     const newStatus = result.destination.droppableId as OrderStatus;
-    const order     = safeOrders.find(o => o.id === orderId);
+    const order     = ordersRef.current.find(o => o.id === orderId); // always fresh
     if (!order || order.status === newStatus) return;
 
     if (order.status === 'cooking' && newStatus === 'ready') {
@@ -638,7 +644,7 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     } finally {
       setOrderPending(orderId, false);
     }
-  }, [safeOrders, onStatusChange, setOrderPending]);
+  }, [onStatusChange, setOrderPending]);
 
   // ── Card action handlers ─────────────────────────────────────────────────────
   const handleCardAction = useCallback(async (orderId: string, newStatus: OrderStatus) => {
@@ -663,279 +669,283 @@ export const KanbanBoard = React.memo(function KanbanBoard({
     }
   }, [onChefAssign, setOrderPending]);
 
+  // FIX: moved makeCookingChefHandler after handleChefAssign (correct dependency order)
+ const cookingChefHandlers = useMemo(() => {
+    const map: Record<string, (value: string) => void> = {};
+    for (const order of ordersByStatus.cooking) {
+      map[order.id] = (value: string) => {
+        if (!value || value === '__none__') return;
+        handleChefAssign(order.id, value);
+      };
+    }
+    return map;
+  }, [ordersByStatus.cooking, handleChefAssign]);
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <>
-      <style>{KEYFRAMES}</style>
-      <div className="kanban-wrapper">
-        <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="kanban-board">
-            {columns.map((column) => {
-              const columnOrders     = ordersByStatus[column.status];
-              const Icon             = column.icon;
-              const isDragActive     = draggingOrder !== null;
-              const isSource         = isDragActive && draggingOrder!.status === column.status;
-              const draggingIsLocked = isDragActive && isScheduledAndLocked(draggingOrder!);
-              const isValidTarget    = isDragActive && !isSource && !draggingIsLocked
-                && isValidDrop(draggingOrder!.status, column.status);
-              const isInvalid        = isDragActive && !isSource
-                && (draggingIsLocked || !isValidTarget);
+    // FIX: removed unnecessary extra outer wrapper div — single kanban-wrapper is enough
+    <div className="kanban-wrapper">
+      <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="kanban-board">
+          {columns.map((column) => {
+            const columnOrders     = ordersByStatus[column.status];
+            const Icon             = column.icon;
+            const isDragActive     = draggingOrder !== null;
+            const isSource         = isDragActive && draggingOrder!.status === column.status;
+            const draggingIsLocked = isDragActive && isScheduledAndLocked(draggingOrder!);
+            const isValidTarget    = isDragActive && !isSource && !draggingIsLocked
+              && isValidDrop(draggingOrder!.status, column.status);
+            const isInvalid        = isDragActive && !isSource
+              && (draggingIsLocked || !isValidTarget);
 
-              return (
-                <div
-                  key={column.status}
-                  ref={columnRefs[column.status]}
-                  className={[
-                    'kanban-column',
-                    `kanban-column--${column.color}`,
-                    isSource      ? 'kanban-column--source'         : '',
-                    isValidTarget ? 'kanban-column--valid-target'   : '',
-                    isInvalid     ? 'kanban-column--invalid-target' : '',
-                  ].filter(Boolean).join(' ')}
-                >
-                  <div className="kanban-column__header">
-                    <div className="kanban-column__title">
-                      <Icon className={`kanban-column__icon kanban-column__icon--${column.status}`} />
-                      <h3 className="kanban-column__label">{column.label}</h3>
-                    </div>
-                    <span className={`kanban-column__badge kanban-column__badge--${column.status}`}>
-                      {columnOrders.length}
-                    </span>
+            return (
+              <div
+                key={column.status}
+                ref={columnRefs[column.status]}
+                className={[
+                  'kanban-column',
+                  `kanban-column--${column.color}`,
+                  isSource      ? 'kanban-column--source'         : '',
+                  isValidTarget ? 'kanban-column--valid-target'   : '',
+                  isInvalid     ? 'kanban-column--invalid-target' : '',
+                ].filter(Boolean).join(' ')}
+              >
+                <div className="kanban-column__header">
+                  <div className="kanban-column__title">
+                    <Icon className={`kanban-column__icon kanban-column__icon--${column.status}`} />
+                    <h3 className="kanban-column__label">{column.label}</h3>
                   </div>
+                  <span className={`kanban-column__badge kanban-column__badge--${column.status}`}>
+                    {columnOrders.length}
+                  </span>
+                </div>
 
-                  <Droppable droppableId={column.status}>
-                    {(provided, snapshot) => (
-                      <div
-                        ref={provided.innerRef}
-                        {...provided.droppableProps}
-                        className={[
-                          'kanban-column__content',
-                          snapshot.isDraggingOver ? 'kanban-column__content--dragging'     : '',
-                          isInvalid               ? 'kanban-column__content--drop-invalid' : '',
-                          isValidTarget           ? 'kanban-column__content--drop-valid'   : '',
-                        ].filter(Boolean).join(' ')}
-                      >
-                        <AnimatePresence>
-                          {columnOrders.map((order, index) => {
-                            const isPending = pendingOrderIds.has(order.id);
+                <Droppable droppableId={column.status}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      className={[
+                        'kanban-column__content',
+                        snapshot.isDraggingOver ? 'kanban-column__content--dragging-over' : '',
+                        isInvalid               ? 'kanban-column__content--drop-invalid' : '',
+                        isValidTarget           ? 'kanban-column__content--drop-valid'   : '',
+                      ].filter(Boolean).join(' ')}
+                    >
+                      {columnOrders.map((order, index) => {
+                        const isPending = pendingOrderIds.has(order.id);
 
-                            // ── COOKING COLUMN ────────────────────────────────
-                            if (column.status === 'cooking') {
-                              return (
-                                <CookingDraggableCard
-                                  key={order.id}
-                                  order={order}
-                                  index={index}
-                                  isPending={isPending}
-                                  assignableChefs={assignableChefs}
-                                  onStateChange={handleCookingStateChange}
-                                  onAction={() => handleCardAction(order.id, 'ready')}
-                                  onChefChange={(value) => {
-                                    if (!value || value === '__none__') return;
-                                    handleChefAssign(order.id, value);
-                                  }}
-                                />
-                              );
-                            }
+                        // ── COOKING COLUMN ──────────────────────────────────
+                        if (column.status === 'cooking') {
+                          return (
+                            <CookingDraggableCard
+                              key={order.id}
+                              order={order}
+                              index={index}
+                              isPending={isPending}
+                              assignableChefs={assignableChefs}
+                              onStateChange={handleCookingStateChange}
+                              onAction={() => handleCardAction(order.id, 'ready')}
+                             onChefChange={cookingChefHandlers[order.id] ?? (() => {})}
+                            />
+                          );
+                        }
 
-                            // ── QUEUE & READY COLUMNS ─────────────────────────
-                            const countdown       = readyCountdowns[order.id];
-                            const countdownUrgent = countdown !== undefined && countdown <= 5;
+                        // ── QUEUE & READY COLUMNS ───────────────────────────
+                        const countdown       = readyCountdowns[order.id];
+                        const countdownUrgent = countdown !== undefined && countdown <= 5;
 
-                            const nextStatusMap: Partial<Record<OrderStatus, OrderStatus>> = {
-                              pending: 'cooking',
-                              ready:   'completed',
-                            };
-                            const actionLabelMap: Partial<Record<OrderStatus, string>> = {
-                              pending: 'Start Cooking',
-                              ready:   'Complete',
-                            };
-                            const nextStatus      = nextStatusMap[order.status];
-                            const actionLabel     = actionLabelMap[order.status];
-                            const scheduledLocked = isScheduledAndLocked(order);
+                        const nextStatusMap: Partial<Record<OrderStatus, OrderStatus>> = {
+                          pending: 'cooking',
+                          ready:   'completed',
+                        };
+                        const actionLabelMap: Partial<Record<OrderStatus, string>> = {
+                          pending: 'Start Cooking',
+                          ready:   'Complete',
+                        };
+                        const nextStatus      = nextStatusMap[order.status];
+                        const actionLabel     = actionLabelMap[order.status];
+                        const scheduledLocked = isScheduledAndLocked(order);
 
-                            return (
-                              <Draggable
-                                key={order.id}
-                                draggableId={order.id}
-                                index={index}
-                                isDragDisabled={isPending || scheduledLocked}
+                        return (
+                          <Draggable
+                            key={order.id}
+                            draggableId={order.id}
+                            index={index}
+                            isDragDisabled={isPending || scheduledLocked}
+                          >
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                style={{
+                                  ...provided.draggableProps.style,
+                                  ...(scheduledLocked ? {
+                                    animation: 'scheduledGlow 3s ease-in-out infinite',
+                                    cursor: 'default',
+                                  } : {}),
+                                }}
+                                className={[
+                                  'order-card',
+                                  snapshot.isDragging   ? 'order-card--dragging'        : '',
+                                  `order-card--${order.orderType}`,
+                                  isPending             ? 'order-card--pending-api'      : '',
+                                  scheduledLocked       ? 'order-card--scheduled-locked' : '',
+                                ].filter(Boolean).join(' ')}
                               >
-                                {(provided, snapshot) => (
-                                  <div
-                                    ref={provided.innerRef}
-                                    {...provided.draggableProps}
-                                    {...provided.dragHandleProps}
-                                    style={{
-                                      ...provided.draggableProps.style,
-                                      ...(scheduledLocked ? {
-                                        animation: 'scheduledGlow 3s ease-in-out infinite',
-                                        cursor: 'default',
-                                      } : {}),
-                                    }}
-                                    className={[
-                                      'order-card',
-                                      snapshot.isDragging   ? 'order-card--dragging'        : '',
-                                      `order-card--${order.orderType}`,
-                                      isPending             ? 'order-card--pending-api'      : '',
-                                      scheduledLocked       ? 'order-card--scheduled-locked' : '',
-                                    ].filter(Boolean).join(' ')}
-                                  >
-                                    <div className="order-card__header">
-                                      <div className="order-card__header-left">
-                                        <span className="order-card__number" title={order.orderNumber}>
-                                          {order.orderNumber}
-                                        </span>
-                                        <OrderTypeBadge orderType={order.orderType ?? 'normal'} />
-                                        {scheduledLocked && <ScheduledLockBadge />}
-                                      </div>
-                                      <div className="order-card__meta">
-                                        {order.status === 'ready' && countdown !== undefined && (
-                                          <span className={[
-                                            'order-card__countdown',
-                                            countdownUrgent ? 'order-card__countdown--urgent' : '',
-                                          ].filter(Boolean).join(' ')}>
-                                            ✓ {countdown}s
-                                          </span>
-                                        )}
-                                        <OrderTimer order={order} compact />
-                                      </div>
-                                    </div>
-
-                                    {/* FIX: Pickup time always visible — removed display:none media queries */}
-                                    <div className="order-card__customer">
-                                      <User className="order-card__customer-icon" />
-                                      <span className="order-card__customer-name">
-                                        {order.customerName}
+                                <div className="order-card__header">
+                                  <div className="order-card__header-left">
+                                    <span className="order-card__number" title={order.orderNumber}>
+                                      {order.orderNumber}
+                                    </span>
+                                    <OrderTypeBadge orderType={order.orderType ?? 'normal'} />
+                                    {scheduledLocked && <ScheduledLockBadge />}
+                                  </div>
+                                  <div className="order-card__meta">
+                                    {order.status === 'ready' && countdown !== undefined && (
+                                      <span className={[
+                                        'order-card__countdown',
+                                        countdownUrgent ? 'order-card__countdown--urgent' : '',
+                                      ].filter(Boolean).join(' ')}>
+                                        ✓ {countdown}s
                                       </span>
-                                      <span className="order-card__separator">•</span>
-                                      <Clock className="order-card__time-icon" />
-                                      {order.pickupTime === 'ASAP' ? (
-                                        <span className="order-card__time" style={{ color: '#fb923c', fontWeight: 700 }}>ASAP</span>
-                                      ) : order.pickupTime === 'TBD' || !order.pickupTime ? (
-                                        <span className="order-card__time" style={{ color: '#6ee7b7', fontWeight: 600 }}>
-                                          {order.orderType === 'scheduled' ? 'Tomorrow' : 'TBD'}
-                                        </span>
-                                      ) : (
-                                        <span className="order-card__time">{order.pickupTime}</span>
-                                      )}
-                                    </div>
-
-                                    {scheduledLocked && (
-                                      <ScheduledInfoBanner pickupTime={order.pickupTime} />
                                     )}
+                                    <OrderTimer order={order} compact />
+                                  </div>
+                                </div>
 
-                                    <div className="order-card__items">
-                                      {order.items.slice(0, 2).map((item) => (
-                                        <div key={item.id} className="order-card__item">
-                                          <span className="order-card__item-quantity">
-                                            {item.quantity}×
-                                          </span>
-                                          <span className="order-card__item-name">{item.name}</span>
-                                        </div>
-                                      ))}
-                                      {order.items.length > 2 && (
-                                        <span className="order-card__items-more">
-                                          +{order.items.length - 2} more
-                                        </span>
-                                      )}
+                                <div className="order-card__customer">
+                                  <User className="order-card__customer-icon" />
+                                  <span className="order-card__customer-name">
+                                    {order.customerName}
+                                  </span>
+                                  <span className="order-card__separator">•</span>
+                                  <Clock className="order-card__time-icon" />
+                                  {order.pickupTime === 'ASAP' ? (
+                                    <span className="order-card__time" style={{ color: '#fb923c', fontWeight: 700 }}>ASAP</span>
+                                  ) : order.pickupTime === 'TBD' || !order.pickupTime ? (
+                                    <span className="order-card__time" style={{ color: '#6ee7b7', fontWeight: 600 }}>
+                                      {order.orderType === 'scheduled' ? 'Tomorrow' : 'TBD'}
+                                    </span>
+                                  ) : (
+                                    <span className="order-card__time">{order.pickupTime}</span>
+                                  )}
+                                </div>
+
+                                {scheduledLocked && (
+                                  <ScheduledInfoBanner pickupTime={order.pickupTime} />
+                                )}
+
+                                <div className="order-card__items">
+                                  {order.items.slice(0, 2).map((item) => (
+                                    <div key={item.id} className="order-card__item">
+                                      <span className="order-card__item-quantity">
+                                        {item.quantity}×
+                                      </span>
+                                      <span className="order-card__item-name">{item.name}</span>
                                     </div>
+                                  ))}
+                                  {order.items.length > 2 && (
+                                    <span className="order-card__items-more">
+                                      +{order.items.length - 2} more
+                                    </span>
+                                  )}
+                                </div>
 
-                                    {column.status === 'pending' && (
-                                      <div className="order-card__chef-row">
-                                        {(order.assignedTo || order.assignedChefId) ? (
-                                          <div style={{
-                                            display: 'inline-flex', alignItems: 'center',
-                                            gap: '0.3rem', padding: '0.2rem 0.5rem',
-                                            borderRadius: '0.3rem', fontSize: '0.68rem',
-                                            fontWeight: 500,
-                                            background: 'rgba(99,102,241,0.10)',
-                                            border: '1px solid rgba(99,102,241,0.25)',
-                                            color: '#a5b4fc',
-                                          }}>
-                                            <ChefHat style={{ width: '0.65rem', height: '0.65rem', flexShrink: 0 }} />
-                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                              {order.assignedTo ?? 'Chef assigned'}
-                                            </span>
-                                          </div>
-                                        ) : (
-                                          <Select
-                                            value=""
-                                            onValueChange={(value) => {
-                                              if (!value || value === '__none__') return;
-                                              handleChefAssign(order.id, value);
-                                            }}
-                                          >
-                                            <SelectTrigger
-                                              className="order-card__chef-select"
-                                              disabled={isPending}
-                                            >
-                                              <SelectValue
-                                                placeholder={isPending ? 'Updating…' : 'Assign chef…'}
-                                              />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                              {assignableChefs.length === 0 ? (
-                                                <SelectItem value="__none__" disabled>
-                                                  No staff on shift
-                                                </SelectItem>
-                                              ) : assignableChefs.map((chef) => {
-                                                const isFull = chef.activeOrders >= chef.maxCapacity;
-                                                return (
-                                                  <SelectItem
-                                                    key={chef.chefId}
-                                                    value={chef.chefId}
-                                                    disabled={isFull}
-                                                  >
-                                                    <span className={`chef-option${isFull ? ' chef-option--full' : ''}`}>
-                                                      <span className={`chef-option__status chef-option__status--${chef.status}`} />
-                                                      {chef.name}
-                                                      {isFull && (
-                                                        <span className="chef-option__full-label">(Full)</span>
-                                                      )}
-                                                      <span className={`chef-option__load${isFull ? ' chef-option__load--full' : ''}`}>
-                                                        {chef.activeOrders}/{chef.maxCapacity}
-                                                      </span>
-                                                    </span>
-                                                  </SelectItem>
-                                                );
-                                              })}
-                                            </SelectContent>
-                                          </Select>
-                                        )}
+                                {column.status === 'pending' && (
+                                  <div className="order-card__chef-row">
+                                    {(order.assignedTo || order.assignedChefId) ? (
+                                      <div style={{
+                                        display: 'inline-flex', alignItems: 'center',
+                                        gap: '0.3rem', padding: '0.2rem 0.5rem',
+                                        borderRadius: '0.3rem', fontSize: '0.68rem',
+                                        fontWeight: 500,
+                                        background: 'rgba(99,102,241,0.10)',
+                                        border: '1px solid rgba(99,102,241,0.25)',
+                                        color: '#a5b4fc',
+                                      }}>
+                                        <ChefHat style={{ width: '0.65rem', height: '0.65rem', flexShrink: 0 }} />
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {order.assignedTo ?? 'Chef assigned'}
+                                        </span>
                                       </div>
-                                    )}
-
-                                    {nextStatus && actionLabel && (
-                                      <div className="order-card__footer">
-                                        <button
-                                          className={`order-card__action order-card__action--${order.status}`}
-                                          onClick={() => !isPending && !scheduledLocked && handleCardAction(order.id, nextStatus)}
-                                          disabled={isPending || scheduledLocked}
+                                    ) : (
+                                      <Select
+                                        value=""
+                                        onValueChange={(value) => {
+                                          if (!value || value === '__none__') return;
+                                          handleChefAssign(order.id, value);
+                                        }}
+                                      >
+                                        <SelectTrigger
+                                          className="order-card__chef-select"
+                                          disabled={isPending}
                                         >
-                                          {isPending ? 'Updating…' : actionLabel}
-                                        </button>
-                                      </div>
+                                          <SelectValue
+                                            placeholder={isPending ? 'Updating…' : 'Assign chef…'}
+                                          />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {assignableChefs.length === 0 ? (
+                                            <SelectItem value="__none__" disabled>
+                                              No staff on shift
+                                            </SelectItem>
+                                          ) : assignableChefs.map((chef) => {
+                                            const isFull = chef.activeOrders >= chef.maxCapacity;
+                                            return (
+                                              <SelectItem
+                                                key={chef.chefId}
+                                                value={chef.chefId}
+                                                disabled={isFull}
+                                              >
+                                                <span className={`chef-option${isFull ? ' chef-option--full' : ''}`}>
+                                                  <span className={`chef-option__status chef-option__status--${chef.status}`} />
+                                                  {chef.name}
+                                                  {isFull && (
+                                                    <span className="chef-option__full-label">(Full)</span>
+                                                  )}
+                                                  <span className={`chef-option__load${isFull ? ' chef-option__load--full' : ''}`}>
+                                                    {chef.activeOrders}/{chef.maxCapacity}
+                                                  </span>
+                                                </span>
+                                              </SelectItem>
+                                            );
+                                          })}
+                                        </SelectContent>
+                                      </Select>
                                     )}
                                   </div>
                                 )}
-                              </Draggable>
-                            );
-                          })}
-                        </AnimatePresence>
-                        {provided.placeholder}
-                        {columnOrders.length === 0 && !snapshot.isDraggingOver && (
-                          <div className="kanban-column__empty">No orders</div>
-                        )}
-                      </div>
-                    )}
-                  </Droppable>
-                </div>
-              );
-            })}
-          </div>
-        </DragDropContext>
-      </div>
-    </>
+
+                                {nextStatus && actionLabel && (
+                                  <div className="order-card__footer">
+                                    <button
+                                      className={`order-card__action order-card__action--${order.status}`}
+                                      onClick={() => !isPending && !scheduledLocked && handleCardAction(order.id, nextStatus)}
+                                      disabled={isPending || scheduledLocked}
+                                    >
+                                      {isPending ? 'Updating…' : actionLabel}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </Draggable>
+                        );
+                      })}
+
+                      {provided.placeholder}
+                      {columnOrders.length === 0 && !snapshot.isDraggingOver && (
+                        <div className="kanban-column__empty">No orders</div>
+                      )}
+                    </div>
+                  )}
+                </Droppable>
+              </div>
+            );
+          })}
+        </div>
+      </DragDropContext>
+    </div>
   );
-});
+}

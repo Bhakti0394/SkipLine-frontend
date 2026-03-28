@@ -1,8 +1,7 @@
 // ============================================================
 // src/components/KitchenDashboard/dashboard/OrderCard.tsx
 // ============================================================
-
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Order, OrderStatus, ORDER_TYPE_BADGE } from '../../../kitchen-types/order';
 import { StaffWorkloadDto } from '../../../kitchen-api/kitchenApi';
 import {
@@ -183,7 +182,83 @@ const nextStatusMap: Partial<Record<OrderStatus, OrderStatus>> = {
   ready:   'completed',
 };
 
+interface ChefDropdownProps {
+  assignedTo:      string | undefined;   // ← only what's needed
+  assignableStaff: StaffWorkloadDto[];
+  assigning:       boolean;
+  onAssign:        (chefId: string) => void;
+}
+
+function ChefDropdown({ assignedTo, assignableStaff, assigning, onAssign }: ChefDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref} onClick={e => e.stopPropagation()}>
+    
+      <button
+        className="flex items-center gap-1.5 w-full text-left text-xs px-2.5 py-1.5 rounded-md"
+        style={{
+          background: 'rgba(99, 102, 241, 0.12)',
+          border:     '1px solid rgba(99, 102, 241, 0.30)',
+          color:      '#a5b4fc',
+          cursor:     assigning ? 'not-allowed' : 'pointer',
+          opacity:    assigning ? 0.6 : 1,
+        }}
+        onClick={() => setOpen(p => !p)}
+        disabled={assigning}
+      >
+        <ChefHat style={{ width: '0.75rem', height: '0.75rem', flexShrink: 0 }} />
+        <span className="flex-1 truncate">
+         {assigning ? 'Assigning…' : (assignedTo ?? 'Assign Chef')} 
+        </span>
+        <ChevronDown style={{
+          width: '0.75rem', height: '0.75rem', flexShrink: 0,
+          transform:  open ? 'rotate(180deg)' : 'none',
+          transition: 'transform 0.2s',
+        }} />
+      </button>
+      {open && (
+        <div
+          className="absolute z-20 left-0 right-0 mt-1 rounded-md overflow-hidden shadow-lg"
+          style={{ background: 'rgba(15, 23, 42, 0.97)', border: '1px solid rgba(99, 102, 241, 0.25)', backdropFilter: 'blur(8px)' }}
+        >
+          {assignableStaff.length === 0 ? (
+            <div className="text-xs text-muted-foreground px-3 py-2">No available staff</div>
+          ) : assignableStaff.map(chef => {
+            const isFull = chef.activeOrders >= chef.maxCapacity;
+            return (
+              <button
+                key={chef.chefId}
+                className="flex items-center gap-2 w-full px-3 py-2 text-xs text-left hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => { setOpen(false); onAssign(chef.chefId); }}
+                disabled={isFull}
+              >
+                <span className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: chef.status === 'available' ? '#34d399' : chef.status === 'busy' ? '#fbbf24' : '#94a3b8' }} />
+                <span className="flex-1 truncate text-foreground/90">{chef.name}</span>
+                <span className="text-[10px] shrink-0" style={{ color: isFull ? '#f87171' : '#94a3b8' }}>
+                  {chef.activeOrders}/{chef.maxCapacity}{isFull && ' (Full)'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 // ─── Component ────────────────────────────────────────────────────────────────
+
 
 export function OrderCard({
   order,
@@ -192,9 +267,10 @@ export function OrderCard({
   onAssignChef,
   countdown,
 }: OrderCardProps) {
-  const [actionPending, setActionPending] = useState(false);
+const [actionPending, setActionPending] = useState(false);
   const [assigning,     setAssigning]     = useState(false);
-  const [dropdownOpen,  setDropdownOpen]  = useState(false);
+  const [assignError,   setAssignError]   = useState<string | null>(null);
+
 
   const { eta, isOverdue } = useOrderTimer(order);
 
@@ -282,18 +358,22 @@ export function OrderCard({
   };
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  const handleAction = useCallback(async () => {
+ const handleAction = useCallback(async () => {
     if (!nextStatus || actionPending) return;
+    if (order.status === 'cooking' && !order.assignedTo && !order.assignedChefId) return;
+    // block scheduled pending orders from being started without a chef (lock parity with KanbanBoard)
+    if (order.status === 'pending' && order.orderType === 'scheduled' && !order.assignedTo && !order.assignedChefId) return;
     setActionPending(true);
     try   { await onStatusChange(order.id, nextStatus); }
     finally { setActionPending(false); }
-  }, [nextStatus, actionPending, onStatusChange, order.id]);
+  }, [nextStatus, actionPending, onStatusChange, order.id, order.status, order.assignedTo, order.assignedChefId]);
 
-  const handleAssign = useCallback(async (chefId: string) => {
+const handleAssign = useCallback(async (chefId: string) => {
     if (!onAssignChef) return;
-    setDropdownOpen(false);
     setAssigning(true);
+    setAssignError(null);
     try   { await onAssignChef(order.id, chefId); }
+    catch (e: any) { setAssignError(e?.message ?? 'Assignment failed'); }
     finally { setAssigning(false); }
   }, [onAssignChef, order.id]);
 
@@ -380,61 +460,20 @@ export function OrderCard({
       </div>
 
       {/* ── Assign Chef dropdown — pending only ── */}
-      {showAssignChef && (
-        <div className="relative" onClick={e => e.stopPropagation()}>
-          <button
-            className="flex items-center gap-1.5 w-full text-left text-xs px-2.5 py-1.5 rounded-md"
-            style={{
-              background: 'rgba(99, 102, 241, 0.12)',
-              border:     '1px solid rgba(99, 102, 241, 0.30)',
-              color:      '#a5b4fc',
-              cursor:     assigning ? 'not-allowed' : 'pointer',
-              opacity:    assigning ? 0.6 : 1,
-            }}
-            onClick={() => setDropdownOpen(p => !p)}
-            disabled={assigning}
-          >
-            <ChefHat style={{ width: '0.75rem', height: '0.75rem', flexShrink: 0 }} />
-            <span className="flex-1 truncate">
-              {assigning ? 'Assigning…' : (order.assignedTo ?? 'Assign Chef')}
+   {showAssignChef && (
+        <>
+          <ChefDropdown
+            assignedTo={order.assignedTo}
+            assigning={assigning}
+            assignableStaff={assignableStaff}
+            onAssign={handleAssign}
+          />
+          {assignError && (
+            <span style={{ color: '#f87171', fontSize: '0.65rem', marginTop: '0.2rem', display: 'block' }}>
+              ⚠ {assignError}
             </span>
-            <ChevronDown style={{
-              width: '0.75rem', height: '0.75rem', flexShrink: 0,
-              transform:  dropdownOpen ? 'rotate(180deg)' : 'none',
-              transition: 'transform 0.2s',
-            }} />
-          </button>
-
-          {dropdownOpen && (
-            <div
-              className="absolute z-20 left-0 right-0 mt-1 rounded-md overflow-hidden shadow-lg"
-              style={{ background: 'rgba(15, 23, 42, 0.97)', border: '1px solid rgba(99, 102, 241, 0.25)', backdropFilter: 'blur(8px)' }}
-            >
-              {assignableStaff.length === 0 ? (
-                <div className="text-xs text-muted-foreground px-3 py-2">No available staff</div>
-              ) : assignableStaff.map(chef => {
-                const isFull = chef.activeOrders >= chef.maxCapacity;
-                return (
-                  <button
-                    key={chef.chefId}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-left hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => handleAssign(chef.chefId)}
-                    disabled={isFull}
-                  >
-                    <span
-                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ background: chef.status === 'available' ? '#34d399' : chef.status === 'busy' ? '#fbbf24' : '#94a3b8' }}
-                    />
-                    <span className="flex-1 truncate text-foreground/90">{chef.name}</span>
-                    <span className="text-[10px] shrink-0" style={{ color: isFull ? '#f87171' : '#94a3b8' }}>
-                      {chef.activeOrders}/{chef.maxCapacity}{isFull && ' (Full)'}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
           )}
-        </div>
+        </>
       )}
 
       {/* ── Assigned chef badge — cooking only ── */}
@@ -456,18 +495,11 @@ export function OrderCard({
       {/* ── Order items ── */}
       <div className="flex flex-col gap-1">
         {order.items.slice(0, 3).map(item => (
-          <div key={item.id} className="flex items-start gap-1.5 text-xs sm:text-sm">
-            <span className="font-medium text-foreground/90 min-w-[20px]">{item.quantity}×</span>
-            <div className="flex-1 min-w-0">
-              <span className="truncate block">{item.name}</span>
-              {(item as any).notes && (
-                <span className="block text-[10px] text-accent mt-0.5 truncate">
-                  Note: {(item as any).notes}
-                </span>
-              )}
+            <div key={item.id} className="flex items-start gap-1.5 text-xs sm:text-sm">
+              <span className="font-medium text-foreground/90 min-w-[20px]">{item.quantity}×</span>
+              <span className="flex-1 min-w-0 truncate">{item.name}</span>
             </div>
-          </div>
-        ))}
+          ))}
         {order.items.length > 3 && (
           <span className="text-[10px] text-muted-foreground">+{order.items.length - 3} more items</span>
         )}
@@ -477,16 +509,25 @@ export function OrderCard({
       {order.status !== 'completed' && <OrderTimer order={order} />}
 
       {/* ── Action button ── */}
-      {nextStatus && actionLabel && (
+     {nextStatus && actionLabel && (
         <div className="flex items-center justify-end pt-1">
           <button
-            style={btnStyle}
+            style={{
+              ...btnStyle,
+              // FIX: visually disable when cooking + no chef assigned
+              ...(order.status === 'cooking' && !order.assignedTo && !order.assignedChefId
+                ? { opacity: 0.35, cursor: 'not-allowed' }
+                : {}),
+            }}
             onMouseEnter={e => { if (!actionPending) e.currentTarget.style.opacity = '0.80'; }}
             onMouseLeave={e => { if (!actionPending) e.currentTarget.style.opacity = '1'; }}
             onClick={handleAction}
-            disabled={actionPending}
+            disabled={actionPending || (order.status === 'cooking' && !order.assignedTo && !order.assignedChefId)}
           >
-            {actionLabel}
+            {/* FIX: show blocked label when no chef on cooking card */}
+            {order.status === 'cooking' && !order.assignedTo && !order.assignedChefId
+              ? '⚠ Assign chef first'
+              : actionLabel}
           </button>
         </div>
       )}

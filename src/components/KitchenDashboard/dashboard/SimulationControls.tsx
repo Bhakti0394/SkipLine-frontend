@@ -17,7 +17,7 @@
 // regardless of sim state. Backend auto-assigns a chef when one is
 // available, so manually injected orders flow into cooking automatically.
 
-import React, { useState, memo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Play, Pause, Plus, Zap, Turtle, Rabbit } from 'lucide-react';
 import { CapacitySnapshot } from '../../../kitchen-types/order';
@@ -35,7 +35,7 @@ interface SimulationControlsProps {
   onBurst:              (count: number) => Promise<{ generated: number; rejected: number; reason?: string }>;
 }
 
-export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
+export function SimulationControls({
   isSimulating,
   simulationSpeed,
   simulationError,
@@ -45,9 +45,11 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
   onSetSpeed,
   onAddOne,
   onBurst,
-}) => {
-  const [burst, setBurst]             = useState(5);
+}: SimulationControlsProps) {
+ const [burst, setBurst]             = useState(5);
   const [burstResult, setBurstResult] = useState<string | null>(null);
+  const burstClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (burstClearRef.current) clearTimeout(burstClearRef.current); }, []);
 
   const handleToggle = () => {
     setBurstResult(null);
@@ -58,11 +60,12 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
     setBurstResult(null);
     try {
       const result = await onAddOne();
-      setBurstResult(
-        result.rejected > 0
-          ? `Rejected: ${result.reason ?? 'Kitchen full'}`
-          : 'Order added'
-      );
+      const msg = result.rejected > 0
+        ? `Rejected: ${result.reason ?? 'Kitchen full'}`
+        : 'Order added';
+      setBurstResult(msg);
+      if (burstClearRef.current) clearTimeout(burstClearRef.current);
+      burstClearRef.current = setTimeout(() => setBurstResult(null), 4000);
     } catch (err: any) {
       setBurstResult(err.message);
     }
@@ -72,11 +75,12 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
     setBurstResult(null);
     try {
       const result = await onBurst(burst);
-      setBurstResult(
-        result.rejected > 0
-          ? `${result.generated} added, ${result.rejected} rejected — ${result.reason ?? 'Kitchen full'}`
-          : `${result.generated} order${result.generated !== 1 ? 's' : ''} added`
-      );
+      const msg = result.rejected > 0
+        ? `${result.generated} added, ${result.rejected} rejected — ${result.reason ?? 'Kitchen full'}`
+        : `${result.generated} order${result.generated !== 1 ? 's' : ''} added`;
+      setBurstResult(msg);
+      if (burstClearRef.current) clearTimeout(burstClearRef.current);
+      burstClearRef.current = setTimeout(() => setBurstResult(null), 4000);
     } catch (err: any) {
       setBurstResult(err.message);
     }
@@ -88,7 +92,7 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
     { key: 'fast',   label: '2×',   Icon: Rabbit },
   ];
 
-  const feedbackMessage = burstResult ?? simulationError ?? null;
+ const feedbackMessage = simulationError ?? burstResult ?? null;
   const isError =
     feedbackMessage?.toLowerCase().includes('reject') ||
     feedbackMessage?.toLowerCase().includes('full')   ||
@@ -180,7 +184,10 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
           min={1}
           max={50}
           value={burst}
-          onChange={e => setBurst(Math.max(1, Math.min(50, Number(e.target.value))))}
+          onChange={e => {
+            const v = parseInt(e.target.value, 10);
+            if (!isNaN(v)) setBurst(Math.max(1, Math.min(50, v)));
+          }}
           className="simulation-controls__burst-input"
         />
         <button
@@ -217,6 +224,6 @@ export const SimulationControls: React.FC<SimulationControlsProps> = memo(({
       </p>
     </motion.div>
   );
-});
+}
 
 export default SimulationControls;
