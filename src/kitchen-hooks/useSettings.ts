@@ -33,17 +33,25 @@ export function useSettings() {
   }, []);
 
   // Apply theme
-  useEffect(() => {
+ useEffect(() => {
     const root = document.documentElement;
-    
-    if (settings.theme === 'system') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.classList.toggle('dark', prefersDark);
-      root.classList.toggle('light', !prefersDark);
-    } else {
+
+    if (settings.theme !== 'system') {
       root.classList.remove('dark', 'light');
       root.classList.add(settings.theme);
+      return;
     }
+
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = (dark: boolean) => {
+      root.classList.toggle('dark', dark);
+      root.classList.toggle('light', !dark);
+    };
+    // Stable handler reference — same function passed to both add and remove
+    const handler = (e: MediaQueryListEvent) => apply(e.matches);
+    apply(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
   }, [settings.theme]);
 
   // Apply compact mode

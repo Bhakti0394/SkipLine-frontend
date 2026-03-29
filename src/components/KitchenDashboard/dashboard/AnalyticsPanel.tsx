@@ -22,13 +22,13 @@ import { AlertTriangle } from 'lucide-react';
 import '../styles/Analyticspanel.scss';
 
 interface AnalyticsPanelProps {
-  orders:             Order[];
-  completedOrders:    Order[];
-  efficiencyPercent:  number;
-  avgCookTimeMinutes: number;
-  throughputPerHour:  number;
-  totalOrdersToday:   number;
-  lateOrdersCount?:   number;
+  orders:              Order[];
+  completedOrders:     Order[];
+  efficiencyPercent:   number;
+  avgCookTimeMinutes:  number;
+  throughputPerHour?:  number;  // optional — not rendered, kept for future use
+  totalOrdersToday?:   number;  // optional — passed via lateOrdersCount path
+  lateOrdersCount?:    number;
 }
 
 const fade = (delay = 0) => ({
@@ -251,35 +251,34 @@ export function AnalyticsPanel({
   totalOrdersToday,
   lateOrdersCount = 0,
 }: AnalyticsPanelProps) {
+ 
+// 1️⃣ All orders combined
+const allOrders = useMemo(
+  () => [...orders, ...completedOrders],
+  [orders, completedOrders]
+);
+
+// 2️⃣ Hourly data depends on allOrders and completedOrders
+const hourlyData = useMemo(() => {
   const now = new Date();
-
-  // ── Hourly volume (last 8h) ───────────────────────────────────────────────
-  const hourlyData = useMemo(() => {
-    return Array.from({ length: 8 }, (_, i) => {
-      const hour = new Date(now);
-      hour.setHours(now.getHours() - 7 + i, 0, 0, 0);
-      const nextHour = new Date(hour);
-      nextHour.setHours(hour.getHours() + 1);
-      const label = hour.toLocaleTimeString('en-IN', { hour: 'numeric', hour12: true });
-      const completed = completedOrders.filter(o => {
-        if (!o.completedAt) return false;
-        const t = new Date(o.completedAt).getTime();
-        return t >= hour.getTime() && t < nextHour.getTime();
-      }).length;
-      const placed = [...orders, ...completedOrders].filter(o => {
-        const t = new Date(o.createdAt).getTime();
-        return t >= hour.getTime() && t < nextHour.getTime();
-      }).length;
-      return { hour: label, orders: placed, completed };
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [completedOrders.length, orders.length]);
-
-  // ── Order type breakdown ──────────────────────────────────────────────────
-  const allOrders = useMemo(
-    () => [...orders, ...completedOrders],
-    [orders, completedOrders],
-  );
+  return Array.from({ length: 8 }, (_, i) => {
+    const hour = new Date(now);
+    hour.setHours(now.getHours() - 7 + i, 0, 0, 0);
+    const nextHour = new Date(hour);
+    nextHour.setHours(hour.getHours() + 1);
+    const label = hour.toLocaleTimeString('en-IN', { hour: 'numeric', hour12: true });
+    const completed = completedOrders.filter(o => {
+      if (!o.completedAt) return false;
+      const t = new Date(o.completedAt).getTime();
+      return t >= hour.getTime() && t < nextHour.getTime();
+    }).length;
+    const placed = allOrders.filter(o => {
+      const t = new Date(o.createdAt).getTime();
+      return t >= hour.getTime() && t < nextHour.getTime();
+    }).length;
+    return { hour: label, orders: placed, completed };
+  });
+}, [allOrders, completedOrders]);
 
   const orderTypeData = useMemo(
     () => [
@@ -343,15 +342,15 @@ export function AnalyticsPanel({
       </motion.div>
 
       {/* Row 2 — Peak Hour Heatmap */}
-      <motion.div {...fade(0.06)}>
+      <motion.div className="ap__card--full" {...fade(0.06)}>
         <PeakHours allOrders={allOrders} />
       </motion.div>
 
       {/* Row 3 — Late Tracker */}
-      <motion.div {...fade(0.10)}>
+      <motion.div className="ap__card--full" {...fade(0.10)}>
         <LateTracker
           lateCount={lateOrdersCount}
-          totalToday={totalOrdersToday}
+          totalToday={totalOrdersToday ?? orders.length + completedOrders.length}
           orders={orders}
         />
       </motion.div>

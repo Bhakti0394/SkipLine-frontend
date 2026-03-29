@@ -44,6 +44,7 @@ import { mockTimeSlots } from '../../kitchen-data/timeSlots';
 import { Order, OrderStatus } from '../../kitchen-types/order';
 
 import { useKitchenBoard }                         from '../../kitchen-hooks/useKitchenBoard';
+import { canTransition }                           from '../../kitchen-hooks/Capacityengine';
 import { useInventory }                            from '../../kitchen-hooks/useInventory';
 import { useNotifications }                        from '../../kitchen-hooks/useNotifications';
 import { useSettings }                             from '../../kitchen-hooks/useSettings';
@@ -53,19 +54,19 @@ import './Index.scss';
 
 type ViewMode = 'kanban' | 'list' | 'analytics' | 'inventory';
 
-const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  pending:   ['cooking'],
-  cooking:   ['ready'],
-  ready:     ['completed'],
-  completed: [],
-};
-
 const STATUS_LABELS: Record<OrderStatus, string> = {
   pending:   'Queue',
   cooking:   'Cooking',
   ready:     'Ready',
   completed: 'Completed',
 };
+
+const BACKEND_STATUS = {
+  pending:   'PENDING',
+  cooking:   'COOKING',
+  ready:     'READY',
+  completed: 'COMPLETED',
+} as const satisfies Record<OrderStatus, import('../../kitchen-hooks/Capacityengine').BackendOrderStatus>;
 
 const TOAST_ID = 'kitchen-global';
 
@@ -178,6 +179,15 @@ const Index = () => {
   useEffect(() => () => {
     if (batchToastTimer.current) clearTimeout(batchToastTimer.current);
   }, []);
+
+  // Prune toastedOrderIds — remove IDs no longer on the active board so the
+  // Set doesn't grow unbounded over a long kitchen session (hundreds of orders).
+  useEffect(() => {
+    const activeIds = new Set(orders.map(o => o.id));
+    for (const id of toastedOrderIds.current) {
+      if (!activeIds.has(id)) toastedOrderIds.current.delete(id);
+    }
+  }, [orders]);
 
   // ── Derived metrics ────────────────────────────────────────────────────────
   const efficiencyPercent:  number = metrics.efficiencyPercent;
@@ -295,12 +305,14 @@ const Index = () => {
 
     prevCapacityRef.current = { isOverloaded: capacity.isOverloaded, usedPercent: pct };
   // eslint-disable-next-line react-hooks/exhaustive-deps
+ // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     capacity.isOverloaded,
     capacity.totalSlots,
     counts.cooking,
     counts.pending,
     handleActivateBackupFromBanner,
+    notifyCapacity,
   ]);
 
   // ── Status change ──────────────────────────────────────────────────────────
@@ -310,14 +322,15 @@ const Index = () => {
     const order = orders.find(o => o.id === orderId);
 
     if (order) {
-      const allowed = ALLOWED_TRANSITIONS[order.status];
-      if (!allowed.includes(status)) {
+     if (!canTransition(BACKEND_STATUS[order.status], BACKEND_STATUS[status])) {
         showToast('error', 'Invalid status change',
           `Cannot move from ${STATUS_LABELS[order.status]} → ${STATUS_LABELS[status]}.`);
         return;
       }
 
-      if (order.status === 'cooking' && status === 'ready' && !order.assignedTo) {
+      // FIX: check both assignedTo (name) and assignedChefId — either confirms chef assigned
+      if (order.status === 'cooking' && status === 'ready'
+          && !order.assignedTo && !order.assignedChefId) {
         showToast('error', 'Assign a chef first',
           `Order ${order.orderNumber} needs a chef assigned before it can be marked ready.`);
         return;
@@ -393,8 +406,8 @@ const Index = () => {
     // Update baseline for all items
     inventory.forEach(item => { prevStockRef.current[item.id] = item.currentStock; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inventory.map(i => i.currentStock).join(',')]);
-
+// eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inventory]);
   useKeyboardShortcuts([
     { key: 'n', description: 'Add new order',     action: handleAddOrder },
     { key: 's', description: 'Toggle simulation', action: handleToggleSimulation },

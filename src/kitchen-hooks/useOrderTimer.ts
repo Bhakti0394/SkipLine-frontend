@@ -16,11 +16,11 @@ import { Order } from '../kitchen-types/order';
 
 const SERVER_TIME_URL =
   (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/kitchen/server-time';
-
 let serverClockOffsetMs = 0;
 let clockSyncPending    = false;
 let clockSyncDone       = false;
 let lastSyncSuccessAt   = 0;
+let lastSyncToken       = '';
 const SYNC_RETRY_COOLDOWN_MS = 60_000;
 
 function getAuthHeader(): HeadersInit {
@@ -28,8 +28,25 @@ function getAuthHeader(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Reset sync state when auth token changes (logout/re-login)
+// so the new session gets a fresh server clock sync with the correct token.
+export function resetServerClockSync(): void {
+  serverClockOffsetMs = 0;
+  clockSyncPending    = false;
+  clockSyncDone       = false;
+  lastSyncSuccessAt   = 0;
+  lastSyncToken       = '';
+}
+
 async function syncServerClock(): Promise<void> {
   if (clockSyncPending) return;
+  // Reset if auth token changed since last sync (logout/re-login scenario)
+  const currentToken = localStorage.getItem('auth_token') ?? '';
+  if (currentToken !== lastSyncToken) {
+    clockSyncDone     = false;
+    lastSyncSuccessAt = 0;
+    lastSyncToken     = currentToken;
+  }
   // If last sync succeeded recently, skip — but always allow retry after failure
   if (clockSyncDone && Date.now() - lastSyncSuccessAt < SYNC_RETRY_COOLDOWN_MS) return;
   clockSyncPending = true;
@@ -60,28 +77,37 @@ export function serverNow(): number {
 // ─── Global tick ──────────────────────────────────────────────────────────────
 
 type TickCallback = (nowMs: number) => void;
-const tickSubscribers = new Set<TickCallback>();
-let   globalInterval: ReturnType<typeof setInterval> | null = null;
+
+// Keyed by a stable symbol so HMR module re-execution and React StrictMode
+// double-invocation both find the same singleton on the window object instead
+// of creating a second Set and a second interval on the re-executed module.
+const TICK_KEY      = Symbol.for('__skipline_tick_subscribers__');
+const INTERVAL_KEY  = Symbol.for('__skipline_tick_interval__');
+
+function getTickStore(): { subscribers: Set<TickCallback>; interval: ReturnType<typeof setInterval> | null } {
+  const w = window as any;
+  if (!w[TICK_KEY]) {
+    w[TICK_KEY]      = new Set<TickCallback>();
+    w[INTERVAL_KEY]  = null;
+  }
+  return { get subscribers() { return w[TICK_KEY]; }, get interval() { return w[INTERVAL_KEY]; },
+           set interval(v) { w[INTERVAL_KEY] = v; } };
+}
 
 function subscribeToTick(cb: TickCallback): () => void {
-  tickSubscribers.add(cb);
-  // Guard: only start interval when first real subscriber is added.
-  // In React StrictMode, effects run twice — the cleanup of the first
-  // run sets globalInterval = null, so the second run finds no interval
-  // and creates exactly one. Without this size check, a double-add with
-  // an existing interval would skip creation — but the size===1 guard
-  // ensures we only ever create the interval on the very first subscriber.
-  if (!globalInterval && tickSubscribers.size === 1) {
-    globalInterval = setInterval(() => {
+  const store = getTickStore();
+  store.subscribers.add(cb);
+  if (store.interval === null && store.subscribers.size === 1) {
+    store.interval = setInterval(() => {
       const now = serverNow();
-      tickSubscribers.forEach(fn => fn(now));
+      store.subscribers.forEach(fn => fn(now));
     }, 1000);
   }
   return () => {
-    tickSubscribers.delete(cb);
-    if (tickSubscribers.size === 0 && globalInterval !== null) {
-      clearInterval(globalInterval);
-      globalInterval = null;
+    store.subscribers.delete(cb);
+    if (store.subscribers.size === 0 && store.interval !== null) {
+      clearInterval(store.interval);
+      store.interval = null;
     }
   };
 }
@@ -219,18 +245,17 @@ function resolvePickupSlotMs(order: Order): number | null {
   const parsed = new Date(`${new Date().toDateString()} ${display}`);
   return isNaN(parsed.getTime()) ? null : parsed.getTime();
 }
-
-function resolveReadyAnchorMs(order: Order, _mountTimeMs: number): number {
+function resolveReadyAnchorMs(order: Order, mountTimeMs: number): number {
   const o       = order as any;
   const readyAt = toMs(o.readyAt);
   if (readyAt !== null) return readyAt;
   const placedAtMs = toMs(order.createdAt);
   const prepMs     = (order.estimatedPrepTime ?? 0) * 60 * 1000;
   if (placedAtMs !== null && prepMs > 0) return placedAtMs + prepMs;
-  // Use server time at the moment of first render for this ready order
-  // instead of hook mount time — mount may predate the READY transition
-  // by minutes, which would inflate the elapsed timer on first render.
-  return serverNow();
+  // Use mountTimeMs (captured once when hook first ran for this order)
+  // as the anchor — more stable than calling serverNow() inside useMemo
+  // which would shift the anchor on every recompute.
+  return mountTimeMs;
 }
 
 // ─── Format utilities (exported for OrderTimer.tsx) ───────────────────────────
@@ -494,15 +519,19 @@ export function useOrderTimer(order: Order, sla: SlaBudgets = DEFAULT_SLA): Time
     return FROZEN_COMPLETE;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
+ // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     nowMs,
     order.id, order.status, order.orderType,
-    cookingStartMs,  // FIX: resolveExpressDeadlineMs now uses this — must be dep
-    pickupSlotMs,    // FIX: pickupSlotMs from toFrontendOrder buffered value
+    cookingStartMs,
+    pickupSlotMs,
     order.createdAt, order.estimatedPrepTime, order.pickupTime,
-    (order as any).readyAt,
-    (order as any).pickupDeadlineAt,
-    (order as any).expressPickupSlotMs,
+    // Use typed optional fields from Order — readyAt and completedAt
+    // are declared on the Order interface so no cast needed.
+    order.readyAt,
+    // pickupDeadlineAt and expressPickupSlotMs are not on the Order type —
+    // read via the already-resolved pickupSlotMs which covers both cases,
+    // since toFrontendOrder merges expressPickupSlotMs into pickupSlotMs.
     sla,
   ]);
 }

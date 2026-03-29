@@ -26,8 +26,10 @@ interface OrderTimerProps {
 
 // ── Format a timestamp ms → "12:30 PM" ───────────────────────────────────────
 function clockTime(ms: number | null | undefined): string {
-  if (!ms) return '—';
-  return new Date(ms).toLocaleTimeString('en-US', {
+  if (!ms) return '–';
+  // Use en-IN to match resolvePickupTime in useKitchenBoard — consistent
+  // time format across the pickup row and the slot display.
+  return new Date(ms).toLocaleTimeString('en-IN', {
     hour: 'numeric', minute: '2-digit', hour12: true,
   });
 }
@@ -211,13 +213,11 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
       );
     }
 
-    if (order.status === 'cooking') {
-      // FIX: use expressDeadlineMs for express, resolvePickupMs for normal/scheduled
-      const pickup   = isExpress
-        ? (expressDeadlineMs ?? resolvePickupMs(order))
-        : resolvePickupMs(order);
-      const secsLeft = pickup ? Math.max(0, Math.floor((pickup - serverNow()) / 1000)) : null;
-      const isLate   = pickup !== null && serverNow() > pickup;
+ if (order.status === 'cooking') {
+      const secsLeft = expressDeadlineMs !== null
+        ? Math.max(0, eta)
+        : (eta > 0 ? eta : null);
+      const isLate = isOverdue;
       return (
         <div className={`order-timer-compact${isLate ? ' order-timer-compact--overdue' : ''}`}>
           {isLate
@@ -228,7 +228,7 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
           }
           <span className="order-timer-compact__eta">
             {isLate
-              ? `+${formatCountdown(Math.abs(Math.floor((serverNow() - pickup!) / 1000)))}`
+              ? `+${formatCountdown(overdueBySeconds)}`
               : secsLeft !== null
                 ? `${formatCountdown(secsLeft)} left`
                 : cookingDisplay
@@ -269,7 +269,7 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
               {countdownSecs > 0 ? formatCountdown(countdownSecs) : 'Now'}
             </span>
           </div>
-          {order.estimatedPrepTime > 0 && (
+         {(order.estimatedPrepTime ?? 0) > 0 && (
             <div className="order-timer__row order-timer__row--muted">
               <span className="order-timer__row-label">
                 <Zap className="order-timer__row-icon" />Est. prep
@@ -299,7 +299,7 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
               {pickupCountdownSeconds! > 0 ? formatCountdown(pickupCountdownSeconds!) : 'Now'}
             </span>
           </div>
-          {order.estimatedPrepTime > 0 && (
+          {(order.estimatedPrepTime ?? 0) > 0 && (
             <div className="order-timer__row order-timer__row--muted">
               <span className="order-timer__row-label">
                 <Zap className="order-timer__row-icon" />Est. prep
@@ -330,7 +330,7 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
           </span>
           <span className="order-timer__row-value">No slot</span>
         </div>
-        {order.estimatedPrepTime > 0 && (
+        {(order.estimatedPrepTime ?? 0) > 0 && (
           <div className="order-timer__row order-timer__row--muted">
             <span className="order-timer__row-label">
               <Zap className="order-timer__row-icon" />Est. prep
@@ -343,30 +343,20 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
   }
 
   // ── COOKING full – clean 3-row layout ─────────────────────────────────────
-  if (order.status === 'cooking') {
+ if (order.status === 'cooking') {
     const startMs = resolveCookStartMs(order);
 
-    // FIX [PICKUP-DISPLAY]: For express orders use expressDeadlineMs from the
-    // hook — this is pre-buffered (cookStart + 2 min floor) and always valid.
-    // For normal/scheduled use resolvePickupMs which reads pickupSlotMs.
-    // Previously both paths called resolvePickupMs which returned null for
-    // express orders with a "~X min" pickupTime → pickup was null → ASAP shown.
     const pickup = isExpress
       ? (expressDeadlineMs ?? resolvePickupMs(order))
       : resolvePickupMs(order);
 
-    const now      = serverNow();
-    const secsLeft = pickup !== null ? Math.max(0, Math.floor((pickup - now) / 1000)) : null;
-    const isLate   = pickup !== null && now > pickup;
+    // Use hook-derived values — eta and isOverdue are computed from the
+    // reactive nowMs tick inside useOrderTimer, never stale.
+    const secsLeft = isOverdue ? null : (eta > 0 ? eta : 0);
+    const isLate   = isOverdue;
 
-    let pct: number;
-    if (pickup !== null && startMs !== null) {
-      pct = Math.min(100, Math.round(((now - startMs) / Math.max(1, pickup - startMs)) * 100));
-    } else if (order.estimatedPrepTime > 0) {
-      pct = Math.min(100, Math.round((cookingElapsed / (order.estimatedPrepTime * 60)) * 100));
-    } else {
-      pct = 0;
-    }
+    // Use hook-computed progress directly — avoids calling serverNow() in render
+    const pct = Math.round(progress);
 
     const barColor = pct >= 90 ? 'var(--ot-color-overdue)'
                    : pct >= 70 ? 'var(--ot-color-warning)'
@@ -422,10 +412,8 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
               fontVariantNumeric: 'tabular-nums',
             }}
           >
-            {(isLate || isOverdue)
-              ? `+${formatCountdown(isLate
-                  ? Math.abs(Math.floor((now - pickup!) / 1000))
-                  : overdueBySeconds)}`
+            {isOverdue
+              ? `+${formatCountdown(overdueBySeconds)}`
               : secsLeft !== null
                 ? (secsLeft === 0 ? 'Done!' : formatCountdown(secsLeft))
                 : (eta > 0 ? formatCountdown(eta) : 'Done!')

@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { toast } from '@/hooks/use-toast';
 
 interface ShortcutAction {
@@ -10,32 +10,33 @@ interface ShortcutAction {
 }
 
 export const useKeyboardShortcuts = (shortcuts: ShortcutAction[]) => {
-  const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    // Don't trigger if user is typing in an input
-    if (
-      event.target instanceof HTMLInputElement ||
-      event.target instanceof HTMLTextAreaElement
-    ) {
-      return;
-    }
-
-    for (const shortcut of shortcuts) {
-      const keyMatch = event.key.toLowerCase() === shortcut.key.toLowerCase();
-      const ctrlMatch = shortcut.ctrl ? (event.ctrlKey || event.metaKey) : !event.ctrlKey && !event.metaKey;
-      const shiftMatch = shortcut.shift ? event.shiftKey : !event.shiftKey;
-
-      if (keyMatch && ctrlMatch && shiftMatch) {
-        event.preventDefault();
-        shortcut.action();
-        return;
-      }
-    }
-  }, [shortcuts]);
+  // Store shortcuts in a ref so the listener never needs to be torn down
+  // and re-added on every render when the caller passes a new array literal.
+  const shortcutsRef = useRef(shortcuts);
+  useEffect(() => { shortcutsRef.current = shortcuts; });
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        (event.target as HTMLElement).isContentEditable
+      ) return;
+
+      for (const shortcut of shortcutsRef.current) {
+        const keyMatch   = event.key.toLowerCase() === shortcut.key.toLowerCase();
+        const ctrlMatch  = shortcut.ctrl  ? (event.ctrlKey || event.metaKey) : !event.ctrlKey && !event.metaKey;
+        const shiftMatch = shortcut.shift ? event.shiftKey : !event.shiftKey;
+        if (keyMatch && ctrlMatch && shiftMatch) {
+          event.preventDefault();
+          shortcut.action();
+          return;
+        }
+      }
+    };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  }, []); // empty — listener registered once, reads latest shortcuts via ref
 };
 
 export const showShortcutsHelp = () => {

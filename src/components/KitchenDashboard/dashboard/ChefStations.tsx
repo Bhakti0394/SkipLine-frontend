@@ -25,7 +25,8 @@ const FlameIcon = () => (
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getInitials(name: string): string {
-  return name.split(' ').map(w => w[0] ?? '').slice(0, 2).join('').toUpperCase();
+  if (!name?.trim()) return '?';
+  return name.split(' ').map(w => w[0] ?? '').filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
 }
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -174,14 +175,15 @@ export const ChefStations = memo(function ChefStations({
                   <div className="chef-item__status">
                     <span className="chef-item__dot chef-item__dot--backup" />
                     {onActivateChef && (
-                      <button
-                        className="chef-item__activate-btn"
-                        disabled={isActivating}
-                        onClick={() => onActivateChef(chef.chefId)}
-                        title={`Activate ${chef.name}`}
-                      >
-                        {isActivating ? '…' : 'Activate'}
-                      </button>
+                     <button
+                  className="chef-item__activate-btn"
+                  disabled={isActivating}
+                  onClick={() => !isActivating && onActivateChef(chef.chefId)}
+                  title={isActivating ? 'Activating…' : `Activate ${chef.name}`}
+                  style={isActivating ? { cursor: 'not-allowed', opacity: 0.6 } : undefined}
+                >
+                  {isActivating ? '…' : 'Activate'}
+                </button>
                     )}
                   </div>
                 </div>

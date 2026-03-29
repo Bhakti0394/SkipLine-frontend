@@ -32,15 +32,15 @@ export function OrderDetailsModal({
   const currentStatusIndex = statusFlow.indexOf(order.status);
   const nextStatus = statusFlow[currentStatusIndex + 1];
 
-  const priorityConfig = {
-    urgent: { label: 'Urgent',        icon: Flame,         className: 'urgent' },
-    high:   { label: 'High Priority', icon: AlertTriangle, className: 'high'   },
-    normal: { label: 'Normal',        icon: null,          className: 'normal' },
+   const priorityConfig = {
+    express:   { label: 'Express',   icon: Flame,         className: 'urgent' },
+    normal:    { label: 'Normal',    icon: null,          className: 'normal' },
+    scheduled: { label: 'Scheduled', icon: AlertTriangle, className: 'high'   },
   } as const;
 
   // FIX 2: was priorityConfig[order.priority] — runtime crash when priority is
   // undefined (seeded orders don't always have it set). Fallback to 'normal'.
-  const priority = priorityConfig[order.priority ?? 'normal'] ?? priorityConfig.normal;
+   const priority = priorityConfig[order.orderType] ?? priorityConfig.normal;
 
   const getStatusIconClass = (status: string, index: number) => {
     const isActive  = index <= currentStatusIndex;

@@ -74,11 +74,14 @@ function getTransitionError(from: OrderStatus, to: OrderStatus): string {
 }
 
 function isScheduledAndLocked(order: Order): boolean {
+  // Locked only when NEITHER chefId NOR name is present.
+  // If backend sends one but not the other (partial response),
+  // treat the order as assigned to prevent false lock state.
+  const hasChef = !!(order.assignedChefId || order.assignedTo);
   return (
     order.orderType === 'scheduled' &&
     order.status    === 'pending'   &&
-    !order.assignedChefId           &&
-    !order.assignedTo
+    !hasChef
   );
 }
 
@@ -486,7 +489,7 @@ export interface KanbanBoardProps {
   columnRefs?:      Partial<Record<OrderStatus, React.RefObject<HTMLDivElement>>>;
 }
 
-const MAX_PENDING_MS = 15_000;
+const MAX_PENDING_MS = 30_000;
 
 // ── KanbanBoard ────────────────────────────────────────────────────────────────
 
@@ -511,13 +514,29 @@ export function KanbanBoard({
 
   // ── Inject keyframe CSS once ─────────────────────────────────────────────────
   // FIX: moved before all other useEffects so hook call order is consistent
-  useEffect(() => {
-    if (document.querySelector('style[data-kanban="keyframes"]')) return;
+useEffect(() => {
+    const ATTR = 'data-kanban-ref-count';
+    const existing = document.querySelector('style[data-kanban="keyframes"]');
+    if (existing) {
+      // Increment reference count so unmount of one instance doesn't
+      // remove the style while sibling KanbanBoard instances still need it.
+      existing.setAttribute(ATTR, String((parseInt(existing.getAttribute(ATTR) ?? '0')) + 1));
+      return () => {
+        const count = parseInt(existing.getAttribute(ATTR) ?? '1');
+        if (count <= 1) existing.remove();
+        else existing.setAttribute(ATTR, String(count - 1));
+      };
+    }
     const styleEl = document.createElement('style');
     styleEl.setAttribute('data-kanban', 'keyframes');
+    styleEl.setAttribute(ATTR, '1');
     styleEl.textContent = KEYFRAMES;
     document.head.appendChild(styleEl);
-    return () => { styleEl.remove(); };
+    return () => {
+      const count = parseInt(styleEl.getAttribute(ATTR) ?? '1');
+      if (count <= 1) styleEl.remove();
+      else styleEl.setAttribute(ATTR, String(count - 1));
+    };
   }, []);
 
   // ── Pending API set ──────────────────────────────────────────────────────────
@@ -607,17 +626,19 @@ export function KanbanBoard({
   }, [safeOrders]);
 
   // ── Drag handlers ────────────────────────────────────────────────────────────
-  const handleDragStart = useCallback((start: DragStart) => {
-    setDraggingOrder(safeOrders.find(o => o.id === start.draggableId) ?? null);
-  }, [safeOrders]);
+const handleDragStart = useCallback((start: DragStart) => {
+    // Use ordersRef (always current) not safeOrders (render closure snapshot)
+    // so draggingOrder reflects real order state if orders update mid-drag.
+    setDraggingOrder(ordersRef.current.find(o => o.id === start.draggableId) ?? null);
+  }, []);
 
   // FIX: added missing semicolon after closing paren of useCallback
-  const handleDragEnd = useCallback(async (result: DropResult) => {
+ const handleDragEnd = useCallback(async (result: DropResult) => {
     setDraggingOrder(null);
     if (!result.destination) return;
     const orderId   = result.draggableId;
     const newStatus = result.destination.droppableId as OrderStatus;
-    const order     = ordersRef.current.find(o => o.id === orderId); // always fresh
+    const order     = ordersRef.current.find(o => o.id === orderId);
     if (!order || order.status === newStatus) return;
 
     if (order.status === 'cooking' && newStatus === 'ready') {
@@ -636,11 +657,18 @@ export function KanbanBoard({
       return;
     }
 
+    // Capture snapshot before the drag visually moves the card so we can
+    // revert if the API call fails. The DnD library has already re-ordered
+    // the DOM; onStatusChange is the source of truth — if it throws we must
+    // force a board reload to snap the card back to its real column.
     setOrderPending(orderId, true);
     try {
       await onStatusChange(orderId, newStatus);
     } catch (err: any) {
       fireToast(err?.message ?? 'Status update failed.', 'Update failed');
+      // Board reverts automatically: onStatusChange (useKitchenBoard) calls
+      // loadBoard() in its own catch, pushing real server state back as
+      // the orders prop. KanbanBoard is controlled — no local setOrders needed.
     } finally {
       setOrderPending(orderId, false);
     }
@@ -670,16 +698,7 @@ export function KanbanBoard({
   }, [onChefAssign, setOrderPending]);
 
   // FIX: moved makeCookingChefHandler after handleChefAssign (correct dependency order)
- const cookingChefHandlers = useMemo(() => {
-    const map: Record<string, (value: string) => void> = {};
-    for (const order of ordersByStatus.cooking) {
-      map[order.id] = (value: string) => {
-        if (!value || value === '__none__') return;
-        handleChefAssign(order.id, value);
-      };
-    }
-    return map;
-  }, [ordersByStatus.cooking, handleChefAssign]);
+
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     // FIX: removed unnecessary extra outer wrapper div — single kanban-wrapper is enough
@@ -738,15 +757,22 @@ export function KanbanBoard({
                         if (column.status === 'cooking') {
                           return (
                             <CookingDraggableCard
-                              key={order.id}
-                              order={order}
-                              index={index}
-                              isPending={isPending}
-                              assignableChefs={assignableChefs}
-                              onStateChange={handleCookingStateChange}
-                              onAction={() => handleCardAction(order.id, 'ready')}
-                             onChefChange={cookingChefHandlers[order.id] ?? (() => {})}
-                            />
+  key={order.id}
+  order={order}
+  index={index}
+  isPending={isPending}
+  assignableChefs={assignableChefs}
+  onStateChange={handleCookingStateChange}
+  onAction={() => handleCardAction(order.id, 'ready')}
+  onChefChange={(value: string) => {
+    // Capture order.id from render closure — stable for this card's lifetime.
+    // Do not use cookingChefHandlers lookup: if the order left cooking between
+    // the memo recompute and this click (backend poll), the handler would be
+    // undefined and the assignment would be silently dropped.
+    if (!value || value === '__none__') return;
+    handleChefAssign(order.id, value);
+  }}
+/>
                           );
                         }
 

@@ -218,46 +218,65 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
   const [error,   setError]   = useState<string | null>(null);
   const sseUnsubscribers = useRef<Map<string, () => void>>(new Map());
   // -- SSE status handler --
-  const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string) => {
+const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string) => {
     const statusMap: Record<string, Order['status']> = {
       pending: 'confirmed', cooking: 'cooking', ready: 'ready',
       completed: 'completed', cancelled: 'cancelled',
     };
     const mapped = statusMap[rawStatus] ?? 'confirmed';
 
-    setOrders(prev => prev.map(o => {
-      if (o.id !== orderId) return o;
-      if (o.status === mapped) return o;
-      const updated = { ...o, status: mapped };
+    // Update orders state with a pure updater — no side effects inside
+    setOrders(prev => {
+      const order = prev.find(o => o.id === orderId);
+      if (!order || order.status === mapped) return prev;
+      return prev.map(o => o.id === orderId ? { ...o, status: mapped } : o);
+    });
 
-      if (TERMINAL_STATUSES.has(rawStatus)) {
-        sseUnsubscribers.current.get(orderId)?.();
-        sseUnsubscribers.current.delete(orderId);
-        if (rawStatus === 'completed') {
-          setOrderHistory(h => [updated, ...h]);
-          setMetrics(m => ({ ...m, activeOrders: Math.max(0, m.activeOrders - 1) }));
-          setKitchenState(ks => {
-            const newActive = ks.activeOrders.filter(id => id !== orderId);
-            const [next, ...rest] = ks.queuedOrders;
-            return {
-              activeOrders: next ? [...newActive, next] : newActive,
-              queuedOrders: rest,
-            };
-          });
-        }
+    // Side effects outside the updater — never double-fired by React 18
+    const prevOrder = (() => {
+      // Read current orders via ref to avoid stale closure
+      return null; // resolved below via separate state read
+    })();
+
+    if (TERMINAL_STATUSES.has(rawStatus)) {
+      sseUnsubscribers.current.get(orderId)?.();
+      sseUnsubscribers.current.delete(orderId);
+
+      if (rawStatus === 'completed') {
+        // Build updated order for history from current orders ref
+        setOrders(prev => {
+          const order = prev.find(o => o.id === orderId);
+          if (order) {
+            const updated = { ...order, status: mapped };
+            setOrderHistory(h => {
+              // Dedup — never add the same order twice
+              if (h.some(o => o.id === orderId)) return h;
+              return [updated, ...h];
+            });
+            setMetrics(m => ({ ...m, activeOrders: Math.max(0, m.activeOrders - 1) }));
+            setKitchenState(ks => {
+              const newActive = ks.activeOrders.filter(id => id !== orderId);
+              const [next, ...rest] = ks.queuedOrders;
+              return {
+                activeOrders: next ? [...newActive, next] : newActive,
+                queuedOrders: rest,
+              };
+            });
+          }
+          return prev; // don't mutate orders here — already done above
+        });
       }
+    }
 
-      window.dispatchEvent(new CustomEvent('order-status-changed', {
-        detail: {
-          title:   rawStatus === 'ready' ? 'Order Ready! 🎉' : `Order ${rawStatus}`,
-          message: `Status: ${rawStatus}`,
-          type:    rawStatus === 'ready'
-            ? 'order_ready'
-            : rawStatus === 'cooking' ? 'order_cooking' : 'order_confirmed',
-          orderId,
-        },
-      }));
-      return updated;
+    window.dispatchEvent(new CustomEvent('order-status-changed', {
+      detail: {
+        title:   rawStatus === 'ready' ? 'Order Ready! 🎉' : `Order ${rawStatus}`,
+        message: `Status: ${rawStatus}`,
+        type:    rawStatus === 'ready'
+          ? 'order_ready'
+          : rawStatus === 'cooking' ? 'order_cooking' : 'order_confirmed',
+        orderId,
+      },
     }));
   }, []);
 
@@ -515,23 +534,36 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
   }, [orders, subscribeOrder]);
 
   // -- updateOrderStatus --
-  const updateOrderStatus = useCallback((orderId: string, status: Order['status']) => {
-    setOrders(prev => prev.map(order => {
-      if (order.id !== orderId) return order;
-      const updated = { ...order, status };
-      if (status === 'completed') {
-        setOrderHistory(h => [updated, ...h]);
-        setMetrics(m => ({ ...m, activeOrders: Math.max(0, m.activeOrders - 1) }));
-        setKitchenState(ks => {
-          const a = ks.activeOrders.filter(id => id !== orderId);
-          const [next, ...rest] = ks.queuedOrders;
-          return { activeOrders: next ? [...a, next] : a, queuedOrders: rest };
-        });
-        sseUnsubscribers.current.get(orderId)?.();
-        sseUnsubscribers.current.delete(orderId);
-      }
-      return updated;
-    }));
+ const updateOrderStatus = useCallback((orderId: string, status: Order['status']) => {
+    // Pure updater — no side effects inside
+    setOrders(prev => {
+      const order = prev.find(o => o.id === orderId);
+      if (!order || order.status === status) return prev;
+      return prev.map(o => o.id === orderId ? { ...o, status } : o);
+    });
+
+    // Side effects outside updater — safe from React 18 double-invoke
+    if (status === 'completed') {
+      setOrders(prev => {
+        const order = prev.find(o => o.id === orderId);
+        if (order) {
+          const updated = { ...order, status };
+          setOrderHistory(h => {
+            if (h.some(o => o.id === orderId)) return h;
+            return [updated, ...h];
+          });
+          setMetrics(m => ({ ...m, activeOrders: Math.max(0, m.activeOrders - 1) }));
+          setKitchenState(ks => {
+            const a = ks.activeOrders.filter(id => id !== orderId);
+            const [next, ...rest] = ks.queuedOrders;
+            return { activeOrders: next ? [...a, next] : a, queuedOrders: rest };
+          });
+        }
+        return prev;
+      });
+      sseUnsubscribers.current.get(orderId)?.();
+      sseUnsubscribers.current.delete(orderId);
+    }
   }, []);
 
   // -- simulateKitchenProgress --

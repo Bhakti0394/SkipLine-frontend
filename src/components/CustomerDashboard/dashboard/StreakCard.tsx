@@ -214,27 +214,51 @@ export function StreakCard() {
   ];
 
   // Listen for streak milestone events
+// Listen for streak milestone events.
+  // The handler derives reward data directly from the event payload
+  // (milestone streak value) instead of closing over the rewards array —
+  // this eliminates the stale-closure risk when currentStreak changes
+  // between effect re-runs, and removes rewards from the dependency list.
   useEffect(() => {
+    const REWARD_DEFS: Array<{
+      streakRequired: number;
+      name: string;
+      emoji: string;
+      description: string;
+    }> = [
+      { streakRequired: 3,  name: 'First Steps',   emoji: '🌟', description: "You're on a roll! Badge added to your profile."                        },
+      { streakRequired: 7,  name: 'On Fire!',       emoji: '🔥', description: 'Score a free topping on your next order — on us! 🎁'                  },
+      { streakRequired: 14, name: 'Streak Master',  emoji: '🏅', description: 'Skip the wait — your orders jump to the priority queue! ⚡'           },
+      { streakRequired: 21, name: 'Champion',       emoji: '🏆', description: '10% off every order, automatically applied at checkout. 💸'           },
+      { streakRequired: 30, name: 'Legendary VIP',  emoji: '👑', description: 'VIP status unlocked! Access exclusive menu items & special perks. 👑' },
+    ];
+
     const handleMilestone = (event: CustomEvent<{ streak: number }>) => {
-      const milestoneReward = rewards.find(
-        (r) => r.streakRequired === event.detail.streak,
-      );
-      if (milestoneReward) {
-        setCelebratingReward({ ...milestoneReward, unlocked: true });
-        setShowCelebration(true);
-        addNotification({
-          title: `🎉 ${milestoneReward.name} Unlocked!`,
-          message: milestoneReward.description,
-          type: 'streak_milestone',
-        });
-      }
+      const def = REWARD_DEFS.find(r => r.streakRequired === event.detail.streak);
+      if (!def) return;
+      const milestoneReward: Reward = {
+        id:              String(def.streakRequired),
+        name:            def.name,
+        emoji:           def.emoji,
+        icon:            Star,
+        streakRequired:  def.streakRequired,
+        description:     def.description,
+        unlocked:        true,
+        type:            'badge',
+        color:           '',
+      };
+      setCelebratingReward(milestoneReward);
+      setShowCelebration(true);
+      addNotification({
+        title:   `🎉 ${def.name} Unlocked!`,
+        message: def.description,
+        type:    'streak_milestone',
+      });
     };
 
     window.addEventListener('streak-milestone', handleMilestone as EventListener);
-    return () =>
-      window.removeEventListener('streak-milestone', handleMilestone as EventListener);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addNotification, currentStreak]);
+    return () => window.removeEventListener('streak-milestone', handleMilestone as EventListener);
+  }, [addNotification]);
 
   const nextReward =
     rewards.find((r) => !r.unlocked) || rewards[rewards.length - 1];
