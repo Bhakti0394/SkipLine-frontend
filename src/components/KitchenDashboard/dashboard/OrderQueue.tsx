@@ -6,6 +6,7 @@ import { useMemo, useState, useCallback, useEffect } from 'react';
 import { AlertTriangle, Zap, Users, Clock, ChefHat, CheckCircle2 } from 'lucide-react';
 import { Order, OrderStatus } from '../../../kitchen-types/order';
 import { StaffWorkloadDto, SlotCapacityDto } from '../../../kitchen-api/kitchenApi';
+import { serverNow } from '../../../kitchen-hooks/useOrderTimer';
 import '../styles/Orderqueue.scss';
 
 interface OrderQueueProps {
@@ -22,7 +23,7 @@ function getInitials(name: string): string {
 }
 
 function formatSlotTime(iso: string): string {
-  const diffMin = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
+  const diffMin = Math.round((new Date(iso).getTime() - serverNow()) / 60000);
   if (diffMin <= 0) return 'Now';
   if (diffMin < 60) return `+${diffMin}m`;
   const h = Math.floor(diffMin / 60);
@@ -67,16 +68,17 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
     order.orderType === 'express'   ? '⚡' :
     order.orderType === 'scheduled' ? '📅' : '●';
 
-  const handleAssign = async (chefId: string) => {
+ const handleAssign = async (chefId: string) => {
     if (!chefId || !onAssignChef || assigning) return;
+    // Reset selected immediately so the dropdown never shows a
+    // "stuck" chef name if the assignment fails mid-flight.
+    setSelected('');
     setAssigning(true);
     setAssignErr(null);
     try {
       await onAssignChef(order.id, chefId);
-      setSelected('');
     } catch (e: any) {
       setAssignErr(e?.message ?? 'Assign failed');
-      setSelected('');
     } finally {
       setAssigning(false);
     }
@@ -181,13 +183,27 @@ export function OrderQueue({
   const activeOrders = useMemo(() => orders.filter(o => o.status !== 'completed'), [orders]);
 
  // AFTER — correct, self-contained:
-  const attentionOrders = useMemo(() => {
-    const overdue = activeOrders.filter(o =>
-      o.status === 'cooking' &&
-      o.elapsedMinutes != null &&
-      o.estimatedPrepTime != null &&
-      o.elapsedMinutes > o.estimatedPrepTime
-    );
+const attentionOrders = useMemo(() => {
+    const nowMs = Date.now();
+    const overdue = activeOrders.filter(o => {
+      if (o.status !== 'cooking') return false;
+      // Prefer live clock over poll-updated elapsedMinutes (which lags by up to 10s).
+      // Use startedAt if available for real-time overdue detection.
+      const startedAt = (o as any).startedAt;
+      if (startedAt && o.estimatedPrepTime > 0) {
+        const startMs = startedAt instanceof Date
+          ? startedAt.getTime()
+          : new Date(startedAt).getTime();
+        const liveElapsedMin = (nowMs - startMs) / 60_000;
+        return liveElapsedMin > o.estimatedPrepTime;
+      }
+      // Fallback to backend-computed value
+      return (
+        o.elapsedMinutes != null &&
+        o.estimatedPrepTime != null &&
+        o.elapsedMinutes > o.estimatedPrepTime
+      );
+    });
   const unassigned = activeOrders
       .filter(o => o.status === 'pending' && !o.assignedTo && o.orderType !== 'scheduled')
       .sort((a, b) => {

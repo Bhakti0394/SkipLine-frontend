@@ -14,9 +14,15 @@ export interface Notification {
 
 // ─── Web Audio sound engine ───────────────────────────────────────────────────
 
+let _sharedAudioContext: AudioContext | null = null;
+
 function getAudioContext(): AudioContext | null {
   try {
-    return new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (_sharedAudioContext && _sharedAudioContext.state !== 'closed') {
+      return _sharedAudioContext;
+    }
+    _sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    return _sharedAudioContext;
   } catch {
     return null;
   }
@@ -123,7 +129,6 @@ function playSound(type: SoundType) {
     }
   }
 
-  setTimeout(() => ctx.close(), 3000);
 }
 
 // ─── Capacity event types ─────────────────────────────────────────────────────

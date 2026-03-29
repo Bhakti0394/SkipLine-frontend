@@ -28,7 +28,7 @@ const Auth = () => {
   // were never fetched (causing 401/403 on every page load).
   //
   // Now: login() → setUser() → SkipLineContext re-runs → real data fetched ✓
- const { login, setUser } = useAuth();
+ const { login, syncUser } = useAuth();
 
   const [mode,          setMode]          = useState<Mode>("login");
   const [role,          setRole]          = useState<Role>("customer");
@@ -97,19 +97,16 @@ const Auth = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Invalid or expired OTP");
 
-      if (data.token)    localStorage.setItem("auth_token",     data.token);
-      if (data.role)     localStorage.setItem("auth_role",      data.role);
-      if (data.email)    localStorage.setItem("auth_email",     data.email);
-      if (data.fullName) localStorage.setItem("auth_full_name", data.fullName);
+    // syncUser atomically writes all 4 localStorage keys + updates React context.
+      // Replaces 4 manual setItem calls + raw setUser to guarantee they never diverge.
+      syncUser({
+        token:    data.token,
+        email:    data.email,
+        fullName: data.fullName ?? data.email,
+        role:     data.role,
+      });
 
-      setUser({
-  email:    data.email,
-  fullName: data.fullName ?? data.email,
-  role:     data.role,
-});
-
-      window.location.href = "/kitchen-dashboard";
-    } catch (error: any) {
+      window.location.href = "/kitchen-dashboard"; } catch (error: any) {
       setErrorMessage(error.message || "Verification failed");
     } finally {
       setIsLoading(false);

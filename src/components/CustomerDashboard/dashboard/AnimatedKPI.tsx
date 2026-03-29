@@ -33,35 +33,40 @@ export function AnimatedKPI({
   const ref = useRef<HTMLDivElement>(null);
 
   // Animated count-up effect
-  useEffect(() => {
+useEffect(() => {
     if (hasAnimated) return;
 
-    const duration = 1500; // ms
+    const duration  = 1500;
     const startTime = Date.now();
     const startValue = 0;
+    let rafId: number;
+    let cancelled = false;
 
     const animate = () => {
-      const elapsed = Date.now() - startTime;
+      if (cancelled) return;
+      const elapsed  = Date.now() - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      
-      // Easing function (ease-out-cubic)
-      const eased = 1 - Math.pow(1 - progress, 3);
-      const current = startValue + (value - startValue) * eased;
-      
+      const eased    = 1 - Math.pow(1 - progress, 3);
+      const current  = startValue + (value - startValue) * eased;
+
       setDisplayValue(Number(current.toFixed(decimals)));
 
       if (progress < 1) {
-        requestAnimationFrame(animate);
+        rafId = requestAnimationFrame(animate);
       } else {
         setHasAnimated(true);
       }
     };
 
     const timer = setTimeout(() => {
-      requestAnimationFrame(animate);
+      rafId = requestAnimationFrame(animate);
     }, delay * 1000);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      cancelAnimationFrame(rafId);
+    };
   }, [value, delay, hasAnimated, decimals]);
 
   return (

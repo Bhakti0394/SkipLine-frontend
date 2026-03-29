@@ -83,14 +83,12 @@ export function selectCapacity(boardData: KanbanBoardResponse | null): CapacityS
   const maxQueueDepth = Math.max(totalSlots * 2, 10);
 
   const freeSlots    = Math.max(0, totalSlots - cookingCount);
-  const activeLoad   = cookingCount + pendingCount;
   const capacityPct  = totalSlots > 0
-    ? Math.min(100, Math.round((activeLoad / totalSlots) * 100))
+    ? Math.min(100, Math.round((cookingCount / totalSlots) * 100))
     : 0;
 
-  const cookingFull  = cookingCount >= totalSlots && totalSlots > 0;
-  const queueFull    = pendingCount >= maxQueueDepth;
-  const isOverloaded = cookingFull && queueFull;
+  const isOverloaded = (totalSlots > 0 && cookingCount >= totalSlots)
+                     || pendingCount >= maxQueueDepth;
 
   return { totalSlots, cookingCount, freeSlots, capacityPct, isOverloaded };
 }
@@ -103,8 +101,8 @@ export function selectCapacityBreakdown(
 
   const onShiftStaff    = staff.filter(s => s.onShift);
   const activeChefCount = onShiftStaff.length;
-  const avgOrdersPerChef = activeChefCount > 0
-    ? Math.round(onShiftStaff.reduce((sum, s) => sum + s.maxCapacity, 0) / activeChefCount)
+ const avgOrdersPerChef = activeChefCount > 0
+    ? Math.round(onShiftStaff.reduce((sum, s) => sum + s.activeOrders, 0) / activeChefCount)
     : 0;
 
   const pendingCount = boardData ? (boardData.columns.PENDING ?? []).length : 0;
@@ -186,10 +184,14 @@ export function sortBySchedulingPriority(orders: Order[]): Order[] {
     if (weightA !== weightB) return weightA - weightB;
 
     // Secondary: pickup time — ASAP = 0 (earliest), TBD = Infinity (latest)
+   // Secondary: pickup time — ASAP = 0 (earliest), TBD/invalid = Infinity (latest)
     const timeA = pickupTimeMs(a.pickupTime);
     const timeB = pickupTimeMs(b.pickupTime);
-    if (timeA !== timeB) return timeA - timeB;
-
+    // Both Infinity → treat as equal, fall through to tertiary sort.
+    // Avoids Infinity - Infinity = NaN which breaks sort contract.
+    if (timeA !== timeB && (isFinite(timeA) || isFinite(timeB))) {
+      return timeA - timeB;
+    }
     // Tertiary: createdAt FIFO
     return a.createdAt.getTime() - b.createdAt.getTime();
   });
@@ -213,8 +215,9 @@ function pickupTimeMs(pickupTime: string): number {
 // ─── canAcceptOrder ───────────────────────────────────────────────────────────
 
 export function canAcceptOrder(boardData: KanbanBoardResponse): boolean {
-  const { freeSlots, totalSlots } = selectCapacity(boardData);
+  const snap = selectCapacity(boardData);
+  if (snap.isOverloaded) return false;
   const pendingCount  = (boardData.columns.PENDING ?? []).length;
-  const maxQueueDepth = Math.max(1, totalSlots * 2);
-  return freeSlots > 0 || pendingCount < maxQueueDepth;
+  const maxQueueDepth = Math.max(snap.totalSlots * 2, 10);
+  return snap.freeSlots > 0 || pendingCount < maxQueueDepth;
 }

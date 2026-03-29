@@ -33,7 +33,7 @@ function fmtMin(m: number) {
 
 function fmtTime(d: Date | null) {
   if (!d) return '--';
-  try { return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+  try { return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }); }
   catch { return '--'; }
 }
 
@@ -139,28 +139,27 @@ function OrderRow({ order, open, onToggle }: { order: Order; open: boolean; onTo
 type SortKey = 'recent' | 'fastest' | 'slowest';
 
 export const CompletedOrders = memo(function CompletedOrders({ orders }: { orders: Order[] }) {
-  const [search, setSearch] = useState('');
-  const [sort,   setSort]   = useState<SortKey>('recent');
-  const [filter, setFilter] = useState('All');
-  const [openId, setOpenId] = useState<string | null>(null);
+ const [search,         setSearch]         = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sort,           setSort]           = useState<SortKey>('recent');
+  const [filter,         setFilter]         = useState('All');
+  const [openId,         setOpenId]         = useState<string | null>(null);
+
+  // Debounce search input — avoids O(n×m) scan on every keystroke
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 150);
+    return () => clearTimeout(id);
+  }, [search]);
  const toggle = useCallback((id: string) => setOpenId(p => p === id ? null : id), []);
 
-  const prevLengthRef = useRef(orders.length);
-  useEffect(() => {
-    if (orders.length !== prevLengthRef.current) {
-      prevLengthRef.current = orders.length;
-      setOpenId(null);
-    }
-  }, [orders]);
-
-  const { types, list, m } = useMemo(() => {
+const { types, list, m } = useMemo(() => {
     const types = ['All', ...Array.from(new Set(orders.map(o => o.orderType))).sort()];
 
     let list = [...orders]
       .sort((a, b) => (toDate(b.completedAt)?.getTime() ?? 0) - (toDate(a.completedAt)?.getTime() ?? 0))
       .filter(o => filter === 'All' || o.orderType === filter)
       .filter(o => {
-        const q = search.toLowerCase();
+        const q = debouncedSearch.toLowerCase();
         if (!q) return true;
         return (
           o.orderNumber.toLowerCase().includes(q) ||
@@ -173,9 +172,27 @@ export const CompletedOrders = memo(function CompletedOrders({ orders }: { order
     if (sort === 'slowest') list.sort((a, b) => getElapsed(b) - getElapsed(a));
 
     return { types, list, m: calcMetrics(list) };
-  }, [orders, filter, search, sort]);
+  }, [orders, filter, debouncedSearch, sort]);
 
-  return (
+  const prevLengthRef = useRef(orders.length);
+  useEffect(() => {
+    const prevLen = prevLengthRef.current;
+    prevLengthRef.current = orders.length;
+    if (orders.length < prevLen) {
+      setOpenId(prev => {
+        if (prev === null) return null;
+        // Check against `orders` (full list) — order still exists in dataset.
+        const stillInOrders = orders.some(o => o.id === prev);
+        if (!stillInOrders) return null;
+        // Also check against `list` (filtered/searched view) — if the open row
+        // is filtered out, clear it so stale expanded data is never shown when
+        // the filter is removed and the row re-appears with potentially changed data.
+        // list is declared above this effect — always in scope, always current.
+        const stillInList = list.some(o => o.id === prev);
+        return stillInList ? prev : null;
+      });
+    }
+  }, [orders, list]); return (
     <div className="co-panel">
 
       {/* Header */}

@@ -35,6 +35,9 @@ function handle401(res: Response): void {
     localStorage.removeItem('auth_email');
     localStorage.removeItem('auth_full_name');
     window.location.href = '/auth?mode=login';
+    // Throw to stop all subsequent execution in the calling async function.
+    // Without this, code after handle401() continues running during navigation.
+    throw new Error('Unauthorized — redirecting to login');
   }
 }
 // ── Kitchen DTOs ──────────────────────────────────────────────────────────────
@@ -649,37 +652,31 @@ export async function triggerSimulation(
   let lastRejectionReason: string | undefined;
   let kitchenFull = false;
 
-  const BATCH_SIZE = 3;
-  for (let i = 0; i < payloads.length && !kitchenFull; i += BATCH_SIZE) {
-    const batch   = payloads.slice(i, i + BATCH_SIZE);
-    const results = await Promise.allSettled(
-      batch.map(async ({ orderRef, menuItemIds, customerName, orderType }) => {
-        const orderId = await createOrder(orderRef, menuItemIds, customerName);
-        if (orderType === 'normal' || orderType === 'scheduled') {
-          const slot = orderType === 'normal'
-            ? pickNormalSlot(slotTracker) : pickScheduledSlot(slotTracker);
-          if (slot) {
-            try {
-              await reservePickupSlot(orderId, slot.slotId);
-              const tracked = slotTracker.find(s => s.slotId === slot.slotId);
-              if (tracked) tracked.remaining = Math.max(0, tracked.remaining - 1);
-            } catch (slotErr: any) {
-              console.warn(`[Sim] Slot reservation failed for ${orderRef}:`, slotErr.message);
-            }
+// Sequential processing — slot tracker reads/writes are not concurrent,
+  // preventing two orders in the same batch from both seeing remaining = 1
+  // and both decrementing, over-booking a slot.
+  for (let i = 0; i < payloads.length && !kitchenFull; i++) {
+    const { orderRef, menuItemIds, customerName, orderType } = payloads[i];
+    try {
+      const orderId = await createOrder(orderRef, menuItemIds, customerName);
+      if (orderType === 'normal' || orderType === 'scheduled') {
+        const slot = orderType === 'normal'
+          ? pickNormalSlot(slotTracker) : pickScheduledSlot(slotTracker);
+        if (slot) {
+          try {
+            await reservePickupSlot(orderId, slot.slotId);
+            const tracked = slotTracker.find(s => s.slotId === slot.slotId);
+            if (tracked) tracked.remaining = Math.max(0, tracked.remaining - 1);
+          } catch (slotErr: any) {
+            console.warn(`[Sim] Slot reservation failed for ${orderRef}:`, slotErr.message);
           }
         }
-      }),
-    );
-    for (const result of results) {
-      if (result.status === 'fulfilled') { generated++; }
-      else {
-        rejected++;
-        lastRejectionReason = result.reason?.message;
-        if (lastRejectionReason?.includes('full capacity')) kitchenFull = true;
       }
-    }
-    if (generated > 0 && !kitchenFull) {
-      try { await simulateAdvance(); } catch { /* swallow */ }
+      generated++;
+    } catch (err: any) {
+      rejected++;
+      lastRejectionReason = err?.message;
+      if (lastRejectionReason?.includes('full capacity')) kitchenFull = true;
     }
   }
   return { generated, rejected, ...(lastRejectionReason ? { reason: lastRejectionReason } : {}) };

@@ -193,13 +193,29 @@ function ChefDropdown({ assignedTo, assignableStaff, assigning, onAssign }: Chef
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+const handlerRef = useRef<((e: MouseEvent) => void) | null>(null);
+
   useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
+    if (!open) {
+      if (handlerRef.current) {
+        document.removeEventListener('mousedown', handlerRef.current);
+        handlerRef.current = null;
+      }
+      return;
+    }
+    // Store handler in ref so removeEventListener receives the exact same
+    // function reference that addEventListener registered — arrow functions
+    // are not referentially stable across re-renders.
+    handlerRef.current = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('mousedown', handlerRef.current);
+    return () => {
+      if (handlerRef.current) {
+        document.removeEventListener('mousedown', handlerRef.current);
+        handlerRef.current = null;
+      }
+    };
   }, [open]);
 
   return (
@@ -267,9 +283,18 @@ export function OrderCard({
   onAssignChef,
   countdown,
 }: OrderCardProps) {
-const [actionPending, setActionPending] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
   const [assigning,     setAssigning]     = useState(false);
   const [assignError,   setAssignError]   = useState<string | null>(null);
+
+  // Clear stale assignment error when order identity changes
+  const prevOrderIdRef = useRef(order.id);
+  useEffect(() => {
+    if (prevOrderIdRef.current !== order.id) {
+      prevOrderIdRef.current = order.id;
+      setAssignError(null);
+    }
+  }, [order.id]);
 
 
   const { eta, isOverdue } = useOrderTimer(order);
@@ -346,26 +371,40 @@ const [actionPending, setActionPending] = useState(false);
 
   // ── Countdown (ready) ──────────────────────────────────────────────────────
   const countdownUrgent = countdown !== undefined && countdown <= 5;
-  const countdownStyle: React.CSSProperties = {
+const countdownStyle: React.CSSProperties = {
     fontSize:     '0.65rem',
     padding:      '0.125rem 0.5rem',
     borderRadius: '999px',
     fontWeight:   600,
-    background:   countdownUrgent ? 'rgba(239, 68, 68, 0.20)' : 'rgba(16, 185, 129, 0.15)',
-    color:        countdownUrgent ? '#f87171' : '#34d399',
-    border:       `1px solid ${countdownUrgent ? 'rgba(239,68,68,0.4)' : 'rgba(16,185,129,0.3)'}`,
+    background:   countdownUrgent
+      ? 'var(--color-background-danger)'
+      : 'var(--color-background-success)',
+    color:        countdownUrgent
+      ? 'var(--color-text-danger)'
+      : 'var(--color-text-success)',
+    border:       countdownUrgent
+      ? '1px solid var(--color-border-danger)'
+      : '1px solid var(--color-border-success)',
     animation:    countdownUrgent ? 'pulse 1s infinite' : 'none',
   };
-
   // ── Handlers ───────────────────────────────────────────────────────────────
  const handleAction = useCallback(async () => {
     if (!nextStatus || actionPending) return;
-    if (order.status === 'cooking' && !order.assignedTo && !order.assignedChefId) return;
-    // block scheduled pending orders from being started without a chef (lock parity with KanbanBoard)
-    if (order.status === 'pending' && order.orderType === 'scheduled' && !order.assignedTo && !order.assignedChefId) return;
+    const hasChef = !!(order.assignedTo || order.assignedChefId);
+    // Block cooking→ready if no chef assigned
+    if (order.status === 'cooking' && !hasChef) return;
+    // Block ALL pending→cooking if no chef assigned (not just scheduled)
+    // Parity with KanbanBoard which requires chef before cooking starts
+    if (order.status === 'pending' && !hasChef) return;
     setActionPending(true);
-    try   { await onStatusChange(order.id, nextStatus); }
-    finally { setActionPending(false); }
+    try {
+      await onStatusChange(order.id, nextStatus);
+    } catch (err: any) {
+      console.error('[OrderCard] Status change failed:', err.message);
+      // Error surfaces via parent toast — no local error state needed
+    } finally {
+      setActionPending(false);
+    }
   }, [nextStatus, actionPending, onStatusChange, order.id, order.status, order.assignedTo, order.assignedChefId]);
 
 const handleAssign = useCallback(async (chefId: string) => {
@@ -378,7 +417,9 @@ const handleAssign = useCallback(async (chefId: string) => {
   }, [onAssignChef, order.id]);
 
   const showAssignChef  = order.status === 'pending' && staff.length > 0 && !!onAssignChef;
-  const assignableStaff = staff.filter(s => s.onShift && s.status !== 'full');
+   const assignableStaff = staff.filter(
+    s => s.onShift && s.status !== 'full' && s.activeOrders < s.maxCapacity
+  );
 
   return (
     <div
@@ -509,26 +550,29 @@ const handleAssign = useCallback(async (chefId: string) => {
       {order.status !== 'completed' && <OrderTimer order={order} />}
 
       {/* ── Action button ── */}
-     {nextStatus && actionLabel && (
+  {nextStatus && actionLabel && (
         <div className="flex items-center justify-end pt-1">
-          <button
-            style={{
-              ...btnStyle,
-              // FIX: visually disable when cooking + no chef assigned
-              ...(order.status === 'cooking' && !order.assignedTo && !order.assignedChefId
-                ? { opacity: 0.35, cursor: 'not-allowed' }
-                : {}),
-            }}
-            onMouseEnter={e => { if (!actionPending) e.currentTarget.style.opacity = '0.80'; }}
-            onMouseLeave={e => { if (!actionPending) e.currentTarget.style.opacity = '1'; }}
-            onClick={handleAction}
-            disabled={actionPending || (order.status === 'cooking' && !order.assignedTo && !order.assignedChefId)}
-          >
-            {/* FIX: show blocked label when no chef on cooking card */}
-            {order.status === 'cooking' && !order.assignedTo && !order.assignedChefId
-              ? '⚠ Assign chef first'
-              : actionLabel}
-          </button>
+          {(() => {
+            const hasChef = !!(order.assignedTo || order.assignedChefId);
+            const needsChef =
+              (order.status === 'cooking' && !hasChef) ||
+              (order.status === 'pending' && !hasChef);
+            const isBlocked = actionPending || needsChef;
+            return (
+              <button
+                style={{
+                  ...btnStyle,
+                  ...(needsChef ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                }}
+                onMouseEnter={e => { if (!isBlocked) e.currentTarget.style.opacity = '0.80'; }}
+                onMouseLeave={e => { if (!isBlocked) e.currentTarget.style.opacity = '1'; }}
+                onClick={handleAction}
+                disabled={isBlocked}
+              >
+                {needsChef ? '⚠ Assign chef first' : actionLabel}
+              </button>
+            );
+          })()}
         </div>
       )}
     </div>

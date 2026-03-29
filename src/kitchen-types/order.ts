@@ -65,7 +65,8 @@ export const ORDER_TYPE_WEIGHT: Record<OrderType, number> = {
 };
 
 // Keep PRIORITY_WEIGHT alias so KanbanBoard sort logic still compiles
-export const PRIORITY_WEIGHT = ORDER_TYPE_WEIGHT;
+// Keep PRIORITY_WEIGHT alias — spread to prevent shared-reference mutation
+export const PRIORITY_WEIGHT: Record<OrderType, number> = { ...ORDER_TYPE_WEIGHT };
 
 // ─── Badge visual config ──────────────────────────────────────────────────────
 export const ORDER_TYPE_BADGE: Record<OrderType, {
@@ -98,5 +99,5 @@ export const ORDER_TYPE_BADGE: Record<OrderType, {
   },
 };
 
-// Keep PRIORITY_BADGE alias so KanbanBoard badge lookup still compiles
-export const PRIORITY_BADGE = ORDER_TYPE_BADGE;
+
+export const PRIORITY_BADGE: typeof ORDER_TYPE_BADGE = { ...ORDER_TYPE_BADGE };

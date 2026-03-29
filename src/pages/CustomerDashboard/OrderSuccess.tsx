@@ -195,8 +195,9 @@ export default function OrderSuccess() {
   const [searchQuery, setSearchQuery]                     = useState('');
   const [selectedCategory, setSelectedCategory]           = useState('All');
   const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
-  const [swapDishes,      setSwapDishes]      = useState<SwapDish[]>([]);
+const [swapDishes,      setSwapDishes]      = useState<SwapDish[]>([]);
   const [swapDishLoading, setSwapDishLoading] = useState(false);
+  const [swapDishError,   setSwapDishError]   = useState(false);
 
   // Edit window countdown — guarded inside so it no-ops when canEditOrder=false
   useEffect(() => {
@@ -246,18 +247,20 @@ export default function OrderSuccess() {
   }, [locationState, navigate]);
 
   // FIX: fetch real menu items for swap modal
-  const loadSwapDishes = useCallback(async () => {
-    if (swapDishes.length > 0) return;
+const loadSwapDishes = useCallback(async () => {
+    // Guard: already loaded or already failed — don't retry on every open
+    if (swapDishes.length > 0 || swapDishError) return;
     setSwapDishLoading(true);
     try {
       const items = await fetchCustomerMenuItems();
       setSwapDishes(items.filter(i => i.available).map(menuItemToSwapDish));
     } catch {
-      // swap modal shows empty state — not a crash
+      // Mark as failed so we don't retry on every modal open
+      setSwapDishError(true);
     } finally {
       setSwapDishLoading(false);
     }
-  }, [swapDishes.length]);
+  }, [swapDishes.length, swapDishError]);
 
   // ── Null guards AFTER all hooks ───────────────────────────────────────────
   if (!locationState?.orders?.length) return null;

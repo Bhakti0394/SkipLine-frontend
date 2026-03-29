@@ -85,27 +85,31 @@ function queueLevel(remaining: number, max: number): 'low' | 'medium' | 'high' {
 }
 
 // ── Add-ons fetch ─────────────────────────────────────────────────────────────
-let addonsCache: AddOn[] | null = null;
+// Cache keyed by auth token — invalidates automatically on logout/login.
+// Never caches failures so backend recovery is picked up on next modal open.
+let addonsCache: { token: string; data: AddOn[] } | null = null;
 
 async function fetchAddons(): Promise<AddOn[]> {
-  if (addonsCache) return addonsCache;
+  const token = localStorage.getItem('auth_token') ?? '';
+  // Return cached value only if the auth token hasn't changed
+  if (addonsCache && addonsCache.token === token) return addonsCache.data;
   try {
     const CUSTOMER_URL = (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/customer';
-    const token = localStorage.getItem('auth_token');
     const res = await fetch(`${CUSTOMER_URL}/addons`, {
       credentials: 'include',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new Error(`${res.status}`);
     const data: AddOn[] = await res.json();
-    addonsCache = data.length > 0 ? data : ADDONS_FALLBACK;
-    return addonsCache;
+    const resolved = data.length > 0 ? data : ADDONS_FALLBACK;
+    // Only cache successes — failures fall back but are retried next open
+    addonsCache = { token, data: resolved };
+    return resolved;
   } catch {
-    addonsCache = ADDONS_FALLBACK;
-    return addonsCache;
+    // Do NOT cache failures — backend may recover before next modal open
+    return ADDONS_FALLBACK;
   }
 }
-
 // ══════════════════════════════════════════════════════════════════════════════
 export function OrderModal({
   meal,
@@ -209,10 +213,15 @@ export function OrderModal({
   const addOnsTotal          = selectedAddOnObjects.reduce((t, a) => t + a.price, 0);
   const totalPrice           = (meal.price + addOnsTotal) * quantity;
 
-  const resetForm = () => {
+const resetForm = () => {
     setQuantity(1); setSelectedSlot(null); setSelectedExpressOption(null);
     setSelectedAddOns([]); setSpiceLevel('medium');
     setSpecialInstructions(''); setShowSuccess(false);
+    // Reset addonsLoaded so next open re-checks cache
+    setAddonsLoaded(false);
+    // Clear stale slots so previous meal's slots never flash on next open
+    setTodaySlots([]);
+    setTomorrowSlots([]);
   };
 
   const handleAddToCart = () => {

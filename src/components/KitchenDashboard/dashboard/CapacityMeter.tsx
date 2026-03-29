@@ -25,7 +25,9 @@ const BACKDROP: React.CSSProperties = {
 function Modal({ onDismiss, children }: { onDismiss: () => void; children: React.ReactNode }) {
   return (
     <div style={BACKDROP} onClick={e => e.target === e.currentTarget && onDismiss()}>
-      <div className="staff-modal">{children}</div>
+      <div className="staff-modal" onClick={e => e.stopPropagation()}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -309,7 +311,12 @@ export const CapacityMeter: React.FC<CapacityMeterProps> = memo(({
               placeholder="e.g. Ravi Kumar"
               value={chefName}
               onChange={e => setChefName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (!adding) handleAdd();
+                }
+              }}
               autoFocus
               maxLength={50}
             />

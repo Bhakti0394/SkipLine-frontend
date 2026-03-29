@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const AuthContext = createContext(null);
 
@@ -102,16 +102,29 @@ export function AuthProvider({ children }) {
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
   const isCustomer = user?.role === 'CUSTOMER';
   const isKitchen  = user?.role === 'KITCHEN';
   const isLoggedIn = !!user;
+
+  // syncUser — the ONLY safe way to set user from outside AuthContext.
+  // Atomically writes all 4 localStorage keys AND updates React state so
+  // context and localStorage never diverge (unlike raw setUser which only
+  // updates React state and leaves localStorage out of sync if caller forgets).
+  const syncUser = useCallback((userData) => {
+    localStorage.setItem('auth_token',     userData.token    ?? localStorage.getItem('auth_token') ?? '');
+    localStorage.setItem('auth_role',      userData.role     ?? '');
+    localStorage.setItem('auth_email',     userData.email    ?? '');
+    localStorage.setItem('auth_full_name', userData.fullName ?? userData.email ?? '');
+    setUser({ email: userData.email, fullName: userData.fullName ?? userData.email, role: userData.role });
+  }, []);
 
   return (
     <AuthContext.Provider value={{
       user, loading,
       login, register, logout,
       isCustomer, isKitchen, isLoggedIn,
-setUser,
+      syncUser,
     }}>
       {children}
     </AuthContext.Provider>

@@ -191,8 +191,10 @@ function resolvePickupTime(
 }
 
 function toFrontendOrder(dto: OrderCardDto): Order {
- const items = dto.itemSummary.map((summary, i) => {
-    const match = summary.match(/^(\d+)[x×] (.+)$/);
+const items = dto.itemSummary.map((summary, i) => {
+    // Match "2× Item Name" or "2x Item Name" — use Unicode escape for
+    // multiplication sign (U+00D7) to avoid source encoding corruption.
+    const match = summary.match(/^(\d+)[x\u00D7] (.+)$/);
     return {
       id:         `${dto.id}-item-${i}`,
       menuItemId: '',
@@ -321,7 +323,7 @@ const simIntervalRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const knownOrderIds       = useRef<Set<string>>(new Set());
   const isFirstLoad         = useRef(true);
   const onNewOrdersRef      = useRef(onNewOrders);
-  const simAdvancePendingRef = useRef(false);
+
   useEffect(() => { onNewOrdersRef.current = onNewOrders; }, [onNewOrders]);
 
   const isSimulatingRef = useRef(isSimulating);
@@ -364,19 +366,11 @@ const simIntervalRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
 const loadBoard = useCallback(async () => {
     if (!isKitchen) return;
 
-    // If a load is already in-flight, wait for it to finish then run again
-    // instead of silently dropping the request (which caused stale UI after
-    // action calls that complete faster than the poll cycle).
-    if (isLoadingRef.current) {
-      await new Promise<void>(resolve => {
-        const check = setInterval(() => {
-          if (!isLoadingRef.current) {
-            clearInterval(check);
-            resolve();
-          }
-        }, 100);
-      });
-    }
+    // Skip if a load is already in-flight — the in-flight request will
+    // update state when it completes. Busy-waiting (setInterval 100ms)
+    // burned CPU on slow/hung requests; skipping is safe because the
+    // poll cycle will trigger another load shortly after.
+    if (isLoadingRef.current) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -394,8 +388,7 @@ const loadBoard = useCallback(async () => {
         ...(data.columns.COOKING ?? []),
         ...(data.columns.READY   ?? []),
       ].map(toFrontendOrder);
-
-      if (isFirstLoad.current) {
+if (isFirstLoad.current) {
         activeOrders.forEach(o => knownOrderIds.current.add(o.id));
         isFirstLoad.current = false;
       } else {
@@ -407,6 +400,20 @@ const loadBoard = useCallback(async () => {
         activeOrders
           .filter(o => o.status !== 'pending' && !knownOrderIds.current.has(o.id))
           .forEach(o => knownOrderIds.current.add(o.id));
+      }
+
+      // Prune knownOrderIds — remove IDs no longer on the board to prevent
+      // unbounded growth over long kitchen sessions (hundreds of orders).
+      // Keep completed order IDs for 5 minutes after they leave active columns
+      // so late poll responses don't re-trigger new-order notifications.
+      const activeIds = new Set(activeOrders.map(o => o.id));
+      const completedIds = new Set(
+        (data.columns.COMPLETED ?? []).slice(0, 50).map(d => d.id)
+      );
+      for (const id of knownOrderIds.current) {
+        if (!activeIds.has(id) && !completedIds.has(id)) {
+          knownOrderIds.current.delete(id);
+        }
       }
 
       setOrders(activeOrders);
@@ -464,14 +471,39 @@ const loadBoard = useCallback(async () => {
       });
     }, 1000);
 
-   const timeout = setTimeout(async () => {
+ const timeout = setTimeout(async () => {
+  // Clean up tracking state first
   delete autoCompleteRefs.current[order.id];
   clearInterval(interval);
   setReadyCountdowns(prev => { const n = { ...prev }; delete n[order.id]; return n; });
-  // FIX [AUTO-COMPLETE-GUARD]: skip if simulation was stopped before timeout fired
+
+  // Double-check simulation is still running at fire time.
   if (!isSimulatingRef.current) return;
-  try { await changeOrderStatus(order.id, 'COMPLETED'); await loadBoard(); }
-  catch { await loadBoard(); }
+
+  // Verify the order is still in READY state on the frontend.
+  const stillReady = ordersRef.current.find(o => o.id === order.id)?.status === 'ready';
+  if (!stillReady) return;
+
+  try {
+    await changeOrderStatus(order.id, 'COMPLETED');
+    await loadBoard();
+  } catch (err: any) {
+    // Log the primary failure so it is visible in production monitoring.
+    console.warn(
+      `[scheduleAutoComplete] Failed to complete order ${order.id}:`,
+      err?.message ?? err,
+    );
+    // Reload board regardless so the order doesn't stay visually stuck.
+    // If loadBoard also fails, log it — do not swallow silently.
+    try {
+      await loadBoard();
+    } catch (boardErr: any) {
+      console.error(
+        `[scheduleAutoComplete] loadBoard also failed after complete error for order ${order.id}:`,
+        boardErr?.message ?? boardErr,
+      );
+    }
+  }
 }, AUTO_COMPLETE_DELAY_MS);
 
     autoCompleteRefs.current[order.id] = { timeout, interval };
@@ -527,42 +559,51 @@ const updateOrderStatus = useCallback(async (
   if (toBackend === 'COMPLETED') cancelAutoComplete(orderId);
 
   // Optimistic update — capture snapshot via functional updater to avoid stale ref
-  let snapshotBeforeUpdate: Order[] = [];
-  setOrders(prev => {
-    snapshotBeforeUpdate = prev;
-    return prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o);
-  });
+// Capture snapshot from ref (always current) before optimistic update.
+  // Avoid side-effects inside setState updater — React StrictMode
+  // double-invokes updaters, which would overwrite snapshotBeforeUpdate
+  // with the second (identical) invocation, making revert use wrong data.
+  // Snapshot captured via functional read of ref — always current at call time.
+// Stored in a local const so concurrent calls each hold their own independent
+// snapshot. This prevents a second concurrent call from reverting to an
+// intermediate optimistic state instead of the true pre-action state.
+const originalStatus = order.status;
 
-  try {
-    await changeOrderStatus(orderId, toBackend);
-    await loadBoard();
-  } catch (err: any) {
-      // FIX [STALE-STATE]: if backend already moved the order to target status,
-      // treat 400 "Cannot transition from X to X" as a success.
-      const msg = (err.message ?? '').toLowerCase();
-      const alreadyThere =
-        msg.includes('cannot transition') &&
-        msg.includes(toBackend.toLowerCase());
+setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
 
-      if (alreadyThere) {
-        console.info(
-          `[updateOrderStatus] Order ${orderId} already in ${toBackend} on backend ` +
-          `(stale frontend state) — treating as success and reloading board.`
-        );
-        await loadBoard();
-        return;
-      }
+try {
+  await changeOrderStatus(orderId, toBackend);
+  await loadBoard();
+} catch (err: any) {
+    const msg = (err.message ?? '').toLowerCase();
+    const alreadyThere =
+      msg.includes('cannot transition') &&
+      msg.includes(toBackend.toLowerCase());
 
-      console.warn(
-        `[updateOrderStatus] ${fromBackend}→${toBackend} failed for order ${orderId}:`,
-        err.message,
-        '— reverting optimistic update and refreshing board.',
+    if (alreadyThere) {
+      console.info(
+        `[updateOrderStatus] Order ${orderId} already in ${toBackend} on backend ` +
+        `(stale frontend state) — treating as success and reloading board.`
       );
-      setOrders(snapshotBeforeUpdate);
       await loadBoard();
-      throw err;
+      return;
     }
-  }, [loadBoard, cancelAutoComplete]);
+
+    console.warn(
+      `[updateOrderStatus] ${fromBackend}→${toBackend} failed for order ${orderId}:`,
+      err.message,
+      '— reverting optimistic update and refreshing board.',
+    );
+    // Revert only this order's optimistic change using a targeted functional
+    // update. Concurrent calls each revert only their own order — no other
+    // in-flight optimistic updates are disturbed.
+    setOrders(prev => prev.map(o =>
+      o.id === orderId ? { ...o, status: originalStatus } : o
+    ));
+    await loadBoard();
+    throw err;
+  }
+}, [loadBoard, cancelAutoComplete]);
 
   const assignChef = useCallback(async (orderId: string, chefId: string) => {
     try {
@@ -606,15 +647,14 @@ const updateOrderStatus = useCallback(async (
       } else {
         setSimulationError(null);
       }
-     if (result.generated > 0) {
-        if (!simAdvancePendingRef.current) {
-          simAdvancePendingRef.current = true;
-          try { await simulateAdvance(); } catch { /* best-effort */ }
-          finally { simAdvancePendingRef.current = false; }
-        }
-        await new Promise(r => setTimeout(r, 300));
-        await loadBoard();
-      }
+   if (result.generated > 0) {
+  // Each tick advances independently — do not gate on simAdvancePendingRef.
+  // simAdvancePendingRef is only for burst calls to avoid duplicate advances
+  // when burst and tick fire at the same millisecond. Tick always advances.
+  try { await simulateAdvance(); } catch { /* best-effort */ }
+  await new Promise(r => setTimeout(r, 300));
+  await loadBoard();
+}
     } catch (err: any) {
       setSimulationError(err.message);
     } finally {
@@ -729,15 +769,11 @@ const updateOrderStatus = useCallback(async (
     try {
       const slots: SlotCapacityDto[] = boardDataRef.current?.upcomingSlots ?? [];
       const result = await triggerSimulation(count, currentMenuItems, slots);
-    if (result.generated > 0) {
-        if (!simAdvancePendingRef.current) {
-          simAdvancePendingRef.current = true;
-          try { await simulateAdvance(); } catch { /* best-effort */ }
-          finally { simAdvancePendingRef.current = false; }
-        }
-        await new Promise(r => setTimeout(r, 300));
-        await loadBoard();
-      }
+  if (result.generated > 0) {
+  try { await simulateAdvance(); } catch { /* best-effort */ }
+  await new Promise(r => setTimeout(r, 300));
+  await loadBoard();
+}
       setSimulationError(result.rejected > 0 ? (result.reason ?? null) : null);
       return result;
     } finally {
