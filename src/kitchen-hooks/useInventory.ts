@@ -133,7 +133,8 @@ export function useInventory() {
 
   // ── Load from backend ─────────────────────────────────────────────────────
 
-  const abortRef = useRef<AbortController | null>(null);
+const abortRef      = useRef<AbortController | null>(null);
+  const inventoryRef  = useRef<InventoryItem[]>([]);
 
   const loadInventory = useCallback(async () => {
     abortRef.current?.abort();
@@ -143,7 +144,8 @@ export function useInventory() {
     try {
       const dtos  = await fetchInventory();
       if (ctrl.signal.aborted) return;
-      const items = dtos.map(toInventoryItem);
+    const items = dtos.map(toInventoryItem);
+      inventoryRef.current = items;
       setInventory(items);
       generateAlerts(items);
       setError(null);
@@ -170,15 +172,20 @@ export function useInventory() {
   // Optimistic update — rollback on error
 
   const updateStock = useCallback(async (itemId: string, newStock: number) => {
-    const prev = inventory.find(i => i.id === itemId);
+    // Capture snapshot via ref read — never stale regardless of concurrent calls
+    const prev = inventoryRef.current.find(i => i.id === itemId);
     if (!prev) return;
 
     // Optimistic
-    setInventory(cur => cur.map(i =>
-      i.id === itemId
-        ? { ...i, currentStock: Math.max(0, Math.min(newStock, i.maxCapacity)) }
-        : i
-    ));
+  setInventory(cur => {
+      const next = cur.map(i =>
+        i.id === itemId
+          ? { ...i, currentStock: Math.max(0, Math.min(newStock, i.maxCapacity)) }
+          : i
+      );
+      inventoryRef.current = next;
+      return next;
+    });
 
     try {
       const dto     = await updateInventoryStock(itemId, newStock);
@@ -193,51 +200,66 @@ export function useInventory() {
       setInventory(cur => cur.map(i => i.id === itemId ? prev : i));
       throw err;
     }
-  }, [inventory, generateAlerts]);
+  }, [ generateAlerts]);
 
   // ── restockItem ───────────────────────────────────────────────────────────
 
-  const restockItem = useCallback(async (itemId: string, quantity: number) => {
-    const prev = inventory.find(i => i.id === itemId);
+const restockItem = useCallback(async (itemId: string, quantity: number) => {
+    const prev = inventoryRef.current.find(i => i.id === itemId);
     if (!prev) return;
 
-    // Optimistic
-    setInventory(cur => cur.map(i =>
-      i.id === itemId
-        ? { ...i, currentStock: Math.min(i.currentStock + quantity, i.maxCapacity), lastRestocked: new Date() }
-        : i
-    ));
+    // Optimistic — also update ref so a concurrent call reads the correct prev
+    setInventory(cur => {
+      const next = cur.map(i =>
+        i.id === itemId
+          ? { ...i, currentStock: Math.min(i.currentStock + quantity, i.maxCapacity), lastRestocked: new Date() }
+          : i
+      );
+      inventoryRef.current = next;
+      return next;
+    });
 
     try {
       const dto     = await restockInventoryItem(itemId, quantity);
       const updated = toInventoryItem(dto);
       setInventory(cur => {
         const next = cur.map(i => i.id === itemId ? updated : i);
+        inventoryRef.current = next;
         generateAlerts(next);
         return next;
       });
     } catch (err: any) {
-      setInventory(cur => cur.map(i => i.id === itemId ? prev : i));
+      // Revert to the snapshot captured before this call's optimistic update.
+      // Concurrent calls each hold their own prev — only this item is reverted.
+      setInventory(cur => {
+        const next = cur.map(i => i.id === itemId ? prev : i);
+        inventoryRef.current = next;
+        return next;
+      });
       throw err;
     }
-  }, [inventory, generateAlerts]);
+  }, [generateAlerts]);
 
   // ── deleteInventoryItem ───────────────────────────────────────────────────
 
-  const deleteInventoryItem = useCallback(async (itemId: string) => {
-    const prev = inventory;
-
-    // Optimistic
-    setInventory(cur => cur.filter(i => i.id !== itemId));
+const deleteInventoryItem = useCallback(async (itemId: string) => {
+    // Capture snapshot from ref — always current, never empty from batching
+    const snapshot = [...inventoryRef.current];
+    setInventory(cur => {
+      const next = cur.filter(i => i.id !== itemId);
+      inventoryRef.current = next;
+      return next;
+    });
 
     try {
       await deleteInventoryItemApi(itemId);
-      generateAlerts(inventory.filter(i => i.id !== itemId));
+      setInventory(cur => { generateAlerts(cur); return cur; });
     } catch (err: any) {
-      setInventory(prev);
+      inventoryRef.current = snapshot;
+      setInventory(snapshot);
       throw err;
     }
-  }, [inventory, generateAlerts]);
+  }, [generateAlerts]);
 
   // ── consumeForOrder (local best-effort — backend syncs on next poll) ──────
 
@@ -245,7 +267,7 @@ export function useInventory() {
     setInventory(prev => {
       let updated = [...prev];
       order.items.forEach(orderItem => {
-        const recipe = menuIngredients.find(m => m.menuItemId === orderItem.id);
+       const recipe = menuIngredients.find(m => m.menuItemId === orderItem.menuItemId);
         if (recipe) {
           recipe.ingredients.forEach(ingredient => {
             updated = updated.map(inv =>
