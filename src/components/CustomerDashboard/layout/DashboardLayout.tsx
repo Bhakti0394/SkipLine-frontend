@@ -59,7 +59,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   // FIX: all-time order count = completed (history) + currently active.
   // Does NOT include ordersThisMonth which would double-count completed orders.
-  const totalOrders = (orderHistory?.length ?? 0) + (orders?.length ?? 0);
+// FIX: all-time order count = completed (history) + active non-cancelled.
+  // Excludes cancelled orders from tier calculation — a cancelled order
+  // should not count toward loyalty tier progression.
+  const activeNonCancelled = (orders ?? []).filter(o => o.status !== 'cancelled');
+  const totalOrders = (orderHistory?.length ?? 0) + activeNonCancelled.length;
   const memberTier  = computeMemberTier(totalOrders);
 
   return (
