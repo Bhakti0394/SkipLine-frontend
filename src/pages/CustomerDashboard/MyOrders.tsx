@@ -223,15 +223,16 @@ export default function MyOrders() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const contextOrderIds = new Set(contextOrders.map(o => o.id));
-  const pollOrders = useCallback(async () => {
+ // WITH THIS — move contextOrderIds inside the callback:
+const pollOrders = useCallback(async () => {
     const token = localStorage.getItem('auth_token');
     if (!token) return;
 
+    const currentContextIds = new Set(contextOrders.map(o => o.id));
     const uncovered = orders.filter(o =>
       o.status !== 'completed' &&
       o.status !== 'cancelled' &&
-      !contextOrderIds.has(o.id)
+      !currentContextIds.has(o.id)
     );
     if (!uncovered.length) return;
 
@@ -247,8 +248,7 @@ export default function MyOrders() {
         applyStatusUpdate(r.value.id, statusMap[r.value.status] ?? r.value.status);
       }
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, applyStatusUpdate]);
+  }, [orders, applyStatusUpdate, contextOrders]);
 
   useEffect(() => {
     const id = setInterval(pollOrders, FALLBACK_POLL_INTERVAL);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle,
@@ -6,10 +6,8 @@ import {
   Clock,
   X,
   Utensils,
-  AlertCircle,
   Info,
   RefreshCw,
-  XCircle,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -224,33 +222,45 @@ function NotifCard({
 // ─────────────────────────────────────────────
 export function NotificationPopup() {
   const [notifications, setNotifications] = useState<PopupNotification[]>([]);
+  // Track all active timers so they can be cleared on unmount
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const dismiss = (id: string) => {
+  const dismiss = useCallback((id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isVisible: false } : n))
     );
-    setTimeout(() => {
+    const t = setTimeout(() => {
       setNotifications((prev) => prev.filter((n) => n.id !== id));
     }, EXIT_ANIMATION_MS);
-  };
+    timersRef.current.push(t);
+  }, []);
+
+  // Clean up all timers on unmount
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (e: Event) => {
       const notif = (e as CustomEvent<Notification>).detail;
 
       setNotifications((prev) => {
-        // Cap stack
         const next = [...prev, { ...notif, isVisible: true }];
         return next.slice(-MAX_VISIBLE);
       });
 
-      // Auto-dismiss
-      setTimeout(() => dismiss(notif.id), AUTO_DISMISS_MS);
+      // Auto-dismiss — dismiss is stable (useCallback with no deps)
+      // so this closure is always fresh
+      const t = setTimeout(() => dismiss(notif.id), AUTO_DISMISS_MS);
+      timersRef.current.push(t);
     };
 
     window.addEventListener('show-notification-popup', handler);
     return () => window.removeEventListener('show-notification-popup', handler);
-  }, []);
+  }, [dismiss]);
 
   const visible = notifications.filter((n) => n.isVisible);
 
@@ -277,7 +287,7 @@ export function NotificationPopup() {
       </AnimatePresence>
     </div>
   );
-}
+} // ← closing brace for NotificationPopup
 
 // ─────────────────────────────────────────────
 // HELPER — import this anywhere to fire a notif

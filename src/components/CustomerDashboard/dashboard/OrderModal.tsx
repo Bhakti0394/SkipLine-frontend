@@ -177,9 +177,10 @@ export function OrderModal({
   const orderType: OrderType = isScheduleMode ? 'scheduled' : isExpressMode ? 'express' : 'normal';
   const tomorrowDate   = getTomorrowDate();
 
-  const expressArrivalOptions = ALL_EXPRESS_ARRIVAL_OPTIONS.filter(
+const expressArrivalOptions = ALL_EXPRESS_ARRIVAL_OPTIONS.filter(
     o => o.minutes >= meal.prepTime
   );
+  const noExpressOptions = isExpressMode && expressArrivalOptions.length === 0;
 
   const selectedExpressArrival = expressArrivalOptions.find(o => o.id === selectedExpressOption);
   const expressPickupTime      = selectedExpressArrival
@@ -217,8 +218,8 @@ const resetForm = () => {
     setQuantity(1); setSelectedSlot(null); setSelectedExpressOption(null);
     setSelectedAddOns([]); setSpiceLevel('medium');
     setSpecialInstructions(''); setShowSuccess(false);
-    // Reset addonsLoaded so next open re-checks cache
-    setAddonsLoaded(false);
+    // Do NOT reset addonsLoaded — cache handles freshness.
+    // Resetting it would trigger a redundant fetch effect fire on close.
     // Clear stale slots so previous meal's slots never flash on next open
     setTodaySlots([]);
     setTomorrowSlots([]);
@@ -253,8 +254,14 @@ const resetForm = () => {
     setShowSuccess(true);
   };
 
-  const handleAddMore  = () => { resetForm(); onClose(); };
-  const handleViewCart = () => { resetForm(); onClose(); navigate('/customer-dashboard/checkout'); };
+ // Reset whenever the modal closes, regardless of the path
+  useEffect(() => {
+    if (!isOpen) resetForm();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const handleAddMore  = () => { onClose(); };
+  const handleViewCart = () => { onClose(); navigate('/customer-dashboard/checkout'); };
 
   return (
     <AnimatePresence>
@@ -491,7 +498,12 @@ const resetForm = () => {
                       </div>
 
                       {/* EXPRESS */}
-                      {isExpressMode ? (
+                     {isExpressMode ? (
+                        noExpressOptions ? (
+                          <p className="modal__slots-empty">
+                            This item takes longer than 15 min — please use scheduled ordering.
+                          </p>
+                        ) : (
                         <div className="modal__express-arrival-grid">
                           {expressArrivalOptions.map((option) => {
                             const isSelected = selectedExpressOption === option.id;
@@ -516,7 +528,8 @@ const resetForm = () => {
                               </motion.button>
                             );
                           })}
-                        </div>
+                       </div>
+                        )
 
                       ) : isScheduleMode ? (
                         /* SCHEDULED — real tomorrow slots from backend ✅ */

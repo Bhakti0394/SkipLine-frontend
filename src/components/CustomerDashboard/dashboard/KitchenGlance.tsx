@@ -26,7 +26,7 @@ export function KitchenGlance({
   const activeCount    = kitchenState.activeOrders.length;
   const queuedCount    = kitchenState.queuedOrders.length;
   // FIX: use real capacity from backend, not hardcoded 3
-  const isOverCapacity = queuedCount > kitchenCapacity;
+const isOverCapacity = activeCount >= kitchenCapacity || queuedCount > 0;
 
   return (
     <motion.div
@@ -160,7 +160,7 @@ export function KitchenGlance({
         <div className="kitchen-glance__capacity-bar">
           <motion.div
             initial={{ width: 0 }}
-            animate={{ width: `${Math.min((activeCount / kitchenCapacity) * 100, 100)}%` }}
+          animate={{ width: `${kitchenCapacity > 0 ? Math.min((activeCount / kitchenCapacity) * 100, 100) : 0}%` }}
             transition={{ duration: 0.8, delay: 0.5 }}
             className={`kitchen-glance__capacity-fill ${
               activeCount >= kitchenCapacity

@@ -55,32 +55,38 @@ export function PageLoader({ onComplete, minDuration = 6200 }: PageLoaderProps) 
   }, [minDuration, onComplete]);
 
   // ── Typewriter tagline ───────────────────────────────────────────────────
-  useEffect(() => {
-    const full = TAGLINES[taglineIdx];
-    let i = 0;
-    setTagline("");
+ useEffect(() => {
+  const full = TAGLINES[taglineIdx];
+  let i = 0;
+  setTagline("");
 
-    const type = setInterval(() => {
-      i++;
-      setTagline(full.slice(0, i));
-      if (i >= full.length) {
-        clearInterval(type);
-        // hold then erase
-        setTimeout(() => {
-          const erase = setInterval(() => {
-            i--;
-            setTagline(full.slice(0, i));
-            if (i <= 0) {
-              clearInterval(erase);
-              setTaglineIdx(idx => (idx + 1) % TAGLINES.length);
-            }
-          }, 28);
-        }, 900);
-      }
-    }, 48);
+  let eraseInterval: ReturnType<typeof setInterval> | null = null;
+  let holdTimeout:   ReturnType<typeof setTimeout>  | null = null;
 
-    return () => clearInterval(type);
-  }, [taglineIdx]);
+  const type = setInterval(() => {
+    i++;
+    setTagline(full.slice(0, i));
+    if (i >= full.length) {
+      clearInterval(type);
+      holdTimeout = setTimeout(() => {
+        eraseInterval = setInterval(() => {
+          i--;
+          setTagline(full.slice(0, i));
+          if (i <= 0) {
+            if (eraseInterval) clearInterval(eraseInterval);
+            setTaglineIdx(idx => (idx + 1) % TAGLINES.length);
+          }
+        }, 28);
+      }, 900);
+    }
+  }, 48);
+
+  return () => {
+    clearInterval(type);
+    if (holdTimeout)   clearTimeout(holdTimeout);
+    if (eraseInterval) clearInterval(eraseInterval);
+  };
+}, [taglineIdx]);
 
   // ── Blinking dots ────────────────────────────────────────────────────────
   useEffect(() => {

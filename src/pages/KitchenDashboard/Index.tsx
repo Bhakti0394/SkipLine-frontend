@@ -183,11 +183,18 @@ const Index = () => {
   // Prune toastedOrderIds — remove IDs no longer on the active board so the
   // Set doesn't grow unbounded over a long kitchen session (hundreds of orders).
   useEffect(() => {
-    const activeIds = new Set(orders.map(o => o.id));
-    for (const id of toastedOrderIds.current) {
-      if (!activeIds.has(id)) toastedOrderIds.current.delete(id);
+  // Include completed orders in the prune guard — an order that just moved to
+  // completed is no longer in `orders` (active-only), but its ID must stay in
+  // toastedOrderIds until it also falls off the completedOrders list, otherwise
+  // a stale onNewOrders callback fires a duplicate new-order toast for it.
+  const activeIds    = new Set(orders.map(o => o.id));
+  const completedIds = new Set(completedOrders.map(o => o.id));
+  for (const id of toastedOrderIds.current) {
+    if (!activeIds.has(id) && !completedIds.has(id)) {
+      toastedOrderIds.current.delete(id);
     }
-  }, [orders]);
+  }
+}, [orders, completedOrders]);
 
   // ── Derived metrics ────────────────────────────────────────────────────────
   const efficiencyPercent:  number = metrics.efficiencyPercent;

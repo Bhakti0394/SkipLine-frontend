@@ -225,33 +225,18 @@ const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string
     };
     const mapped = statusMap[rawStatus] ?? 'confirmed';
 
-    // Update orders state with a pure updater — no side effects inside
-    setOrders(prev => {
-      const order = prev.find(o => o.id === orderId);
-      if (!order || order.status === mapped) return prev;
-      return prev.map(o => o.id === orderId ? { ...o, status: mapped } : o);
-    });
-
-    // Side effects outside the updater — never double-fired by React 18
-    const prevOrder = (() => {
-      // Read current orders via ref to avoid stale closure
-      return null; // resolved below via separate state read
-    })();
-
     if (TERMINAL_STATUSES.has(rawStatus)) {
       sseUnsubscribers.current.get(orderId)?.();
       sseUnsubscribers.current.delete(orderId);
 
       if (rawStatus === 'completed') {
-        // Build updated order for history from current orders ref
         setOrders(prev => {
           const order = prev.find(o => o.id === orderId);
           if (order) {
-            const updated = { ...order, status: mapped };
+            const completed = { ...order, status: 'completed' as const };
             setOrderHistory(h => {
-              // Dedup — never add the same order twice
               if (h.some(o => o.id === orderId)) return h;
-              return [updated, ...h];
+              return [completed, ...h];
             });
             setMetrics(m => ({ ...m, activeOrders: Math.max(0, m.activeOrders - 1) }));
             setKitchenState(ks => {
@@ -263,9 +248,15 @@ const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string
               };
             });
           }
-          return prev; // don't mutate orders here — already done above
+          return prev.map(o => o.id === orderId ? { ...o, status: 'completed' as Order['status'] } : o);
         });
       }
+    } else {
+      setOrders(prev => {
+        const order = prev.find(o => o.id === orderId);
+        if (!order || order.status === mapped) return prev;
+        return prev.map(o => o.id === orderId ? { ...o, status: mapped } : o);
+      });
     }
 
     window.dispatchEvent(new CustomEvent('order-status-changed', {
@@ -278,7 +269,7 @@ const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string
         orderId,
       },
     }));
-  }, []);
+  }, []);    
 
   const startPollingFallback = useCallback((orderId: string) => {
     const interval = setInterval(async () => {
