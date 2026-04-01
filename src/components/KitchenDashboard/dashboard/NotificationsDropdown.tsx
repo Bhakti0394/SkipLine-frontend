@@ -49,18 +49,28 @@ export function NotificationsDropdown({
   const [pos, setPos] = useState({ top: 0, right: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const unreadCount = notifications.filter(n => !n.read).length;
-  const isMobile = () => window.innerWidth <= 600;
+  
 
   // Calculate desktop dropdown position relative to trigger button
-  useEffect(() => {
-    if (open && triggerRef.current && !isMobile()) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      setPos({
-        top: rect.bottom + 10,
-        right: window.innerWidth - rect.right,
-      });
+const MOBILE_BREAKPOINT = 600;
+
+useEffect(() => {
+  if (!open || !triggerRef.current) return;
+
+  const recalc = () => {
+    if (!triggerRef.current) return;
+    if (window.innerWidth <= MOBILE_BREAKPOINT) {
+      setPos({ top: 0, right: 0 });
+      return;
     }
-  }, [open]);
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPos({ top: rect.bottom + 10, right: window.innerWidth - rect.right });
+  };
+
+  recalc();
+  window.addEventListener('resize', recalc);
+  return () => window.removeEventListener('resize', recalc);
+}, [open]);
 
   const dropdown = open && (
     <>
@@ -70,7 +80,7 @@ export function NotificationsDropdown({
       {/* Panel — positioned via inline style on desktop, CSS handles mobile */}
       <div
         className="notifications-content"
-        style={!isMobile() ? { top: pos.top, right: pos.right } : undefined}
+       style={(pos.top > 0 || pos.right > 0) ? { top: pos.top, right: pos.right } : undefined}
       >
         {/* Header */}
         <div className="notifications-header">

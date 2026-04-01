@@ -234,19 +234,12 @@ export function StreakCard() {
     ];
 
     const handleMilestone = (event: CustomEvent<{ streak: number }>) => {
-      const def = REWARD_DEFS.find(r => r.streakRequired === event.detail.streak);
-      if (!def) return;
-      const milestoneReward: Reward = {
-        id:              String(def.streakRequired),
-        name:            def.name,
-        emoji:           def.emoji,
-        icon:            Star,
-        streakRequired:  def.streakRequired,
-        description:     def.description,
-        unlocked:        true,
-        type:            'badge',
-        color:           '',
-      };
+  const def = rewards.find(r => r.streakRequired === event.detail.streak);
+  if (!def) return;
+  const milestoneReward: Reward = {
+    ...def,
+    unlocked: true,
+  };
       setCelebratingReward(milestoneReward);
       setShowCelebration(true);
       addNotification({
@@ -258,7 +251,7 @@ export function StreakCard() {
 
     window.addEventListener('streak-milestone', handleMilestone as EventListener);
     return () => window.removeEventListener('streak-milestone', handleMilestone as EventListener);
-  }, [addNotification]);
+ }, [addNotification, rewards]);
 
   const nextReward =
     rewards.find((r) => !r.unlocked) || rewards[rewards.length - 1];

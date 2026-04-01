@@ -89,13 +89,12 @@ export function StaffController({
   }, [openAddChef, onAddChefHandled]);
 
   // Open Activate modal from CapacityMeter
-  useEffect(() => {
-    if (externalActivateId && !activateTargetId) {
-      setActivateTargetId(externalActivateId);
-      setActivateError(null);
-      onExternalActivateHandled?.();
-    }
-  }, [externalActivateId, activateTargetId, onExternalActivateHandled]);
+useEffect(() => {
+  if (!externalActivateId) return;
+  setActivateTargetId(externalActivateId);
+  setActivateError(null);
+  onExternalActivateHandled?.();
+}, [externalActivateId, onExternalActivateHandled]);
 
   const activateCandidate = useMemo(
     () => activateTargetId ? allStaff.find(s => s.chefId === activateTargetId) ?? null : null,

@@ -1,12 +1,21 @@
 // Add this file as src/utils/forceImageLoad.ts
 // Call forceImageLoad() once in your main.tsx or App.tsx
 
+// src/utils/forceImageLoad.ts
+// Call forceImageLoad() once in your main.tsx or App.tsx
+
+let _observer: MutationObserver | null = null;
+
 export function forceImageLoad() {
   if (typeof window === 'undefined') return;
 
-  // Edge intercepts the loading attribute and defers images when it detects
-  // low memory or efficiency mode. This observer watches for any img element
-  // that has a src but hasn't loaded, and forces it by re-assigning the src.
+  // Disconnect any previous observer before creating a new one.
+  // Prevents accumulation on HMR reloads or accidental double-calls.
+  if (_observer) {
+    _observer.disconnect();
+    _observer = null;
+  }
+
   const fixImage = (img: HTMLImageElement) => {
     if (img.complete && img.naturalWidth > 0) return; // already loaded
     if (!img.src && !img.dataset.src) return;         // no src yet
@@ -22,13 +31,12 @@ export function forceImageLoad() {
     }
   };
 
-  // Fix all existing images on the page
   const fixAll = () => {
     document.querySelectorAll<HTMLImageElement>('img').forEach(fixImage);
   };
 
   // Watch for new images added to the DOM (React renders them dynamically)
-  const observer = new MutationObserver((mutations) => {
+  _observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
         if (node instanceof HTMLImageElement) {
@@ -40,9 +48,9 @@ export function forceImageLoad() {
     });
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  _observer.observe(document.body, { childList: true, subtree: true });
 
-  // Also fix on DOMContentLoaded and after a short delay for React hydration
+  // Fix existing images immediately and after React hydration delays
   fixAll();
   setTimeout(fixAll, 500);
   setTimeout(fixAll, 1500);

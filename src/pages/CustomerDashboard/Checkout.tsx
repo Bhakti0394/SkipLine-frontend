@@ -170,23 +170,35 @@ export default function Checkout() {
         }
       });
 
-      if (failedItems.length > 0 && createdOrders.length === 0) {
-        setError(`Failed to place order for: ${failedItems.join(', ')}. Please try again.`);
-        return;
-      }
+     // WITH THIS:
+if (failedItems.length > 0 && createdOrders.length === 0) {
+  setError(`Failed to place order for: ${failedItems.join(', ')}. Please try again.`);
+  setIsProcessing(false);
+  return;
+}
 
-      if (failedItems.length > 0) {
-        clearCart();
-        navigate('/customer-dashboard/order-success', {
-          state: { orders: createdOrders, paymentMethod: selectedPayment, total: cartTotal, partialFailure: failedItems },
-        });
-        return;
-      }
+if (failedItems.length > 0) {
+  // Only remove successfully ordered items from cart
+  const succeededMealNames = new Set(createdOrders.map(o => o.meal));
+  cart
+    .filter(item => succeededMealNames.has(item.meal.name))
+    .forEach(item => removeFromCart(item.id));
 
-      clearCart();
-      navigate('/customer-dashboard/order-success', {
-        state: { orders: createdOrders, paymentMethod: selectedPayment, total: cartTotal },
-      });
+  navigate('/customer-dashboard/order-success', {
+    state: {
+      orders: createdOrders,
+      paymentMethod: selectedPayment,
+      total: cartTotal,
+      partialFailure: failedItems,
+    },
+  });
+  return;
+}
+
+clearCart();
+navigate('/customer-dashboard/order-success', {
+  state: { orders: createdOrders, paymentMethod: selectedPayment, total: cartTotal },
+});
 
     } catch (err: any) {
       setError(err.message ?? 'Failed to place order. Please try again.');

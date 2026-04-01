@@ -22,28 +22,36 @@ import { useAuth }    from "@/context/AuthContext";
 const queryClient = new QueryClient();
 
 const AppRoutes = () => {
-  const { loading }     = useAuth();
+  const { loading } = useAuth();
   const [showLoader, setShowLoader] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadingRef  = useRef(loading);
+  const mountedRef  = useRef(true);
 
-useEffect(() => {
-  return () => {
-    if (intervalRef.current) clearInterval(intervalRef.current);
-  };
-}, []);
+  // Keep loadingRef current so interval callback never reads stale closure
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
 
   const handleLoaderComplete = () => {
-    if (!loading) {
+    if (!loadingRef.current) {
       setShowLoader(false);
-    } else {
-      intervalRef.current = setInterval(() => {
-  if (!loading) {
-    clearInterval(intervalRef.current!);
-    intervalRef.current = null;
-    setShowLoader(false);
-  }
-}, 100);
+      return;
     }
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      if (!loadingRef.current) {
+        clearInterval(intervalRef.current!);
+        intervalRef.current = null;
+        if (mountedRef.current) setShowLoader(false);
+      }
+    }, 100);
   };
 
   return (
@@ -51,53 +59,34 @@ useEffect(() => {
       {showLoader && (
         <PageLoader onComplete={handleLoaderComplete} minDuration={3200} />
       )}
-      <Routes>
-        <Route path="/" element={<Index />} />
-        <Route path="/auth" element={<Auth />} />
+      <div style={{ visibility: showLoader ? 'hidden' : 'visible' }}>
+        <Routes>
+          <Route path="/" element={<Index />} />
+          <Route path="/auth" element={<Auth />} />
 
-        {/*
-          FIX [SKIPLINE-SCOPE]: SkipLineProvider moved inside the CUSTOMER
-          route only, not at root level.
+          <Route
+            path="/customer-dashboard/*"
+            element={
+              <ProtectedRoute allowedRole="CUSTOMER">
+                <SkipLineProvider>
+                  <CustomerApp />
+                </SkipLineProvider>
+              </ProtectedRoute>
+            }
+          />
 
-          BEFORE: SkipLineProvider wrapped the entire app at the root level.
-          This meant kitchen admins (KITCHEN role) also had SkipLineProvider
-          mounted, which immediately called:
-            - fetchCustomerOrders()      → 403 (KITCHEN token, CUSTOMER endpoint)
-            - fetchCustomerMetrics()     → 403
-            - fetchCustomerStreak()      → 403
-          All three failed silently (caught and logged as warnings), but they
-          generated 3× noisy 403s in server logs on every kitchen page load
-          and ran unnecessary network requests.
+          <Route
+            path="/kitchen-dashboard/*"
+            element={
+              <ProtectedRoute allowedRole="KITCHEN">
+                <KitchenDashboard />
+              </ProtectedRoute>
+            }
+          />
 
-          AFTER: SkipLineProvider only mounts when the user navigates to
-          /customer-dashboard/*. Kitchen admins never trigger any customer
-          API calls.
-
-          Note: ProtectedRoute checks role before rendering children, so
-          SkipLineProvider will only ever initialize for CUSTOMER role users.
-        */}
-        <Route
-          path="/customer-dashboard/*"
-          element={
-            <ProtectedRoute allowedRole="CUSTOMER">
-              <SkipLineProvider>
-                <CustomerApp />
-              </SkipLineProvider>
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/kitchen-dashboard/*"
-          element={
-            <ProtectedRoute allowedRole="KITCHEN">
-              <KitchenDashboard />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </div>
     </>
   );
 };
@@ -112,7 +101,6 @@ const App = () => {
         }}
       >
         <AuthProvider>
-          {/* SkipLineProvider removed from here — now inside /customer-dashboard/* route */}
           <TooltipProvider>
             <Toaster />
             <Sonner />

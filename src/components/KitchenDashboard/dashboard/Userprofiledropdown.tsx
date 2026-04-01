@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { User, LogOut, Activity, X } from 'lucide-react';
 import {
   DropdownMenu,
@@ -48,6 +48,10 @@ export function UserProfileDropdown({
   const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [editedUser, setEditedUser] = useState(user);
 
+  useEffect(() => {
+    setEditedUser(user);
+  }, [user]);
+
   // Mock activity data
   const activityLog: ActivityLogItem[] = [
     {
@@ -90,7 +94,7 @@ export function UserProfileDropdown({
       case 'warning':
         return '!';
       case 'info':
-        return '✓';
+        return 'ℹ';
       default:
         return '•';
     }

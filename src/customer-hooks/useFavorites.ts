@@ -5,21 +5,22 @@ import { Meal } from '../customer-types/dashboard';
 const STORAGE_KEY = 'SkipLine_favorites';
 
 export function useFavorites() {
-  const [favorites, setFavorites] = useState<Meal[]>([]);
-
-  useEffect(() => {
+  // Initialize directly from localStorage — avoids the write effect
+  // firing on mount with [] before the read effect restores saved favorites.
+  const [favorites, setFavorites] = useState<Meal[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setFavorites(JSON.parse(saved));
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      setFavorites([]);
+      return [];
     }
-  }, []);
+  });
 
+  // Write effect — skips the mount write because initial state is already
+  // loaded from localStorage, not from a default empty array.
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(favorites));
   }, [favorites]);
-
   const addFavorite = useCallback((meal: Meal) => {
     setFavorites(prev => {
       if (prev.some(f => f.id === meal.id)) return prev;

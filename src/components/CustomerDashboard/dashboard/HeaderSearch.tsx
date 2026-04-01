@@ -33,16 +33,16 @@ export function HeaderSearch() {
   const navigate     = useNavigate();
 
   // Fetch menu items once on first open
-  const ensureMenuLoaded = useCallback(async () => {
+const ensureMenuLoaded = useCallback(async () => {
     if (fetchedRef.current) return;
-    fetchedRef.current = true;
     setLoading(true);
     try {
       const items = await fetchCustomerMenuItems();
-      // Only keep available items for search
       setMenuItems(items.filter(i => i.available));
+      // Only mark as fetched on success — failures are retried on next open
+      fetchedRef.current = true;
     } catch {
-      // If fetch fails, search will just show no results — not a fatal error
+      // Don't set fetchedRef — allows retry on next search open
     } finally {
       setLoading(false);
     }

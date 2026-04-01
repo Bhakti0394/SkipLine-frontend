@@ -294,6 +294,7 @@ export function useKitchenBoard(
   //   • We only read it once — no subscription needed
 const isKitchenRef = useRef(localStorage.getItem('auth_role') === 'KITCHEN');
 const isKitchen    = isKitchenRef.current;
+
   // ── end role guard ────────────────────────────────────────────────────────
 
   const [boardData, setBoardData]             = useState<KanbanBoardResponse | null>(null);
@@ -335,8 +336,10 @@ const simIntervalRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ordersRef = useRef<Order[]>([]);
   useEffect(() => { ordersRef.current = orders; }, [orders]);
 
-  // FIX [RACE]: track whether a board load is currently in-flight.
-  const isLoadingRef = useRef(false);
+
+  const isLoadingRef            = useRef(false);
+  const pendingReloadRef        = useRef(false);
+  const statusUpdateInFlightRef = useRef(false);
 
   const capacity: CapacitySnapshot = useMemo(() => selectCapacity(boardData), [boardData]);
   const staff: StaffWorkloadDto[]  = useMemo(() => boardData?.staff ?? [], [boardData]);
@@ -366,13 +369,16 @@ const simIntervalRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
 const loadBoard = useCallback(async () => {
     if (!isKitchen) return;
 
-    // Skip if a load is already in-flight — the in-flight request will
-    // update state when it completes. Busy-waiting (setInterval 100ms)
-    // burned CPU on slow/hung requests; skipping is safe because the
-    // poll cycle will trigger another load shortly after.
-    if (isLoadingRef.current) return;
-
+    // Always abort any in-flight request. If one was running, mark a
+    // pending reload so the finally block re-runs loadBoard once the
+    // aborted request exits — guaranteeing post-status-change reloads
+    // are never silently dropped by the isLoadingRef guard.
     abortRef.current?.abort();
+    if (isLoadingRef.current) {
+      pendingReloadRef.current = true;
+      return;
+    }
+
     const controller = new AbortController();
     abortRef.current = controller;
     isLoadingRef.current = true;
@@ -388,7 +394,8 @@ const loadBoard = useCallback(async () => {
         ...(data.columns.COOKING ?? []),
         ...(data.columns.READY   ?? []),
       ].map(toFrontendOrder);
-if (isFirstLoad.current) {
+
+      if (isFirstLoad.current) {
         activeOrders.forEach(o => knownOrderIds.current.add(o.id));
         isFirstLoad.current = false;
       } else {
@@ -425,6 +432,12 @@ if (isFirstLoad.current) {
     } finally {
       setLoading(false);
       isLoadingRef.current = false;
+      // If a caller was blocked by the in-flight guard and set pendingReloadRef,
+      // run the reload now that the slot is free.
+      if (pendingReloadRef.current) {
+        pendingReloadRef.current = false;
+        loadBoard();
+      }
     }
   }, [isKitchen]);
 
@@ -471,16 +484,18 @@ if (isFirstLoad.current) {
       });
     }, 1000);
 
- const timeout = setTimeout(async () => {
-  // Clean up tracking state first
+// AFTER — check BEFORE clearing refs, restore if sim was turned off
+const timeout = setTimeout(async () => {
+  if (!isSimulatingRef.current) {
+    // Sim was turned off while timer was running — leave refs intact
+    // so the order can be rescheduled if sim turns on again.
+    return;
+  }
+
   delete autoCompleteRefs.current[order.id];
   clearInterval(interval);
   setReadyCountdowns(prev => { const n = { ...prev }; delete n[order.id]; return n; });
 
-  // Double-check simulation is still running at fire time.
-  if (!isSimulatingRef.current) return;
-
-  // Verify the order is still in READY state on the frontend.
   const stillReady = ordersRef.current.find(o => o.id === order.id)?.status === 'ready';
   if (!stillReady) return;
 
@@ -488,20 +503,9 @@ if (isFirstLoad.current) {
     await changeOrderStatus(order.id, 'COMPLETED');
     await loadBoard();
   } catch (err: any) {
-    // Log the primary failure so it is visible in production monitoring.
-    console.warn(
-      `[scheduleAutoComplete] Failed to complete order ${order.id}:`,
-      err?.message ?? err,
-    );
-    // Reload board regardless so the order doesn't stay visually stuck.
-    // If loadBoard also fails, log it — do not swallow silently.
-    try {
-      await loadBoard();
-    } catch (boardErr: any) {
-      console.error(
-        `[scheduleAutoComplete] loadBoard also failed after complete error for order ${order.id}:`,
-        boardErr?.message ?? boardErr,
-      );
+    console.warn(`[scheduleAutoComplete] Failed to complete order ${order.id}:`, err?.message ?? err);
+    try { await loadBoard(); } catch (boardErr: any) {
+      console.error(`[scheduleAutoComplete] loadBoard also failed for order ${order.id}:`, boardErr?.message ?? boardErr);
     }
   }
 }, AUTO_COMPLETE_DELAY_MS);
@@ -509,17 +513,24 @@ if (isFirstLoad.current) {
     autoCompleteRefs.current[order.id] = { timeout, interval };
   }, [loadBoard]);
 
-  useEffect(() => {
-    const readyIds = new Set(orders.filter(o => o.status === 'ready').map(o => o.id));
+// AFTER — when sim turns back on, force re-evaluation of ready orders
+// When sim turns back on OR new ready orders arrive, schedule auto-complete
+// When sim turns back on OR new ready orders arrive, schedule auto-complete
+useEffect(() => {
+  if (!isSimulating) {
     for (const id of Object.keys(autoCompleteRefs.current)) {
-      if (!readyIds.has(id)) cancelAutoComplete(id);
+      cancelAutoComplete(id);
     }
-    for (const order of orders) {
+  } else {
+    // Runs when isSimulating toggles ON and whenever orders changes —
+    // catches ready orders that arrived while simulation was already running.
+    for (const order of ordersRef.current) {
       if (order.status === 'ready' && !autoCompleteRefs.current[order.id]) {
         scheduleAutoComplete(order);
       }
     }
-  }, [orders, cancelAutoComplete, scheduleAutoComplete]);
+  }
+}, [isSimulating, orders, cancelAutoComplete, scheduleAutoComplete]);
 
   useEffect(() => {
     if (!isSimulating) {
@@ -567,10 +578,12 @@ const updateOrderStatus = useCallback(async (
 // Stored in a local const so concurrent calls each hold their own independent
 // snapshot. This prevents a second concurrent call from reverting to an
 // intermediate optimistic state instead of the true pre-action state.
+// AFTER
 const originalStatus = order.status;
 
 setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
 
+statusUpdateInFlightRef.current = true;
 try {
   await changeOrderStatus(orderId, toBackend);
   await loadBoard();
@@ -594,25 +607,27 @@ try {
       err.message,
       '— reverting optimistic update and refreshing board.',
     );
-    // Revert only this order's optimistic change using a targeted functional
-    // update. Concurrent calls each revert only their own order — no other
-    // in-flight optimistic updates are disturbed.
     setOrders(prev => prev.map(o =>
       o.id === orderId ? { ...o, status: originalStatus } : o
     ));
     await loadBoard();
     throw err;
+  } finally {
+    statusUpdateInFlightRef.current = false;
   }
 }, [loadBoard, cancelAutoComplete]);
 
-  const assignChef = useCallback(async (orderId: string, chefId: string) => {
+  // AFTER
+const assignChef = useCallback(async (orderId: string, chefId: string) => {
     try {
       await assignChefApi(orderId, chefId);
     } catch (err: any) {
-      await loadBoard();
+      if (!statusUpdateInFlightRef.current) await loadBoard();
       throw err;
     }
-    await loadBoard();
+    if (!statusUpdateInFlightRef.current) {
+      await loadBoard();
+    }
   }, [loadBoard]);
 
   const addOrder = useCallback(async (orderRef: string, menuItemIds: string[]): Promise<string> => {

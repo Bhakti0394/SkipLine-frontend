@@ -30,6 +30,9 @@ export function AnimatedKPI({
 }: AnimatedKPIProps) {
   const [displayValue, setDisplayValue] = useState(0);
   const [hasAnimated, setHasAnimated] = useState(false);
+  useEffect(() => {
+  setHasAnimated(false);
+}, [value]);
   const ref = useRef<HTMLDivElement>(null);
 
   // Animated count-up effect
