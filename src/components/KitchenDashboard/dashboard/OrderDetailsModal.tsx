@@ -153,10 +153,10 @@ export function OrderDetailsModal({
               </button>
               <button
                 className={getActionButtonClass(order.status)}
-                onClick={() => {
-                  onStatusChange(order.id, nextStatus);
-                  onClose();
-                }}
+               onClick={async () => {
+              await onStatusChange(order.id, nextStatus);
+              onClose();
+}}
               >
                 {order.status === 'pending' && '🍳 Start Cooking'}
                 {order.status === 'cooking' && '✅ Mark Ready'}
