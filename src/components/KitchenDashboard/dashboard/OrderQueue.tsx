@@ -68,21 +68,20 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
     order.orderType === 'express'   ? '⚡' :
     order.orderType === 'scheduled' ? '📅' : '●';
 
- const handleAssign = async (chefId: string) => {
-    if (!chefId || !onAssignChef || assigning) return;
-    // Reset selected immediately so the dropdown never shows a
-    // "stuck" chef name if the assignment fails mid-flight.
-    setSelected('');
-    setAssigning(true);
-    setAssignErr(null);
-    try {
-      await onAssignChef(order.id, chefId);
-    } catch (e: any) {
-      setAssignErr(e?.message ?? 'Assign failed');
-    } finally {
-      setAssigning(false);
-    }
-  };
+const handleAssign = async (chefId: string) => {
+  if (!chefId || !onAssignChef || assigning) return;
+  setAssigning(true);
+  setAssignErr(null);
+  try {
+    await onAssignChef(order.id, chefId);
+    setSelected('');    // ← only reset on success
+  } catch (e: any) {
+    setAssignErr(e?.message ?? 'Assign failed');
+    // leave selected intact so user sees which chef failed
+  } finally {
+    setAssigning(false);
+  }
+};
 
   return (
     <div className={`oq-card oq-card--${isOverdue ? 'overdue' : 'unassigned'}`}>
