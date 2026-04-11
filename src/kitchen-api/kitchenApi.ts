@@ -45,7 +45,7 @@ function handle401(res: Response): void {
 export interface OrderCardDto {
   id:               string;
   orderRef:         string;
-  status:           'PENDING' | 'COOKING' | 'READY' | 'COMPLETED';
+  status:           'PENDING' | 'COOKING' | 'READY' | 'COMPLETED' | 'CANCELLED';
   customerName:     string | null;
   itemSummary:      string[];
   assignedChefName: string | null;
@@ -172,6 +172,7 @@ export interface CustomerOrderDto {
   customerName:     string;
   itemSummary:      string[];
   totalPrice:       number;
+  pickupSlotId:     string | null;
   pickupSlotTime:   string | null;
   totalPrepMinutes: number;
   placedAt:         string;
@@ -455,6 +456,67 @@ export async function fetchCustomerOrders(): Promise<CustomerOrderDto[]> {
   });
   handle401(res);
   if (!res.ok) throw new Error(`Failed to fetch orders: ${res.status}`);
+  return res.json();
+}
+
+export async function cancelCustomerOrder(orderId: string): Promise<void> {
+  const res = await fetch(`${CUSTOMER_URL}/orders/${orderId}/cancel`, {
+    method: 'PATCH',
+    headers: customerAuthHeaders(),
+  });
+
+  handle401(res);
+
+  if (!res.ok) {
+    throw new Error((await res.text()) || `Cancel failed: ${res.status}`);
+  }
+}
+
+
+export async function swapCustomerOrderDish(
+  orderId: string,
+  newMenuItemId: string,
+): Promise<CustomerOrderDto> {
+
+  const res = await fetch(`${CUSTOMER_URL}/orders/${orderId}/swap`, {
+    method: 'PATCH',
+    headers: {
+      ...customerAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ newMenuItemId }),
+  });
+
+  handle401(res);
+
+  if (!res.ok) {
+    throw new Error((await res.text()) || `Swap failed: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+
+export async function extendCustomerOrderSlot(
+  orderId: string,
+  newSlotId: string,
+): Promise<CustomerOrderDto> {
+
+  const res = await fetch(`${CUSTOMER_URL}/orders/${orderId}/extend-slot`, {
+    method: 'PATCH',
+    headers: {
+      ...customerAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ newSlotId }),
+  });
+
+  handle401(res);
+
+  if (!res.ok) {
+    throw new Error((await res.text()) || `Extend slot failed: ${res.status}`);
+  }
+
   return res.json();
 }
 

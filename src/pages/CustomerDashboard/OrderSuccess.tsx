@@ -27,8 +27,7 @@
 //   FIX [HARDCODED-SWAP-MENU]: swap modal uses fetchCustomerMenuItems()
 //   FIX [HARDCODED-COUNTER]: "Counter #3" → "Pickup Counter"
 //   FIX [FEEDBACK-MEALID]: FeedbackCard uses order.id (backend UUID)
-
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -38,8 +37,17 @@ import {
 import { Button } from '../../components/ui/button';
 import { toast } from '../../customer-hooks/use-toast';
 import { useNotifications } from '../../customer-context/NotificationContext';
-import { fetchCustomerMenuItems, MenuItemDto } from '../../kitchen-api/kitchenApi';
+
+import {
+  cancelCustomerOrder,
+  swapCustomerOrderDish,
+  extendCustomerOrderSlot,
+  fetchCustomerSlots,
+  fetchCustomerMenuItems,
+  MenuItemDto,
+} from '../../kitchen-api/kitchenApi';
 import '../../components/CustomerDashboard/styles/Ordersuccess.scss';
+import { NotificationPopup } from '../../components/CustomerDashboard/dashboard/NotificationPopup';
 
 import butterChicken    from '../../customer-assets/butter-chicken.jpg';
 import masalaDosa       from '../../customer-assets/masala-dosa.jpg';
@@ -146,6 +154,7 @@ interface Order {
   timeSaved:            number;
   quantity:             number;
   pickupTime:           string;
+  pickupSlotId:         string;
   kitchenQueuePosition: number;
   status?:              string;
   delayedBy?:           number;
@@ -175,7 +184,21 @@ export default function OrderSuccess() {
   const navigate      = useNavigate();
   const location      = useLocation();
   const locationState = location.state as LocationState | null;
-  const { addNotification } = useNotifications();
+const { addNotification } = useNotifications();
+
+  // Unified helper — persists to bell (via context) AND fires popup immediately
+  // via CustomEvent so it doesn't depend on component being mounted.
+  // Use this instead of addNotification alone for all action notifications.
+const notify = useCallback((
+  type: 'success' | 'warning' | 'info' | 'order_confirmed' | 'order_ready' | 'order_preparing' | 'order_cooking',
+  title: string,
+  message: string,
+  orderId?: string,
+) => {
+  // Single call — NotificationProvider handles popup dispatch via setTimeout(0).
+  // Never dispatch show-notification-popup here — causes double popups.
+  addNotification({ type, title, message, ...(orderId ? { orderId } : {}) });
+}, [addNotification]);
 
   // ── All hooks declared first — unconditionally ────────────────────────────
   // FIX [HOOKS-VIOLATION]: Every useState/useCallback/useEffect must run on
@@ -225,18 +248,17 @@ const [swapDishes,      setSwapDishes]      = useState<SwapDish[]>([]);
   }, [locationState?.orders?.length]);
 
   // Order confirmed notifications — guarded: only fire when orders exist
-  useEffect(() => {
-    if (!orders.length) return;
-    orders.forEach(order => {
-      addNotification({
-        title:   'Order Confirmed',
-        message: `${order.meal} is in the queue.`,
-        type:    'order_confirmed',
-        orderId: order.id,
-      });
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+ // Fire order confirmed notification once on mount via notify() so it
+  // appears in both the bell and the popup — runs only when orders exist
+  // Guard: fire order confirmed exactly once per mount — not on re-renders
+const confirmedRef = useRef(false);
+useEffect(() => {
+  if (confirmedRef.current || !orders.length) return;
+  confirmedRef.current = true;
+  orders.forEach(order => {
+    notify('order_confirmed', 'Order Confirmed', `${order.meal} is in the queue.`, order.id);
+  });
+}, [notify, orders]);
 
   // Redirect if no state (e.g. direct navigation to /order-success)
   useEffect(() => {
@@ -248,8 +270,7 @@ const [swapDishes,      setSwapDishes]      = useState<SwapDish[]>([]);
 
   // FIX: fetch real menu items for swap modal
 const loadSwapDishes = useCallback(async () => {
-    // Guard: already loaded or already failed — don't retry on every open
-    if (swapDishes.length > 0 || swapDishError) return;
+  if (swapDishes.length > 0) return;
     setSwapDishLoading(true);
     try {
       const items = await fetchCustomerMenuItems();
@@ -280,56 +301,185 @@ const loadSwapDishes = useCallback(async () => {
 
   const totalTimeSaved = orders.reduce((s, o) => s + o.timeSaved, 0);
 
-  const handleSwapDish = (idx = 0) => {
-    if (!canEditOrder) return;
-    setSelectedOrderIndex(idx);
-    setShowSwapOptions(true);
-    setSearchQuery('');
-    setSelectedCategory('All');
-    loadSwapDishes();
-  };
+const handleSwapDish = (idx = 0) => {
+  if (!canEditOrder) return;
+  setSelectedOrderIndex(idx);
+  setShowSwapOptions(true);
+  setSearchQuery('');
+  setSelectedCategory('All');
+  setSwapDishError(false); // allow retry on reopen
+  loadSwapDishes();
+};
 
-  const confirmSwapDish = (dish: SwapDish) => {
-    const cur  = orders[selectedOrderIndex];
-    const diff = dish.price - cur.price;
-    const orig = cur.wasSwapped ? cur.originalMeal! : cur.meal;
-    setOrders(prev => prev.map((o, i) =>
-      i === selectedOrderIndex
-        ? { ...o, meal: dish.meal, restaurant: '', price: dish.price, image: dish.image, timeSaved: dish.timeSaved, wasSwapped: true, originalMeal: orig }
-        : o
-    ));
-    setTotal(prev => prev + diff);
-    setShowSwapOptions(false);
-    const msg = diff > 0 ? `Rs.${diff} extra charged.` : diff < 0 ? `Rs.${Math.abs(diff)} refund credited.` : 'No price difference.';
-    toast({ title: 'Dish Swapped!', description: msg });
-    addNotification({ title: 'Dish Swapped!', message: `${cur.meal} to ${dish.meal}. ${msg}`, type: 'success' });
-  };
+ const confirmSwapDish = async (dish: SwapDish) => {
+  const cur = orders[selectedOrderIndex];
+  const diff = dish.price - cur.price;
 
-  const confirmRunningLate = (mins: number) => {
-    const newTime = addMinutesToTime(orders[0].pickupTime, mins);
-    setIsRunningLate(true);
-    setOrders(prev => prev.map(o => ({ ...o, pickupTime: newTime, status: 'delayed', delayedBy: (o.delayedBy || 0) + mins })));
-    setShowLatePickupOptions(false);
-    toast({ title: 'Pickup Extended!', description: `New time: ${newTime}` });
-    addNotification({ title: `Extended +${mins} min`, message: `New pickup: ${newTime}`, type: 'warning' });
-  };
+  const originalMeal = cur.wasSwapped ? cur.originalMeal! : cur.meal;
 
-  const confirmCancelOrder = () => {
-    setShowCancelConfirmation(false);
-    const msg = paymentMethod === 'upi' ? `Rs.${total} refunded in 5-7 days.` : 'Order cancelled.';
-    toast({ title: 'Order Cancelled', description: msg });
-    addNotification({ title: 'Order Cancelled', message: msg, type: 'info' });
-    setTimeout(() => navigate('/customer-dashboard/orders', {
+let swappedDto: import('../../kitchen-api/kitchenApi').CustomerOrderDto | null = null;
+  try {
+    // FIX: capture return value — contains updated itemSummary, totalPrice, totalPrepMinutes
+    swappedDto = await swapCustomerOrderDish(cur.id, dish.id);
+  } catch (err: any) {
+    toast({
+      title: 'Swap failed',
+      description: err.message,
+      variant: 'destructive',
+    });
+    return;
+  }
+setOrders(prev =>
+  prev.map((o, i) =>
+    i === selectedOrderIndex
+      ? {
+          ...o,
+          meal: dish.meal,
+          price: swappedDto?.totalPrice ?? dish.price,
+          image: dish.image,
+          timeSaved: dish.timeSaved,
+          wasSwapped: true,
+          originalMeal,
+          // FIX: sync backend-confirmed prep time so progress bar stays accurate
+          totalPrepMinutes:
+            swappedDto?.totalPrepMinutes ?? (o as any).totalPrepMinutes,
+        }
+      : o
+  )
+);
+
+  setTotal(prev => prev + diff);
+  setShowSwapOptions(false);
+
+  const msg =
+    diff > 0
+      ? `₹${diff} extra charged.`
+      : diff < 0
+      ? `₹${Math.abs(diff)} refund credited.`
+      : 'No price difference.';
+
+  toast({ title: 'Dish Swapped!', description: msg });
+// dispatchNotification fires the popup directly — bypasses the context queue
+  // so the toast appears immediately without waiting for a re-render cycle
+  notify('success', 'Dish Swapped!', `${cur.meal} → ${dish.meal}. ${msg}`);
+};
+
+ const confirmRunningLate = async (mins: number) => {
+  let newSlotId: string | null = null;
+  let newDisplayTime = addMinutesToTime(orders[0].pickupTime, mins);
+
+  try {
+    const slots = await fetchCustomerSlots();
+
+    const currentSlot = slots.find(
+      s => s.slotId === orders[0].pickupSlotId
+    );
+
+    const currentPickupMs = new Date(
+      currentSlot?.slotTime ?? Date.now()
+    ).getTime();
+
+    const targetMs = currentPickupMs + mins * 60 * 1000;
+
+    // Find first available slot >= target time
+    const candidate = slots
+      .filter(
+        s =>
+          s.remaining > 0 &&
+          new Date(s.slotTime).getTime() >= targetMs
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.slotTime).getTime() -
+          new Date(b.slotTime).getTime()
+      )[0];
+
+    if (!candidate) {
+      toast({
+        title: 'No slots available',
+        description: 'No open slots found for that time.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    newSlotId = candidate.slotId;
+    newDisplayTime = candidate.displayTime;
+
+    // Backend call
+    await extendCustomerOrderSlot(orders[0].id, newSlotId);
+
+  } catch (err: any) {
+    toast({
+      title: 'Extend failed',
+      description: err.message,
+      variant: 'destructive',
+    });
+    return;
+  }
+
+  setIsRunningLate(true);
+
+  setOrders(prev =>
+    prev.map(o => ({
+      ...o,
+      pickupTime: newDisplayTime,
+      pickupSlotId: newSlotId ?? o.pickupSlotId,
+      status: 'delayed' as any,
+      delayedBy: (o.delayedBy || 0) + mins,
+    }))
+  );
+
+  setShowLatePickupOptions(false);
+
+  toast({
+    title: 'Pickup Extended!',
+    description: `New time: ${newDisplayTime}`,
+  });
+
+notify('warning', `Extended +${mins} min`, `New pickup: ${newDisplayTime}`);
+};
+
+const confirmCancelOrder = async () => {
+  setShowCancelConfirmation(false);
+
+  try {
+    await cancelCustomerOrder(orders[0].id);
+  } catch (err: any) {
+    toast({
+      title: 'Cancel failed',
+      description: err.message,
+      variant: 'destructive',
+    });
+    return;
+  }
+
+  const msg =
+    paymentMethod === 'upi'
+      ? `₹${total} refunded in 5-7 days.`
+      : 'Order cancelled.';
+
+  toast({ title: 'Order Cancelled', description: msg });
+
+  // notify() persists to bell AND fires popup immediately before unmount
+  notify('info', 'Order Cancelled', msg);
+
+  setTimeout(() => {
+    navigate('/customer-dashboard/orders', {
       state: {
         fromOrderSuccess: true,
-        orders: orders.map(o => ({ ...o, wasCancelled: true, status: 'cancelled' })),
+        orders: orders.map(o => ({
+          ...o,
+          wasCancelled: true,
+          status: 'cancelled',
+        })),
         paymentMethod,
         total,
         wasCancelled: true,
       },
-    }), 1500);
-  };
-
+    });
+  }, 1500);
+};
   const handleFeedbackSubmit = (rating: number, comment: string) => {
     const order    = orders[currentFeedbackIndex];
     const mealName = order?.meal || '';
@@ -343,13 +493,17 @@ const loadSwapDishes = useCallback(async () => {
     else setShowFeedback(false);
   };
 
-  const navigateToOrders = () => navigate('/customer-dashboard/orders', {
+const navigateToOrders = () => navigate('/customer-dashboard/orders', {
     state: {
       fromOrderSuccess: true,
       orders: orders.map(o => ({
         ...o,
-        status:        o.wasCancelled ? 'cancelled' : 'confirmed',
-        paymentStatus: paymentMethod === 'upi' ? 'paid' : 'cash',
+        status:           o.wasCancelled ? 'cancelled' : 'confirmed',
+        paymentStatus:    paymentMethod === 'upi' ? 'paid' : 'cash',
+        // FIX: pass createdAt + totalPrepMinutes so MyOrders computeProgress works correctly
+        createdAt:        (o as any).createdAt ?? Date.now(),
+        totalPrepMinutes: (o as any).totalPrepMinutes ?? 0,
+        pickupSlotTime:   (o as any).pickupSlotTime ?? null,
       })),
       paymentMethod,
       total,
@@ -678,6 +832,9 @@ const loadSwapDishes = useCallback(async () => {
           ))}
         </div>
       )}
+
+      {/* NOTIFICATION POPUP — mounted here because OrderSuccess has no DashboardLayout */}
+      <NotificationPopup />
     </div>
   );
 }

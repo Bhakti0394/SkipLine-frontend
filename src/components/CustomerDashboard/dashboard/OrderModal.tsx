@@ -1,20 +1,3 @@
-// components/CustomerDashboard/dashboard/OrderModal.tsx
-//
-// FIX [HARDCODED-ADDONS]: ADDONS list is now fetched from backend.
-//
-// BEFORE: ADDONS was a static hardcoded array — prices and availability
-//   were never in sync with what the kitchen actually offers. "Extra Cheese +₹30"
-//   might not even be a real add-on at your canteen.
-//
-// AFTER: GET /api/customer/addons is called when the modal opens.
-//   If the endpoint doesn't exist yet or returns an error, it falls back to
-//   the static list so the modal never breaks. When you're ready to make
-//   add-ons fully dynamic, implement the endpoint in CustomerOrderController.
-//
-// SPICE_LEVELS: kept static — these are UI config, not database entities.
-// EXPRESS_ARRIVAL_OPTIONS: already dynamic (filtered by meal.prepTime) ✅
-// Slots: already fetched from backend ✅
-
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -40,7 +23,7 @@ interface OrderModalProps {
   onClose:           () => void;
   orderMode?:        'now' | 'schedule';
   forceExpressMode?: boolean;
-  realSlots?:        SlotCapacityDto[]; // kept for backward compat, not used
+  realSlots?:        SlotCapacityDto[];
 }
 
 // ── Static fallback add-ons ───────────────────────────────────────────────────
@@ -85,13 +68,10 @@ function queueLevel(remaining: number, max: number): 'low' | 'medium' | 'high' {
 }
 
 // ── Add-ons fetch ─────────────────────────────────────────────────────────────
-// Cache keyed by auth token — invalidates automatically on logout/login.
-// Never caches failures so backend recovery is picked up on next modal open.
 let addonsCache: { token: string; data: AddOn[] } | null = null;
 
 async function fetchAddons(): Promise<AddOn[]> {
   const token = localStorage.getItem('auth_token') ?? '';
-  // Return cached value only if the auth token hasn't changed
   if (addonsCache && addonsCache.token === token) return addonsCache.data;
   try {
     const CUSTOMER_URL = (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/customer';
@@ -102,14 +82,13 @@ async function fetchAddons(): Promise<AddOn[]> {
     if (!res.ok) throw new Error(`${res.status}`);
     const data: AddOn[] = await res.json();
     const resolved = data.length > 0 ? data : ADDONS_FALLBACK;
-    // Only cache successes — failures fall back but are retried next open
     addonsCache = { token, data: resolved };
     return resolved;
   } catch {
-    // Do NOT cache failures — backend may recover before next modal open
     return ADDONS_FALLBACK;
   }
 }
+
 // ══════════════════════════════════════════════════════════════════════════════
 export function OrderModal({
   meal,
@@ -135,12 +114,24 @@ export function OrderModal({
   const [tomorrowSlots,         setTomorrowSlots]         = useState<CustomerSlotDto[]>([]);
   const [slotsLoading,          setSlotsLoading]          = useState(false);
 
-  // ── Derived values (safe to compute even when meal is null) ───────────────
+  // ── Derived values ────────────────────────────────────────────────────────
   const isScheduleMode = orderMode === 'schedule';
   const isExpressMode  = !isScheduleMode && !!meal && (meal.isExpress || forceExpressMode);
 
-  // FIX: fetch real add-ons when modal opens (cached after first load)
-  // Guards handle the meal-null case so hooks always run unconditionally.
+  // ── resetForm defined before useEffect that uses it ──────────────────────
+  const resetForm = () => {
+    setQuantity(1);
+    setSelectedSlot(null);
+    setSelectedExpressOption(null);
+    setSelectedAddOns([]);
+    setSpiceLevel('medium');
+    setSpecialInstructions('');
+    setShowSuccess(false);
+    setTodaySlots([]);
+    setTomorrowSlots([]);
+  };
+
+  // ── useEffect #1: fetch add-ons ───────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !meal || addonsLoaded) return;
     fetchAddons().then(data => {
@@ -149,10 +140,10 @@ export function OrderModal({
     });
   }, [isOpen, meal, addonsLoaded]);
 
-  // Fetch real slots when modal opens
+  // ── useEffect #2: fetch slots ─────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !meal) return;
-    if (isExpressMode) return;
+    if (isExpressMode && meal.prepTime <= 15) return;
 
     let cancelled = false;
     setSlotsLoading(true);
@@ -170,14 +161,21 @@ export function OrderModal({
     return () => { cancelled = true; };
   }, [isOpen, meal, isScheduleMode, isExpressMode]);
 
-  // ── FIX: early return AFTER all hooks ────────────────────────────────────
+  // ── useEffect #3: reset on close ─────────────────────────────────────────
+  // ✅ FIXED: moved above the early return so hook count never changes
+  useEffect(() => {
+    if (!isOpen) resetForm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  // ── Early return AFTER all hooks ──────────────────────────────────────────
   if (!meal) return null;
 
-  // ── Everything below here is safe — meal is guaranteed non-null ───────────
+  // ── Everything below is safe — meal is guaranteed non-null ───────────────
   const orderType: OrderType = isScheduleMode ? 'scheduled' : isExpressMode ? 'express' : 'normal';
-  const tomorrowDate   = getTomorrowDate();
+  const tomorrowDate = getTomorrowDate();
 
-const expressArrivalOptions = ALL_EXPRESS_ARRIVAL_OPTIONS.filter(
+  const expressArrivalOptions = ALL_EXPRESS_ARRIVAL_OPTIONS.filter(
     o => o.minutes >= meal.prepTime
   );
   const noExpressOptions = isExpressMode && expressArrivalOptions.length === 0;
@@ -198,7 +196,9 @@ const expressArrivalOptions = ALL_EXPRESS_ARRIVAL_OPTIONS.filter(
     p => tomorrowSlotsByPeriod[p]?.length > 0
   );
 
-  const canSubmit = isExpressMode ? !!selectedExpressOption : !!selectedSlot;
+  const canSubmit = isExpressMode
+    ? (noExpressOptions ? !!selectedSlot : !!selectedExpressOption)
+    : !!selectedSlot;
 
   const noSpiceCategories = ['Desserts', 'Dessert', 'Beverages', 'Beverage', 'Drinks', 'Drink', 'Sweet', 'Sweets', 'Chai', 'Tea', 'Coffee'];
   const shouldShowSpiceLevel = !noSpiceCategories.some(cat =>
@@ -214,51 +214,59 @@ const expressArrivalOptions = ALL_EXPRESS_ARRIVAL_OPTIONS.filter(
   const addOnsTotal          = selectedAddOnObjects.reduce((t, a) => t + a.price, 0);
   const totalPrice           = (meal.price + addOnsTotal) * quantity;
 
-const resetForm = () => {
-    setQuantity(1); setSelectedSlot(null); setSelectedExpressOption(null);
-    setSelectedAddOns([]); setSpiceLevel('medium');
-    setSpecialInstructions(''); setShowSuccess(false);
-    // Do NOT reset addonsLoaded — cache handles freshness.
-    // Resetting it would trigger a redundant fetch effect fire on close.
-    // Clear stale slots so previous meal's slots never flash on next open
-    setTodaySlots([]);
-    setTomorrowSlots([]);
-  };
-
   const handleAddToCart = () => {
     if (!canSubmit) return;
-    if (isExpressMode && selectedExpressArrival) {
+
+    if (isExpressMode && noExpressOptions) {
+      const slot = todaySlots.find(s => s.slotId === selectedSlot);
+      addToCart({
+        meal,
+        menuItemId:          meal.id,
+        quantity,
+        addOns:              selectedAddOnObjects,
+        spiceLevel:          shouldShowSpiceLevel ? spiceLevel : 'none',
+        specialInstructions,
+        pickupSlotId:        selectedSlot!,
+        pickupTime:          slot?.displayTime || 'ASAP',
+        isScheduled:         false,
+        scheduledDate:       undefined,
+        orderType:           'normal',
+      });
+      setShowSuccess(true);
+      return;
+    }
+
+if (isExpressMode && selectedExpressArrival) {
       addToCart({
         meal, menuItemId: meal.id, quantity,
-        addOns: selectedAddOnObjects,
-        spiceLevel: shouldShowSpiceLevel ? spiceLevel : 'none',
+        addOns:              selectedAddOnObjects,
+        spiceLevel:          shouldShowSpiceLevel ? spiceLevel : 'none',
         specialInstructions,
-        pickupSlotId: selectedExpressOption!,
-        pickupTime: expressPickupTime!,
-        isScheduled: false, scheduledDate: undefined, orderType,
+        // Express orders have no real backend slot — pass empty string so
+        // Checkout's toValidUUID() correctly strips it from the API request.
+        pickupSlotId:        '',
+        pickupTime:          expressPickupTime!,
+        isScheduled:         false,
+        scheduledDate:       undefined,
+        orderType,
       });
     } else {
       const allSlots = isScheduleMode ? tomorrowSlots : todaySlots;
-      const slot = allSlots.find(s => s.slotId === selectedSlot);
+      const slot     = allSlots.find(s => s.slotId === selectedSlot);
       addToCart({
         meal, menuItemId: meal.id, quantity,
-        addOns: selectedAddOnObjects,
-        spiceLevel: shouldShowSpiceLevel ? spiceLevel : 'none',
+        addOns:              selectedAddOnObjects,
+        spiceLevel:          shouldShowSpiceLevel ? spiceLevel : 'none',
         specialInstructions,
-        pickupSlotId: selectedSlot!,
-        pickupTime: slot?.displayTime || 'ASAP',
-        isScheduled: isScheduleMode,
-        scheduledDate: isScheduleMode ? tomorrowDate : undefined, orderType,
+        pickupSlotId:        selectedSlot!,
+        pickupTime:          slot?.displayTime || 'ASAP',
+        isScheduled:         isScheduleMode,
+        scheduledDate:       isScheduleMode ? tomorrowDate : undefined,
+        orderType,
       });
     }
     setShowSuccess(true);
   };
-
- // Reset whenever the modal closes, regardless of the path
-  useEffect(() => {
-    if (!isOpen) resetForm();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
 
   const handleAddMore  = () => { onClose(); };
   const handleViewCart = () => { onClose(); navigate('/customer-dashboard/checkout'); };
@@ -498,41 +506,70 @@ const resetForm = () => {
                       </div>
 
                       {/* EXPRESS */}
-                     {isExpressMode ? (
+                      {isExpressMode ? (
                         noExpressOptions ? (
-                          <p className="modal__slots-empty">
-                            This item takes longer than 15 min — please use scheduled ordering.
-                          </p>
+                          slotsLoading ? (
+                            <div className="modal__slots-loading">
+                              <Loader2 className="modal__slots-loading-icon" />
+                              <span>Loading available slots...</span>
+                            </div>
+                          ) : todaySlots.length === 0 ? (
+                            <p className="modal__slots-empty">No slots available right now. Try again soon.</p>
+                          ) : (
+                            <div className="modal__slots-grid">
+                              {todaySlots.map((slot) => {
+                                const level  = queueLevel(slot.remaining, slot.maxCapacity);
+                                const isFull = slot.remaining === 0;
+                                return (
+                                  <motion.button
+                                    key={slot.slotId}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => setSelectedSlot(slot.slotId)}
+                                    disabled={isFull}
+                                    className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
+                                  >
+                                    <p className="modal__slot-time">{slot.displayTime}</p>
+                                    <div className="modal__slot-queue">
+                                      <span className={`modal__slot-dot modal__slot-dot--${level}`} />
+                                      <span className="modal__slot-wait">
+                                        {isFull ? 'Full' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
+                                      </span>
+                                    </div>
+                                  </motion.button>
+                                );
+                              })}
+                            </div>
+                          )
                         ) : (
-                        <div className="modal__express-arrival-grid">
-                          {expressArrivalOptions.map((option) => {
-                            const isSelected = selectedExpressOption === option.id;
-                            const pickupAt   = getPickupTimeFromMinutes(option.minutes);
-                            return (
-                              <motion.button key={option.id}
-                                whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.02 }}
-                                onClick={() => setSelectedExpressOption(option.id)}
-                                className={`modal__express-arrival ${isSelected ? 'modal__express-arrival--active' : ''}`}
-                              >
-                                <span className="modal__express-arrival-emoji">{option.emoji}</span>
-                                <span className="modal__express-arrival-label">{option.label}</span>
-                                <span className="modal__express-arrival-sublabel">{option.sublabel}</span>
-                                <span className="modal__express-arrival-time">Ready ~{pickupAt}</span>
-                                {isSelected && (
-                                  <motion.div className="modal__express-arrival-check"
-                                    initial={{ scale: 0 }} animate={{ scale: 1 }}
-                                    transition={{ type: 'spring', damping: 15 }}>
-                                    <Check />
-                                  </motion.div>
-                                )}
-                              </motion.button>
-                            );
-                          })}
-                       </div>
+                          <div className="modal__express-arrival-grid">
+                            {expressArrivalOptions.map((option) => {
+                              const isSelected = selectedExpressOption === option.id;
+                              const pickupAt   = getPickupTimeFromMinutes(option.minutes);
+                              return (
+                                <motion.button key={option.id}
+                                  whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.02 }}
+                                  onClick={() => setSelectedExpressOption(option.id)}
+                                  className={`modal__express-arrival ${isSelected ? 'modal__express-arrival--active' : ''}`}
+                                >
+                                  <span className="modal__express-arrival-emoji">{option.emoji}</span>
+                                  <span className="modal__express-arrival-label">{option.label}</span>
+                                  <span className="modal__express-arrival-sublabel">{option.sublabel}</span>
+                                  <span className="modal__express-arrival-time">Ready ~{pickupAt}</span>
+                                  {isSelected && (
+                                    <motion.div className="modal__express-arrival-check"
+                                      initial={{ scale: 0 }} animate={{ scale: 1 }}
+                                      transition={{ type: 'spring', damping: 15 }}>
+                                      <Check />
+                                    </motion.div>
+                                  )}
+                                </motion.button>
+                              );
+                            })}
+                          </div>
                         )
 
                       ) : isScheduleMode ? (
-                        /* SCHEDULED — real tomorrow slots from backend ✅ */
+                        /* SCHEDULED */
                         slotsLoading ? (
                           <div className="modal__slots-loading">
                             <Loader2 className="modal__slots-loading-icon" />
@@ -566,7 +603,7 @@ const resetForm = () => {
                         )
 
                       ) : (
-                        /* NORMAL — real today's slots from backend ✅ */
+                        /* NORMAL */
                         slotsLoading ? (
                           <div className="modal__slots-loading">
                             <Loader2 className="modal__slots-loading-icon" />
@@ -577,7 +614,7 @@ const resetForm = () => {
                         ) : (
                           <div className="modal__slots-grid">
                             {todaySlots.map((slot) => {
-                              const level = queueLevel(slot.remaining, slot.maxCapacity);
+                              const level  = queueLevel(slot.remaining, slot.maxCapacity);
                               const isFull = slot.remaining === 0;
                               return (
                                 <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}

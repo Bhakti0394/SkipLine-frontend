@@ -81,7 +81,7 @@ const defaultPreferences: NotificationPreferences = {
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [popupQueue,    setPopupQueue]    = useState<Notification[]>([]);
+
   const [preferences,   setPreferences]   = useState<NotificationPreferences>(defaultPreferences);
 
   // Load from localStorage on mount
@@ -108,13 +108,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, [preferences]);
 
   // Dispatch popup events one at a time
-  useEffect(() => {
-    if (popupQueue.length > 0) {
-      const notification = popupQueue[0];
-      window.dispatchEvent(new CustomEvent('show-notification-popup', { detail: notification }));
-      setPopupQueue(prev => prev.slice(1));
-    }
-  }, [popupQueue]);
+// Dispatch all queued popup events at once — drain the full queue per render
+  // so rapid-fire notifications (swap + cancel + order confirmed) don't get lost
+  
 
   // FIX: corrected gate logic.
   // Old: if readyAlerts is OFF → block everything. Wrong.
@@ -129,37 +125,33 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, [preferences]);
 
   // Listen for order-status-changed CustomEvent (from SkipLineContext / SSE handler)
-  useEffect(() => {
-    const handleOrderStatusChange = (event: CustomEvent) => {
-      const { title, message, type, orderId } = event.detail;
-      if (!shouldShowNotification(type)) return;
-      addNotificationInternal({ title, message, type, orderId });
-    };
+// order-status-changed is handled by MyOrders.tsx (applyStatusUpdate) which
+  // calls addNotification directly — no second listener needed here.
 
-    window.addEventListener('order-status-changed', handleOrderStatusChange as EventListener);
-    return () => window.removeEventListener('order-status-changed', handleOrderStatusChange as EventListener);
-  }, [shouldShowNotification]);
+ const addNotification = useCallback((data: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
+  if (!shouldShowNotification(data.type)) return;
 
-  const addNotificationInternal = useCallback((data: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
-    if (!shouldShowNotification(data.type)) return;
+  const newNotification: Notification = {
+    ...data,
+    id:        `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    timestamp: Date.now(),
+    read:      false,
+  };
 
-    const newNotification: Notification = {
-      ...data,
-      id:        `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: Date.now(),
-      read:      false,
-    };
+  if (preferences.soundEnabled) playNotificationSound(data.type);
 
-    if (preferences.soundEnabled) playNotificationSound(data.type);
+  setNotifications(prev => [newNotification, ...prev].slice(0, 50));
 
-    setNotifications(prev => [newNotification, ...prev].slice(0, 50));
-    setPopupQueue(prev => [...prev, newNotification]);
-  }, [preferences.soundEnabled, shouldShowNotification]);
+  // setTimeout(0) guarantees the event fires AFTER React commits this render
+  // and AFTER NotificationPopup's useEffect listener is attached.
+  // This fixes the "event fired before listener" race on OrderSuccess mount.
+  setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('show-notification-popup', {
+      detail: newNotification,
+    }));
+  }, 0);
 
-  // Public addNotification — called directly by MyOrders SSE handler
-  const addNotification = useCallback((data: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
-    addNotificationInternal(data);
-  }, [addNotificationInternal]);
+}, [preferences.soundEnabled, shouldShowNotification]);
 
   const markAsRead        = useCallback((id: string) =>
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n)), []);

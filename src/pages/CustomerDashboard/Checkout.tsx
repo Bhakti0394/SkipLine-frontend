@@ -1,23 +1,3 @@
-// pages/CustomerDashboard/Checkout.tsx
-//
-// FIX [UUID-MISMATCH]: menuItemIds now correctly uses item.menuItemId.
-//
-// BEFORE: `toValidUUIDs([item.meal.id])` was used to build menuItemIds.
-//   item.meal.id IS the backend UUID when meals come from BrowseMenu
-//   (which fetches real menu items). However CartItem.menuItemId is the
-//   explicit field that was added to dashboard.ts specifically for this
-//   purpose. Using meal.id works in practice but is fragile — if a meal
-//   object is created anywhere without its id being a real backend UUID
-//   (e.g. from SkipLineContext demo data or from the swap feature), the
-//   order placement will fail with a 404 on the backend.
-//
-// AFTER: Use item.menuItemId which was explicitly set to meal.id when
-//   addToCart() is called from OrderModal. This is the correct field per
-//   the CartItem type comment in dashboard.ts:
-//     "The backend MenuItem UUID. Used by Checkout to build
-//      PlaceOrderRequest.menuItemIds."
-//   Fall back to item.meal.id only if menuItemId is not set (backward compat).
-
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -37,6 +17,21 @@ import {
 import '../../components/CustomerDashboard/styles/Checkout.scss';
 
 type PaymentMethod = 'upi' | 'cash';
+
+function formatPickupTime(pickupSlotTime?: string | null, fallback?: string): string {
+  if (!pickupSlotTime) return fallback || 'ASAP';
+  try {
+    const slotDate = new Date(pickupSlotTime);
+    if (isNaN(slotDate.getTime())) return fallback || 'ASAP';
+    return slotDate.toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return fallback || 'ASAP';
+  }
+}
 
 function buildOrderRef(customerName: string, orderType: 'express' | 'normal' | 'scheduled'): string {
   const tag = orderType === 'express' ? 'EXPRESS' : orderType === 'scheduled' ? 'SCHEDULED' : 'NORMAL';
@@ -70,7 +65,6 @@ export default function Checkout() {
   const [upiId,           setUpiId]           = useState('');
   const [error,           setError]           = useState<string | null>(null);
 
-  // Dynamic time saved — sum of each item's (prepTime * 0.8 * quantity)
   const totalTimeSaved = cart.reduce((total, item) => {
     const prepTime = item.meal.prepTime ?? 0;
     const saved    = prepTime > 0 ? Math.floor(prepTime * 0.8) : 10;
@@ -94,12 +88,6 @@ export default function Checkout() {
     const requests = cart.map(item => {
       const orderType = (item.orderType ?? 'normal') as 'express' | 'normal' | 'scheduled';
 
-      // FIX: use item.menuItemId (the explicit backend UUID field on CartItem)
-      // instead of item.meal.id. Both should be identical when the cart item
-      // was added via OrderModal, but menuItemId is the contract field that
-      // dashboard.ts guarantees is the real backend UUID.
-      // Fall back to meal.id for backward compatibility with any cart items
-      // that were added before menuItemId was added to the CartItem type.
       const backendMenuItemId = item.menuItemId || item.meal.id;
 
       const req: PlaceOrderRequest = {
@@ -110,8 +98,6 @@ export default function Checkout() {
       return { item, req, orderType };
     });
 
-    // Guard: if any item has no valid UUID, surface a clear error instead of
-    // sending an empty menuItemIds array which would create a broken order.
     const itemsWithNoUUID = requests.filter(r => r.req.menuItemIds.length === 0);
     if (itemsWithNoUUID.length > 0) {
       setError(
@@ -147,9 +133,8 @@ export default function Checkout() {
             restaurant:           item.meal.restaurant,
             image:                item.meal.image,
             status:               'confirmed' as const,
-            pickupTime:           dto.pickupSlotTime
-                                    ? new Date(dto.pickupSlotTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-                                    : item.pickupTime || 'ASAP',
+            // FIX: use formatPickupTime instead of inline ternary
+            pickupTime:           formatPickupTime(dto.pickupSlotTime, item.pickupTime),
             pickupSlotId:         item.pickupSlotId,
             estimatedReady:       `${dto.totalPrepMinutes} min`,
             price:                (item.meal.price + item.addOns.reduce((s, a) => s + a.price, 0)) * item.quantity,
@@ -170,35 +155,33 @@ export default function Checkout() {
         }
       });
 
-     // WITH THIS:
-if (failedItems.length > 0 && createdOrders.length === 0) {
-  setError(`Failed to place order for: ${failedItems.join(', ')}. Please try again.`);
-  setIsProcessing(false);
-  return;
-}
+      if (failedItems.length > 0 && createdOrders.length === 0) {
+        setError(`Failed to place order for: ${failedItems.join(', ')}. Please try again.`);
+        setIsProcessing(false);
+        return;
+      }
 
-if (failedItems.length > 0) {
-  // Only remove successfully ordered items from cart
-  const succeededMealNames = new Set(createdOrders.map(o => o.meal));
-  cart
-    .filter(item => succeededMealNames.has(item.meal.name))
-    .forEach(item => removeFromCart(item.id));
+      if (failedItems.length > 0) {
+        const succeededMealNames = new Set(createdOrders.map(o => o.meal));
+        cart
+          .filter(item => succeededMealNames.has(item.meal.name))
+          .forEach(item => removeFromCart(item.id));
 
-  navigate('/customer-dashboard/order-success', {
-    state: {
-      orders: createdOrders,
-      paymentMethod: selectedPayment,
-      total: cartTotal,
-      partialFailure: failedItems,
-    },
-  });
-  return;
-}
+        navigate('/customer-dashboard/order-success', {
+          state: {
+            orders: createdOrders,
+            paymentMethod: selectedPayment,
+            total: cartTotal,
+            partialFailure: failedItems,
+          },
+        });
+        return;
+      }
 
-clearCart();
-navigate('/customer-dashboard/order-success', {
-  state: { orders: createdOrders, paymentMethod: selectedPayment, total: cartTotal },
-});
+      clearCart();
+      navigate('/customer-dashboard/order-success', {
+        state: { orders: createdOrders, paymentMethod: selectedPayment, total: cartTotal },
+      });
 
     } catch (err: any) {
       setError(err.message ?? 'Failed to place order. Please try again.');

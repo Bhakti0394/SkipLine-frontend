@@ -30,17 +30,20 @@ import { useSkipLine } from '../../customer-context/SkipLineContext';
 import '../../components/CustomerDashboard/styles/Myorders.scss';
 
 const FALLBACK_POLL_INTERVAL = 15_000;
+const PROGRESS_REFRESH_INTERVAL = 30_000;
+
 
 interface LocalOrder {
   id: string; orderRef: string; meal: string; restaurant: string;
   price: number; image: string; timeSaved: number; quantity: number;
   pickupTime: string; kitchenQueuePosition: number; status: string;
-  // FIX: pickupPoint replaces hardcoded "Counter #3"
-  // Will be populated from backend when order data includes counter info.
-  // Falls back to "Pickup Counter" when not available.
   pickupPoint?: string;
   delayedBy?: number; paymentStatus?: 'paid' | 'pending' | 'cash';
   wasSwapped?: boolean; originalMeal?: string; wasCancelled?: boolean;
+  // For real progress calculation
+  createdAt?: number;
+  totalPrepMinutes?: number;
+  pickupSlotTime?: string;
 }
 
 interface LocationState {
@@ -48,51 +51,138 @@ interface LocationState {
   paymentMethod?: 'upi' | 'cash'; total?: number; wasCancelled?: boolean;
 }
 
-const statusConfig: Record<string, { label: string; icon: any; color: string; progress: number }> = {
-  confirmed:  { label: 'Order Confirmed',   icon: CheckCircle2, color: 'blue',        progress: 15  },
-  pending:    { label: 'Order Confirmed',   icon: CheckCircle2, color: 'blue',        progress: 15  },
-  preparing:  { label: 'Being Prepared',    icon: ChefHat,      color: 'amber',       progress: 40  },
-  cooking:    { label: 'Cooking',           icon: Flame,        color: 'orange',      progress: 70  },
-  ready:      { label: 'Ready for Pickup!', icon: CheckCircle2, color: 'success',     progress: 100 },
-  completed:  { label: 'Completed',         icon: CheckCircle2, color: 'muted',       progress: 100 },
-  delayed:    { label: 'Time Extended',     icon: Clock,        color: 'amber',       progress: 20  },
-  cancelled:  { label: 'Cancelled',         icon: XCircle,      color: 'destructive', progress: 0   },
+const statusConfig: Record<string, { label: string; icon: any; color: string }> = {
+  confirmed:  { label: 'Order Confirmed',   icon: CheckCircle2, color: 'blue'        },
+ pending:    { label: 'Pending',           icon: Clock,        color: 'amber'       },
+  preparing:  { label: 'Being Prepared',    icon: ChefHat,      color: 'amber'       },
+  cooking:    { label: 'Cooking',           icon: Flame,        color: 'orange'      },
+  ready:      { label: 'Ready for Pickup!', icon: CheckCircle2, color: 'success'     },
+  completed:  { label: 'Completed',         icon: CheckCircle2, color: 'muted'       },
+  delayed:    { label: 'Time Extended',     icon: Clock,        color: 'amber'       },
+  cancelled:  { label: 'Cancelled',         icon: XCircle,      color: 'destructive' },
 };
 
+function computeProgress(order: LocalOrder): number {
+  if (order.status === 'ready' || order.status === 'completed') return 100;
+  if (order.status === 'cancelled') return 0;
+
+  const createdAt = order.createdAt;
+  const totalMin = order.totalPrepMinutes && order.totalPrepMinutes > 0
+    ? order.totalPrepMinutes
+    : 20;
+
+  if (!createdAt) {
+    const fallback: Record<string, number> = { confirmed: 15, preparing: 40, cooking: 70 };
+    return fallback[order.status] ?? 15;
+  }
+
+  const elapsedMin = (Date.now() - createdAt) / 60000;
+  const rawProgress = (elapsedMin / totalMin) * 100;
+
+  const floors: Record<string, number> = { confirmed: 5, preparing: 20, cooking: 45 };
+  const floor = floors[order.status] ?? 5;
+
+  return Math.round(Math.min(99, Math.max(floor, rawProgress)));
+}
+
+// pending/confirmed excluded — "Order Confirmed" fires once in OrderSuccess.tsx
 const STATUS_NOTIFICATION: Record<string, {
   type: 'order_confirmed' | 'order_cooking' | 'order_ready' | 'order_preparing';
   title: string; message: (meal: string) => string;
 }> = {
-  pending:   { type: 'order_confirmed', title: 'Order Confirmed',   message: m => `${m} is in the queue.` },
-  confirmed: { type: 'order_confirmed', title: 'Order Confirmed',   message: m => `${m} is in the queue.` },
   cooking:   { type: 'order_cooking',   title: 'Now Cooking!',      message: m => `Your ${m} has started cooking.` },
-  // FIX: ready notification no longer hardcodes "Counter #3"
   ready:     { type: 'order_ready',     title: 'Ready for Pickup!', message: m => `${m} is ready for pickup!` },
   preparing: { type: 'order_preparing', title: 'Being Prepared',    message: m => `${m} is being prepared.` },
 };
+
+const LOCAL_MEAL_IMAGE_MAP: Record<string, string> = {
+  'Butter Chicken': '/customer-assets/butter-chicken.jpg',
+  'Hyderabadi Biryani': '/customer-assets/hydrebadi-biryani.jpg',
+  'Lucknowi Biryani': '/customer-assets/lucknowi-biryani.jpg',
+  'Masala Dosa': '/customer-assets/masala-dosa.jpg',
+  'Paneer Tikka': '/customer-assets/paneer-tikka.jpg',
+  'Chole Bhature': '/customer-assets/chole-bhature.jpg',
+  'Idli Sambar': '/customer-assets/idli-sambhar.jpg',
+  'Idli Sambhar': '/customer-assets/idli-sambhar.jpg',
+  'Vada Pav': '/customer-assets/vada-pav.jpg',
+  'Dal Makhani': '/customer-assets/dal-makhani.jpg',
+  'Gulab Jamun': '/customer-assets/gulab-jamun.jpg',
+  'Rajasthani Thali': '/customer-assets/rajasthani-thali.jpg',
+  'Samosa': '/customer-assets/samosa.jpg',
+  'Samosa (2 pcs)': '/customer-assets/samosa.jpg',
+  'Chocolate Donuts': '/customer-assets/chocolate-donuts.jpg',
+  'Chocolate Donut': '/customer-assets/chocolate-donuts.jpg',
+  'Poha': '/customer-assets/poha.jpg',
+  'Kadai Paneer': '/customer-assets/kadai-paneer.jpg',
+  'Palak Paneer': '/customer-assets/palak-paneer.jpg',
+  'Chicken Korma': '/customer-assets/chicken-korma.jpg',
+  'Prawn Masala': '/customer-assets/prawn-masala.jpg',
+  'Mutton Rogan Josh': '/customer-assets/mutton-rogan-josh.jpg',
+  'Butter Garlic Naan': '/customer-assets/butter-garlic-naan.jpg',
+  'Pizza': '/customer-assets/pizza.jpg',
+  'Cheese Pizza': '/customer-assets/pizza.jpg',
+};
+
+function imageForDtoSummary(summary: string[]): string {
+  const first = summary?.[0]?.replace(/^\d+x\s*/, '') ?? '';
+  if (!first) return '/customer-assets/butter-chicken.jpg';
+
+  if (LOCAL_MEAL_IMAGE_MAP[first]) {
+    return LOCAL_MEAL_IMAGE_MAP[first];
+  }
+
+  const lower = first.toLowerCase();
+  const found = Object.entries(LOCAL_MEAL_IMAGE_MAP)
+    .find(([k]) => k.toLowerCase() === lower);
+
+  return found ? found[1] : '/customer-assets/butter-chicken.jpg';
+}
 
 function dtoToLocal(dto: CustomerOrderDto): LocalOrder {
   const mealName = dto.itemSummary?.length > 0
     ? dto.itemSummary.map(s => s.replace(/^\d+x\s*/, '')).join(', ')
     : dto.orderRef;
+
   const statusMap: Record<string, string> = {
     pending: 'confirmed', cooking: 'cooking', ready: 'ready',
     completed: 'completed', cancelled: 'cancelled',
   };
+
+  function formatPickupTime(pickupSlotTime?: string | null): string {
+  if (!pickupSlotTime) return 'ASAP';
+  try {
+    const slotDate = new Date(pickupSlotTime);
+    if (isNaN(slotDate.getTime())) return 'ASAP';
+    return slotDate.toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return 'ASAP';
+  }
+}
+
   return {
-    id: dto.id, orderRef: dto.orderRef, meal: mealName, restaurant: '',
+    id: dto.id,
+    orderRef: dto.orderRef,
+    meal: mealName,
+    restaurant: '',
     price: dto.totalPrice ?? 0,
     timeSaved: dto.totalPrepMinutes > 0 ? Math.floor(dto.totalPrepMinutes * 0.8) : 10,
-    quantity: 1,
-    pickupTime: dto.pickupSlotTime
-      ? new Date(dto.pickupSlotTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-      : 'ASAP',
-    image: '',
+    quantity: dto.itemSummary?.length > 0 ? dto.itemSummary.reduce((sum, s) => {
+      const m = s.match(/^(\d+)[x×]\s*/);
+      return sum + (m ? parseInt(m[1], 10) : 1);
+    }, 0) : 1,
+  pickupTime: formatPickupTime(dto.pickupSlotTime),
+    image: imageForDtoSummary(dto.itemSummary), // ✅ FIXED
     kitchenQueuePosition: 0,
     status: statusMap[dto.status] ?? 'confirmed',
     paymentStatus: 'paid',
-    // FIX: no hardcoded counter — will be set when backend provides it
-    pickupPoint: undefined,
+ pickupPoint: undefined,
+    createdAt: dto.placedAt ? new Date(dto.placedAt).getTime() : Date.now(),
+    totalPrepMinutes: dto.totalPrepMinutes ?? 0,
+    pickupSlotTime: dto.pickupSlotTime ?? undefined,
   };
 }
 
@@ -151,23 +241,69 @@ export default function MyOrders() {
     return [];
   });
 
+  const [,forceUpdate] = useState(0);
+useEffect(() => {
+  const id = setInterval(() => forceUpdate(n => n + 1), PROGRESS_REFRESH_INTERVAL);
+  return () => clearInterval(id);
+}, []);
   const prevStatusRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    contextOrders.forEach(o => {
-      const localStatusMap: Record<string, string> = {
-        confirmed: 'confirmed', cooking: 'cooking', ready: 'ready',
-        completed: 'completed', cancelled: 'cancelled',
-      };
-      const mappedStatus = localStatusMap[o.status] ?? o.status;
-      setOrders(prev => {
-        const existing = prev.find(p => p.id === o.id);
-        if (!existing) return prev;
-        if (existing.status === mappedStatus) return prev;
-        return prev.map(p => p.id === o.id ? { ...p, status: mappedStatus } : p);
+  if (!contextOrders.length) return;
+
+  setOrders(prev => {
+    // If coming from OrderSuccess, don't overwrite local edits
+    if (locationState?.fromOrderSuccess && prev.length > 0) {
+      return prev.map(p => {
+        const ctx = contextOrders.find(o => o.id === p.id);
+        if (!ctx) return p;
+
+        const localStatusMap: Record<string, string> = {
+          confirmed: 'confirmed', cooking: 'cooking', ready: 'ready',
+          completed: 'completed', cancelled: 'cancelled',
+        };
+
+        const mappedStatus = localStatusMap[ctx.status] ?? ctx.status;
+        return p.status === mappedStatus ? p : { ...p, status: mappedStatus };
       });
+    }
+
+    const localStatusMap: Record<string, string> = {
+      confirmed: 'confirmed', cooking: 'cooking', ready: 'ready',
+      completed: 'completed', cancelled: 'cancelled',
+    };
+
+    const existingIds = new Set(prev.map(p => p.id));
+
+    const newOrders = contextOrders
+      .filter(o => o.status !== 'completed' && !existingIds.has(o.id))
+      .map(o => ({
+        id: o.id,
+        orderRef: (o as any).orderRef || o.id,
+        meal: o.meal,
+        restaurant: o.restaurant,
+        price: o.price,
+        image: o.image,
+        timeSaved: o.timeSaved,
+        quantity: o.quantity,
+        pickupTime: o.pickupTime,
+        kitchenQueuePosition: o.kitchenQueuePosition,
+        status: localStatusMap[o.status] ?? o.status,
+        paymentStatus: o.paymentStatus as 'paid' | 'pending' | 'cash',
+        pickupPoint: (o as any).pickupPoint,
+      }));
+
+    const updated = prev.map(p => {
+      const ctx = contextOrders.find(o => o.id === p.id);
+      if (!ctx) return p;
+
+      const mappedStatus = localStatusMap[ctx.status] ?? ctx.status;
+      return p.status === mappedStatus ? p : { ...p, status: mappedStatus };
     });
-  }, [contextOrders]);
+
+    return newOrders.length > 0 ? [...updated, ...newOrders] : updated;
+  });
+}, [contextOrders, locationState?.fromOrderSuccess]);
 
   const applyStatusUpdate = useCallback((orderId: string, newStatus: string) => {
     setOrders(prev => {
@@ -181,6 +317,10 @@ export default function MyOrders() {
           const mealName = order.meal || 'Your order';
           addNotification({ title: cfg.title, message: cfg.message(mealName), type: cfg.type, orderId });
         }
+      }
+       // Remove completed orders from list entirely
+      if (newStatus === 'completed') {
+        return prev.filter(o => o.id !== orderId);
       }
       return prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o);
     });
@@ -210,16 +350,24 @@ export default function MyOrders() {
     const token = localStorage.getItem('auth_token');
     if (!token) return;
 
-    fetchCustomerOrders()
-      .then(dtos => {
-        const relevant = dtos.filter(d => d.status !== 'completed');
-        if (relevant.length > 0) {
-          const local = relevant.map(dtoToLocal);
-          local.forEach(o => { prevStatusRef.current[o.id] = o.status; });
-          setOrders(local);
-        }
-      })
-      .catch(err => console.warn('[MyOrders] Initial fetch failed:', err.message));
+fetchCustomerOrders()
+  .then(dtos => {
+    const relevant = dtos.filter(d => d.status !== 'completed');
+    if (relevant.length > 0) {
+      const local = relevant.map(dtoToLocal);
+
+      local.forEach(o => {
+        prevStatusRef.current[o.id] = o.status;
+      });
+
+      // Prevent overwrite if context already populated orders
+      setOrders(prev => {
+        if (prev.length > 0) return prev;
+        return local;
+      });
+    }
+  })
+  .catch(err => console.warn('[MyOrders] Initial fetch failed:', err.message));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -267,9 +415,18 @@ const pollOrders = useCallback(async () => {
     }
   }, [locationState]);
 
+  const STATUS_SORT: Record<string, number> = {
+    confirmed: 1, preparing: 2, cooking: 3, ready: 4, delayed: 5, cancelled: 6,
+  };
+
   const cancelledOrders    = orders.filter(o => o.status === 'cancelled');
   const nonCancelledActive = orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled');
-  const activeOrders       = [...nonCancelledActive, ...cancelledOrders];
+  // Sort by flow order: confirmed → preparing → cooking → ready, then by createdAt desc
+  const sortedActive = [...nonCancelledActive].sort((a, b) => {
+    const diff = (STATUS_SORT[a.status] ?? 9) - (STATUS_SORT[b.status] ?? 9);
+    return diff !== 0 ? diff : (b.createdAt ?? 0) - (a.createdAt ?? 0);
+  });
+  const activeOrders = [...sortedActive, ...cancelledOrders];
   const hasOrders          = activeOrders.length > 0;
   const hasCancelledOrders = cancelledOrders.length > 0;
 
@@ -282,12 +439,16 @@ const pollOrders = useCallback(async () => {
     };
   })();
 
-  const updateOrderStatus = (orderId: string, newStatus: string) => {
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+const updateOrderStatus = useCallback((orderId: string, newStatus: string) => {
     if (newStatus === 'completed') {
+      // Remove immediately from list — don't just change status
+      setOrders(prev => prev.filter(o => o.id !== orderId));
       ctxUpdateStatus(orderId, 'completed');
+      toast({ title: '✅ Collected!', description: 'Enjoy your meal!' });
+    } else {
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     }
-  };
+  }, [ctxUpdateStatus]);
 
   // FIX: find the ready order's pickup point dynamically
   const readyOrder = nonCancelledActive.find(o => o.status === 'ready');
@@ -468,12 +629,12 @@ const pollOrders = useCallback(async () => {
                       <div className="orders__progress-section">
                         <div className="orders__progress-header">
                           <span>Cooking Progress</span>
-                          <motion.span key={status.progress} initial={{ scale: 0 }} animate={{ scale: 1 }}
-                            transition={{ type: 'spring' }}>{status.progress}%</motion.span>
+                         <motion.span key={computeProgress(order)} initial={{ scale: 0 }} animate={{ scale: 1 }}
+  transition={{ type: 'spring' }}>{computeProgress(order)}%</motion.span>
                         </div>
                         <div className="orders__progress-bar">
                           <motion.div className="orders__progress-fill"
-                            initial={{ width: 0 }} animate={{ width: `${status.progress}%` }}
+                           initial={{ width: 0 }} animate={{ width: `${computeProgress(order)}%` }}
                             transition={{ duration: 1, ease: 'easeOut' }} />
                         </div>
                       </div>
@@ -492,7 +653,12 @@ const pollOrders = useCallback(async () => {
                     {!isCancelled && (
                       <div className="orders__details-grid">
                         {[
-                          { icon: Clock,   value: order.pickupTime,               label: 'Pickup Time',   color: '#ff6b35' },
+                         {
+  icon: Clock,
+  value: order.pickupTime === 'ASAP' ? '⚡ ASAP' : order.pickupTime,
+  label: order.pickupTime === 'ASAP' ? 'Express Pickup' : 'Pickup Time',
+  color: order.pickupTime === 'ASAP' ? '#10b981' : '#ff6b35',
+},
                           { icon: ChefHat, value: 'In Progress',                  label: 'Kitchen Queue', color: '#a855f7' },
                           // FIX: pickup point is dynamic — no more hardcoded "Counter #3"
                           { icon: MapPin,  value: getPickupPointLabel(order),      label: 'Pickup Point',  color: '#10b981' },

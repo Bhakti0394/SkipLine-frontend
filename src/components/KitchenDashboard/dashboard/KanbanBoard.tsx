@@ -499,11 +499,11 @@ export function KanbanBoard({
   const safeOrders = orders ?? [];
 
   // ── Refs — all grouped at the top ───────────────────────────────────────────
-  const pendingIdsRef    = useRef<Set<string>>(new Set());
-  const pendingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  // FIX: moved ordersRef here with all other refs (was misplaced mid-function body)
-  const ordersRef        = useRef(safeOrders);
-  const cookingStateRef  = useRef<Record<string, CookingState>>({});
+const pendingIdsRef        = useRef<Set<string>>(new Set());
+  const pendingTimersRef     = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const ordersRef            = useRef(safeOrders);
+  const cookingStateRef      = useRef<Record<string, CookingState>>({});
+  const autoAdvanceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});  // ← ADD
 
   // ── State ────────────────────────────────────────────────────────────────────
   const [pendingOrderIds, setPendingOrderIds] = useState<Set<string>>(new Set());
@@ -641,14 +641,19 @@ const handleDragStart = useCallback((start: DragStart) => {
     const order     = ordersRef.current.find(o => o.id === orderId);
     if (!order || order.status === newStatus) return;
 
-    if (order.status === 'cooking' && newStatus === 'ready') {
-      const liveState   = cookingStateRef.current[orderId];
+   if (order.status === 'cooking' && newStatus === 'ready') {
+      const liveState = cookingStateRef.current[orderId];
+      const hasChef   = !!(order.assignedChefId || order.assignedTo);
       const hasPrepTime = (order.estimatedPrepTime ?? 0) > 0;
-      if (liveState === 'cooking' && hasPrepTime) {
-        toast.warning('Still cooking', {
-          description: 'Prep time not fully elapsed — marking ready anyway.',
-          duration: 2000,
-        });
+
+      if (!hasChef) {
+        fireToast('Assign a chef before marking this order ready.', 'No chef assigned');
+        return; // BLOCK the drag
+      }
+     if (liveState === 'cooking' && hasPrepTime) {
+        // Warn but ALLOW — chefs override timers in real kitchens
+        fireToast('Marking ready before timer — chef override applied.', 'Early ready');
+        // Don't return — fall through to status update
       }
     }
 
@@ -696,6 +701,58 @@ const handleDragStart = useCallback((start: DragStart) => {
       setOrderPending(orderId, false);
     }
   }, [onChefAssign, setOrderPending]);
+
+   // ── Auto-advance: when estimatedPrepTime elapses, move cooking→ready ────────
+  useEffect(() => {
+    const cookingOrders = safeOrders.filter(o => o.status === 'cooking');
+    const currentIds    = new Set(cookingOrders.map(o => o.id));
+    const timerMap      = autoAdvanceTimersRef.current;
+
+    // Clear timers for orders no longer cooking
+    for (const id of Object.keys(timerMap)) {
+      if (!currentIds.has(id)) {
+        clearTimeout(timerMap[id]);
+        delete timerMap[id];
+      }
+    }
+
+    for (const order of cookingOrders) {
+      if (timerMap[order.id]) continue;
+      if (!(order.assignedChefId || order.assignedTo)) continue;
+      const prepMs = (order.estimatedPrepTime ?? 0) * 60_000;
+      if (prepMs <= 0) continue;
+
+      // Use order.startedAt (correct field per order.ts) not cookingStartedAt
+      const startedAt = order.startedAt
+        ? order.startedAt.getTime()
+        : new Date(order.createdAt).getTime();
+      const remaining = Math.max(0, startedAt + prepMs - Date.now());
+
+     // Only schedule if time is actually remaining.
+      // Orders already past prep time stay in Cooking — chef must mark ready manually.
+      // This prevents instant mass-advance on every board reload for overdue orders.
+      if (remaining <= 0) continue;
+
+      timerMap[order.id] = setTimeout(async () => {
+        delete timerMap[order.id];
+        toast.info(`Auto-advancing ${order.orderNumber} to Ready`, {
+          description: 'Prep time elapsed.',
+          duration: 3000,
+        });
+        try { await onStatusChange(order.id, 'ready'); } catch { /* onStatusChange handles errors */ }
+      }, remaining);
+    }
+  }, [safeOrders, onStatusChange]);
+
+    // Clean up auto-advance timers on unmount
+  useEffect(() => {
+    return () => {
+      for (const id of Object.keys(autoAdvanceTimersRef.current)) {
+        clearTimeout(autoAdvanceTimersRef.current[id]);
+      }
+      autoAdvanceTimersRef.current = {};
+    };
+  }, []);
 
   // FIX: moved makeCookingChefHandler after handleChefAssign (correct dependency order)
 

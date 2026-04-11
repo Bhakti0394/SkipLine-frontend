@@ -69,21 +69,25 @@ const DISH_RATING_MAP: Record<string, number> = {
 };
 
 interface BackendMenuItem {
-  id: string; name: string; prepTime: number; available: boolean;
-  price: number | null; category: string | null; imageUrl: string | null;
-  isExpress: boolean; express?: boolean;
+  id: string; name: string; prepTime?: number; prepTimeMinutes?: number;
+  available: boolean; price: number | null; category: string | null;
+  imageUrl: string | null; isExpress: boolean; express?: boolean;
 }
 
 function backendItemToMeal(item: BackendMenuItem): Meal {
   const raw = item as any;
+  // MenuItemDto from backend uses prepTimeMinutes; BackendMenuItem interface
+  // mistakenly typed it as prepTime. Read both so either shape works.
+  const prepTime: number =
+    raw.prepTimeMinutes ?? raw.prepTime ?? 0;
   const isExpress: boolean =
     raw.isExpress != null ? Boolean(raw.isExpress)
     : raw.express  != null ? Boolean(raw.express)
-    : item.prepTime <= 15;
+    : prepTime <= 15;
   const image = item.imageUrl ? item.imageUrl : (LOCAL_IMAGE_MAP[item.name] ?? butterChicken);
   return {
     id: item.id, name: item.name, restaurant: '', image,
-    price: item.price ?? 0, prepTime: item.prepTime,
+    price: item.price ?? 0, prepTime,
     rating: DISH_RATING_MAP[item.name] ?? 4.7,
     category: item.category ?? 'Other', isExpress,
   };

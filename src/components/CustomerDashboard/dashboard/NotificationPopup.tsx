@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle,
@@ -27,7 +27,7 @@ export interface Notification {
   type: NotificationType;
   title: string;
   message: string;
-  timestamp: Date;
+  timestamp: Date | number; // context sends number (Date.now()), dispatchNotification sends Date
 }
 
 interface PopupNotification extends Notification {
@@ -102,17 +102,15 @@ const TYPE_CONFIG: Record<
 // ─────────────────────────────────────────────
 // SINGLE NOTIFICATION CARD
 // ─────────────────────────────────────────────
-function NotifCard({
-  notif,
-  onDismiss,
-}: {
+const NotifCard = React.forwardRef<HTMLDivElement, {
   notif: PopupNotification;
   onDismiss: (id: string) => void;
-}) {
+}>(function NotifCard({ notif, onDismiss }, ref) {
   const cfg = TYPE_CONFIG[notif.type] ?? TYPE_CONFIG.info;
 
   return (
     <motion.div
+      ref={ref}
       layout
       key={notif.id}
       initial={{ opacity: 0, x: 120, scale: 0.88 }}
@@ -214,8 +212,8 @@ function NotifCard({
         }}
       />
     </motion.div>
-  );
-}
+);
+});
 
 // ─────────────────────────────────────────────
 // MAIN COMPONENT
