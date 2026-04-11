@@ -557,14 +557,6 @@ useEffect(() => {
 }, [isSimulating, orders, cancelAutoComplete, scheduleAutoComplete]);
 
   useEffect(() => {
-    if (!isSimulating) {
-      for (const id of Object.keys(autoCompleteRefs.current)) {
-        cancelAutoComplete(id);
-      }
-    }
-  }, [isSimulating, cancelAutoComplete]);
-
-  useEffect(() => {
     return () => {
       for (const id of Object.keys(autoCompleteRefs.current)) {
         const e = autoCompleteRefs.current[id];

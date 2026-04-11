@@ -174,25 +174,24 @@ const { types, list, m } = useMemo(() => {
     return { types, list, m: calcMetrics(list) };
   }, [orders, filter, debouncedSearch, sort]);
 
-  const prevLengthRef = useRef(orders.length);
-  useEffect(() => {
-    const prevLen = prevLengthRef.current;
-    prevLengthRef.current = orders.length;
-    if (orders.length < prevLen) {
-      setOpenId(prev => {
-        if (prev === null) return null;
-        // Check against `orders` (full list) — order still exists in dataset.
-        const stillInOrders = orders.some(o => o.id === prev);
-        if (!stillInOrders) return null;
-        // Also check against `list` (filtered/searched view) — if the open row
-        // is filtered out, clear it so stale expanded data is never shown when
-        // the filter is removed and the row re-appears with potentially changed data.
-        // list is declared above this effect — always in scope, always current.
-        const stillInList = list.some(o => o.id === prev);
-        return stillInList ? prev : null;
-      });
-    }
-  }, [orders, list]); return (
+const listRef = useRef(list);
+useEffect(() => { listRef.current = list; }, [list]);
+
+const prevLengthRef = useRef(orders.length);
+useEffect(() => {
+  const prevLen = prevLengthRef.current;
+  prevLengthRef.current = orders.length;
+  if (orders.length < prevLen) {
+    setOpenId(prev => {
+      if (prev === null) return null;
+      const stillInOrders = orders.some(o => o.id === prev);
+      if (!stillInOrders) return null;
+      const stillInList = listRef.current.some(o => o.id === prev);
+      return stillInList ? prev : null;
+    });
+  }
+}, [orders]);
+   return (
     <div className="co-panel">
 
       {/* Header */}

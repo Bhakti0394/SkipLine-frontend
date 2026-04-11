@@ -376,73 +376,75 @@ const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string
     // -- Logged in -> fetch real data --
    setLoading(true);
     setError(null);
-    fetchCustomerOrders()
-      .then((dtos: CustomerOrderDto[]) => {
-        const active = dtos
-          .filter(d => d.status !== 'completed' && d.status !== 'cancelled')
-          .map(dtoToOrder);
-        const completed = dtos
-          .filter(d => d.status === 'completed')
-          .map(dtoToOrder);
-
-        setOrders(active);
-        setOrderHistory(completed);
-        setKitchenState({
-          activeOrders: active.filter(o => o.status !== 'cancelled').map(o => o.id),
-          queuedOrders: [],
-        });
-      })
-      .catch(err => {
-        console.warn('[SkipLineContext] Orders fetch failed:', err.message);
-        setError(err.message ?? 'Failed to load orders');
-        try {
-          const s = localStorage.getItem(STORAGE_KEYS.ORDERS);
-          const h = localStorage.getItem(STORAGE_KEYS.HISTORY);
-          const k = localStorage.getItem(STORAGE_KEYS.KITCHEN);
-          if (s) setOrders(JSON.parse(s));
-          if (h) setOrderHistory(JSON.parse(h));
-          if (k) setKitchenState(JSON.parse(k));
-        } catch { /* stay with empty arrays */ }
+  // AFTER — use Promise.allSettled so loading clears only after ALL three settle
+Promise.allSettled([
+  fetchCustomerOrders()
+    .then((dtos: CustomerOrderDto[]) => {
+      const active = dtos
+        .filter(d => d.status !== 'completed' && d.status !== 'cancelled')
+        .map(dtoToOrder);
+      const completed = dtos
+        .filter(d => d.status === 'completed')
+        .map(dtoToOrder);
+      setOrders(active);
+      setOrderHistory(completed);
+      setKitchenState({
+        activeOrders: active.filter(o => o.status !== 'cancelled').map(o => o.id),
+        queuedOrders: [],
       });
+    })
+    .catch(err => {
+      console.warn('[SkipLineContext] Orders fetch failed:', err.message);
+      setError(err.message ?? 'Failed to load orders');
+      try {
+        const s = localStorage.getItem(STORAGE_KEYS.ORDERS);
+        const h = localStorage.getItem(STORAGE_KEYS.HISTORY);
+        const k = localStorage.getItem(STORAGE_KEYS.KITCHEN);
+        if (s) setOrders(JSON.parse(s));
+        if (h) setOrderHistory(JSON.parse(h));
+        if (k) setKitchenState(JSON.parse(k));
+      } catch { /* stay with empty arrays */ }
+    }),
 
-    fetchCustomerMetrics()
-      .then(m => {
-        const updated = {
-          ordersThisMonth:  m.ordersThisMonth,
-          timeSaved:        m.timeSaved,
-          loyaltyPoints:    m.loyaltyPoints,
-          foodWasteReduced: m.foodWasteReduced,
-        };
-        setMetrics(prev => ({ ...prev, ...updated }));
-        try {
-          const existing = localStorage.getItem(STORAGE_KEYS.METRICS);
-          localStorage.setItem(
-            STORAGE_KEYS.METRICS,
-            JSON.stringify({ ...(existing ? JSON.parse(existing) : {}), ...updated }),
-          );
-        } catch { /* ignore */ }
-      })
-      .catch(err => {
-        console.warn('[SkipLineContext] Metrics fetch failed:', err.message);
-        try {
-          const s = localStorage.getItem(STORAGE_KEYS.METRICS);
-          if (s) setMetrics(prev => ({ ...prev, ...JSON.parse(s) }));
-        } catch { /* ignore */ }
-      });
+  fetchCustomerMetrics()
+    .then(m => {
+      const updated = {
+        ordersThisMonth:  m.ordersThisMonth,
+        timeSaved:        m.timeSaved,
+        loyaltyPoints:    m.loyaltyPoints,
+        foodWasteReduced: m.foodWasteReduced,
+      };
+      setMetrics(prev => ({ ...prev, ...updated }));
+      try {
+        const existing = localStorage.getItem(STORAGE_KEYS.METRICS);
+        localStorage.setItem(
+          STORAGE_KEYS.METRICS,
+          JSON.stringify({ ...(existing ? JSON.parse(existing) : {}), ...updated }),
+        );
+      } catch { /* ignore */ }
+    })
+    .catch(err => {
+      console.warn('[SkipLineContext] Metrics fetch failed:', err.message);
+      try {
+        const s = localStorage.getItem(STORAGE_KEYS.METRICS);
+        if (s) setMetrics(prev => ({ ...prev, ...JSON.parse(s) }));
+      } catch { /* ignore */ }
+    }),
 
-    fetchCustomerStreak()
-      .then(streak => {
-        setMetrics(prev => ({ ...prev, streak }));
-        try {
-          const existing = localStorage.getItem(STORAGE_KEYS.METRICS);
-          const parsed = existing ? JSON.parse(existing) : {};
-          localStorage.setItem(STORAGE_KEYS.METRICS, JSON.stringify({ ...parsed, streak }));
-        } catch { /* ignore */ }
-      })
-       .catch(err => console.warn('[SkipLineContext] Streak fetch failed — keeping local value:', err.message))
-      .finally(() => setLoading(false));
+  fetchCustomerStreak()
+    .then(streak => {
+      setMetrics(prev => ({ ...prev, streak }));
+      try {
+        const existing = localStorage.getItem(STORAGE_KEYS.METRICS);
+        const parsed = existing ? JSON.parse(existing) : {};
+        localStorage.setItem(STORAGE_KEYS.METRICS, JSON.stringify({ ...parsed, streak }));
+      } catch { /* ignore */ }
+    })
+    .catch(err =>
+      console.warn('[SkipLineContext] Streak fetch failed — keeping local value:', err.message)
+    ),
 
-  }, [user, authLoading]);
+]).finally(() => setLoading(false));  // ← fires after ALL three settle regardless of outcome  }, [user, authLoading]);
 
   // -- Persist to localStorage --
   useEffect(() => {
