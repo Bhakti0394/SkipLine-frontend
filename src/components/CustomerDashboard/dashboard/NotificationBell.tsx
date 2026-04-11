@@ -150,8 +150,13 @@ export function NotificationBell() {
                             <p className="notification-bell__item-message">
                               {notification.message}
                             </p>
-                            <p className="notification-bell__item-time">
-                              {formatDistanceToNow(notification.timestamp, { addSuffix: true })}
+                           <p className="notification-bell__item-time">
+                              {formatDistanceToNow(
+                                typeof notification.timestamp === 'number'
+                                  ? new Date(notification.timestamp)
+                                  : notification.timestamp,
+                                { addSuffix: true }
+                              )}
                             </p>
                           </div>
 

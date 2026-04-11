@@ -209,41 +209,59 @@ function resolveExpressDeadlineMs(order: Order, cookingStartMs: number | null): 
   const fromDeadline = toMs(o.pickupDeadlineAt);
   if (fromDeadline !== null) return fromDeadline;
 
-  // FIX: read pickupSlotMs first — toFrontendOrder already applied the
-  // cookStart+2min buffer when computing this field.
-  const fromSlot = toMs(o.pickupSlotMs) ?? toMs(o.expressPickupSlotMs);
-  if (fromSlot !== null) return fromSlot;
+  // FIX: prefer actual pickupTime clock string over pickupSlotMs.
+  // pickupSlotMs is set by toFrontendOrder using estimatedPrepTime (e.g. 15 min),
+  // but the customer chose a specific arrival window (e.g. 5 min → "12:06 PM").
+  // Using pickupSlotMs here would show the wrong deadline on the Kanban cooking card.
+  const display = order.pickupTime;
+  if (display && display !== 'TBD' && display !== 'ASAP' && !display.startsWith('~')) {
+    const parsed = display.includes('T') || display.includes('-')
+      ? new Date(display).getTime()
+      : new Date(`${new Date().toDateString()} ${display}`).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
 
-  // Fallback: compute with buffer so order isn't instantly overdue.
+  // Fallback: pickupSlotMs with cookStart buffer
+  const fromSlot = toMs(o.pickupSlotMs) ?? toMs(o.expressPickupSlotMs);
+  if (fromSlot !== null) {
+    if (cookingStartMs !== null) {
+      return Math.max(fromSlot, cookingStartMs + MIN_COOK_BUFFER_MS);
+    }
+    return fromSlot;
+  }
+
+  // Last resort: createdAt + EXPRESS_MAX_MS with buffer
   const anchor = toMs(order.createdAt);
   if (anchor === null) return null;
-
   const fromPlacement = anchor + EXPRESS_MAX_MS;
-
-  // If we know when cooking started, guarantee at least MIN_COOK_BUFFER_MS
-  // of cook time so the order isn't overdue the moment it enters Cooking.
   if (cookingStartMs !== null) {
     return Math.max(fromPlacement, cookingStartMs + MIN_COOK_BUFFER_MS);
   }
-
   return fromPlacement;
 }
 
 function resolvePickupSlotMs(order: Order): number | null {
-  const o   = order as any;
+  const o = order as any;
+
+  // FIX: For express orders, prefer the actual pickupTime clock string
+  // (e.g. "12:06 PM" chosen by customer) over pickupSlotMs, which may be
+  // computed from estimatedPrepTime (e.g. 15 min) by toFrontendOrder,
+  // causing the queue timer to show the wrong deadline.
+  const display = order.pickupTime;
+  if (display && display !== 'TBD' && display !== 'ASAP' && !display.startsWith('~')) {
+    if (display.includes('T') || display.includes('-')) {
+      const ms = new Date(display).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+    const parsed = new Date(`${new Date().toDateString()} ${display}`);
+    if (!isNaN(parsed.getTime())) return parsed.getTime();
+  }
+
+  // Fallback: pickupSlotMs / pickupSlot for scheduled/normal orders
   const raw = toMs(o.pickupSlotMs) ?? toMs(o.pickupSlot);
   if (raw) return raw;
 
-  const display = order.pickupTime;
-  if (!display || display === 'TBD' || display === 'ASAP') return null;
-
-  if (display.includes('T') || display.includes('-')) {
-    const ms = new Date(display).getTime();
-    if (!isNaN(ms)) return ms;
-  }
-
-  const parsed = new Date(`${new Date().toDateString()} ${display}`);
-  return isNaN(parsed.getTime()) ? null : parsed.getTime();
+  return null;
 }
 function resolveReadyAnchorMs(order: Order, mountTimeMs: number): number {
   const o       = order as any;

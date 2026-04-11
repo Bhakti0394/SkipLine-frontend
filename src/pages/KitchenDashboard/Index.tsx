@@ -112,9 +112,12 @@ const Index = () => {
   const openCompletedPanel = useCallback(() => setCompletedPanelOpen(true), []);
 
   // ── Notifications ──────────────────────────────────────────────────────────
-  const toastedOrderIds  = useRef<Set<string>>(new Set());
-  const pendingNewOrders = useRef<Order[]>([]);
-  const batchToastTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+const toastedOrderIds      = useRef<Set<string>>(new Set());
+  const pendingNewOrders     = useRef<Order[]>([]);
+  const batchToastTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tracks last notified status per order — prevents duplicate status notifications
+  // when auto-advance and poll both trigger handleStatusChange for the same order.
+  const lastNotifiedStatus   = useRef<Record<string, string>>({});
 
   const {
     notifications, markAsRead, markAllAsRead,
@@ -183,19 +186,20 @@ const Index = () => {
   // Prune toastedOrderIds — remove IDs no longer on the active board so the
   // Set doesn't grow unbounded over a long kitchen session (hundreds of orders).
   useEffect(() => {
-  // Include completed orders in the prune guard — an order that just moved to
-  // completed is no longer in `orders` (active-only), but its ID must stay in
-  // toastedOrderIds until it also falls off the completedOrders list, otherwise
-  // a stale onNewOrders callback fires a duplicate new-order toast for it.
-  const activeIds    = new Set(orders.map(o => o.id));
-  const completedIds = new Set(completedOrders.map(o => o.id));
-  for (const id of toastedOrderIds.current) {
-    if (!activeIds.has(id) && !completedIds.has(id)) {
-      toastedOrderIds.current.delete(id);
+    const activeIds    = new Set(orders.map(o => o.id));
+    const completedIds = new Set(completedOrders.map(o => o.id));
+    for (const id of toastedOrderIds.current) {
+      if (!activeIds.has(id) && !completedIds.has(id)) {
+        toastedOrderIds.current.delete(id);
+      }
     }
-  }
-}, [orders, completedOrders]);
-
+    // Prune lastNotifiedStatus for orders no longer on board
+    for (const id of Object.keys(lastNotifiedStatus.current)) {
+      if (!activeIds.has(id) && !completedIds.has(id)) {
+        delete lastNotifiedStatus.current[id];
+      }
+    }
+  }, [orders, completedOrders]);
   // ── Derived metrics ────────────────────────────────────────────────────────
   const efficiencyPercent:  number = metrics.efficiencyPercent;
   const avgCookTimeMinutes: number = metrics.avgCookTimeMinutes;
@@ -345,8 +349,16 @@ const Index = () => {
     }
 
     try {
-      await updateOrderStatus(orderId, status);
-      if (order && settings?.orderAlerts) notifyOrderStatus(order, status);
+     await updateOrderStatus(orderId, status);
+      // Only notify if this is a new status for this order — deduplicates
+      // auto-advance + manual clicks both calling handleStatusChange.
+      if (order && settings?.orderAlerts) {
+        const lastStatus = lastNotifiedStatus.current[orderId];
+        if (lastStatus !== status) {
+          lastNotifiedStatus.current[orderId] = status;
+          notifyOrderStatus(order, status);
+        }
+      }
       if (status === 'cooking' && order) consumeForOrder(order);
 
       const messages: Partial<Record<OrderStatus, [string, string]>> = {

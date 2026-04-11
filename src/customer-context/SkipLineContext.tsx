@@ -115,6 +115,22 @@ const defaultMetrics: UserMetrics = {
   ordersThisMonth: 0, streak: 0, foodWasteReduced: 0, queueTimesSaved: 0,
 };
 
+// ADD THIS
+function formatPickupTime(pickupSlotTime?: string | null): string {
+  if (!pickupSlotTime) return 'ASAP';
+  try {
+    const slotDate = new Date(pickupSlotTime);
+    if (isNaN(slotDate.getTime())) return 'ASAP';
+    return slotDate.toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return 'ASAP';
+  }
+}
+
 // -- DTO -> Order mapper --
 function dtoToOrder(dto: CustomerOrderDto): Order {
   const image    = imageForSummary(dto.itemSummary);
@@ -122,10 +138,16 @@ function dtoToOrder(dto: CustomerOrderDto): Order {
     ? dto.itemSummary.map(s => s.replace(/^\d+x\s*/, '')).join(', ')
     : dto.orderRef;
 
-  const statusMap: Record<string, Order['status']> = {
-    pending: 'confirmed', cooking: 'cooking', ready: 'ready',
-    completed: 'completed', cancelled: 'cancelled',
-  };
+ const statusMap: Record<string, Order['status']> = {
+  pending:   'confirmed',
+  confirmed: 'confirmed',
+  preparing: 'cooking',
+  cooking:   'cooking',
+  ready:     'ready',
+  completed: 'completed',
+  cancelled: 'cancelled',
+};
+
 
   return {
     id:                   dto.id,
@@ -133,12 +155,8 @@ function dtoToOrder(dto: CustomerOrderDto): Order {
     restaurant:           '',
     image,
     status:               statusMap[dto.status] ?? 'confirmed',
-    pickupTime:           dto.pickupSlotTime
-                            ? new Date(dto.pickupSlotTime).toLocaleTimeString('en-IN', {
-                                hour: '2-digit', minute: '2-digit',
-                              })
-                            : 'ASAP',
-    pickupSlotId:         '',
+   pickupTime: formatPickupTime(dto.pickupSlotTime),
+    pickupSlotId:         dto.pickupSlotId ?? '',
     estimatedReady:       `${dto.totalPrepMinutes} min`,
     price:                dto.totalPrice ?? 0,
     quantity:             1,
@@ -219,10 +237,15 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
   const sseUnsubscribers = useRef<Map<string, () => void>>(new Map());
   // -- SSE status handler --
 const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string) => {
-    const statusMap: Record<string, Order['status']> = {
-      pending: 'confirmed', cooking: 'cooking', ready: 'ready',
-      completed: 'completed', cancelled: 'cancelled',
-    };
+   const statusMap: Record<string, Order['status']> = {
+  pending:   'confirmed',
+  confirmed: 'confirmed',
+  preparing: 'cooking',    // ← ADD: backend 'preparing' maps to cooking visually
+  cooking:   'cooking',
+  ready:     'ready',
+  completed: 'completed',
+  cancelled: 'cancelled',
+};
     const mapped = statusMap[rawStatus] ?? 'confirmed';
 
     if (TERMINAL_STATUSES.has(rawStatus)) {
@@ -259,17 +282,30 @@ const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string
       });
     }
 
+   const statusTitles: Record<string, string> = {
+      ready:     'Ready for Pickup!',
+      cooking:   'Now Cooking!',
+      pending:   'Order Confirmed',
+      confirmed: 'Order Confirmed',
+      cancelled: 'Order Cancelled',
+    };
+    const statusMessages: Record<string, string> = {
+      ready:     'Your order is ready — head to the Pickup Counter!',
+      cooking:   'Your order has started cooking.',
+      pending:   'Your order is confirmed and in the queue.',
+      confirmed: 'Your order is confirmed and in the queue.',
+      cancelled: 'Your order has been cancelled.',
+    };
     window.dispatchEvent(new CustomEvent('order-status-changed', {
       detail: {
-        title:   rawStatus === 'ready' ? 'Order Ready! 🎉' : `Order ${rawStatus}`,
-        message: `Status: ${rawStatus}`,
+        title:   statusTitles[rawStatus]   ?? `Order ${rawStatus}`,
+        message: statusMessages[rawStatus] ?? `Status updated to ${rawStatus}.`,
         type:    rawStatus === 'ready'
           ? 'order_ready'
           : rawStatus === 'cooking' ? 'order_cooking' : 'order_confirmed',
         orderId,
       },
-    }));
-  }, []);    
+    }));  }, []);    
 
   const startPollingFallback = useCallback((orderId: string) => {
     const interval = setInterval(async () => {
@@ -514,16 +550,7 @@ Promise.allSettled([
       };
     });
 
-    window.dispatchEvent(new CustomEvent('order-status-changed', {
-      detail: {
-        title:   'Order Confirmed!',
-        message: `Your ${orderData.meal} is confirmed.`,
-        type:    'order_confirmed',
-        orderId: newOrder.id,
-      },
-    }));
-
-    return newOrder;
+   return newOrder;
   }, [orders, subscribeOrder]);
 
   // -- updateOrderStatus --

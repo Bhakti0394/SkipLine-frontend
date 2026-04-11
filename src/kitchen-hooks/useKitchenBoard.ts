@@ -66,8 +66,9 @@ import { selectCapacity, canTransition } from './Capacityengine';
 export type BackendStatus = BackendOrderStatus;
 export { canTransition };
 
-const statusMap: Record<BackendStatus, OrderStatus> = {
-  PENDING: 'pending', COOKING: 'cooking', READY: 'ready', COMPLETED: 'completed',
+const statusMap: Record<string, OrderStatus> = {
+  PENDING: 'pending', COOKING: 'cooking', READY: 'ready',
+  COMPLETED: 'completed', CANCELLED: 'completed', // treat cancelled as completed on kitchen side
 };
 
 const statusMapReverse: Record<OrderStatus, BackendStatus> = {
@@ -225,11 +226,18 @@ const items = dto.itemSummary.map((summary, i) => {
 
   const resolvedType = resolveOrderType(dto);
 
-  let expressMinutes: ExpressMinutes | undefined;
+let expressMinutes: ExpressMinutes | undefined;
   let expressPickupSlotMs: number | undefined;
 
   if (resolvedType === 'express' && !dto.pickupSlotTime) {
-    expressMinutes      = EXPRESS_OPTIONS[simpleHash(dto.id) % EXPRESS_OPTIONS.length];
+    // FIX: use actual DB prep time instead of random hash.
+    // Previously expressMinutes was picked from [5,10,15] via simpleHash(dto.id)
+    // causing Vada Pav (5 min DB) to show ~10 min on the kitchen card randomly.
+    // Now we clamp the actual prepTime to the nearest valid express window,
+    // so a 5-min dish always shows 5, 8-min shows 10, 12-min shows 15, etc.
+    const actualPrep = dto.totalPrepMinutes > 0 ? dto.totalPrepMinutes : 5;
+    expressMinutes = actualPrep <= 5 ? 5 : actualPrep <= 10 ? 10 : 15;
+
     const base          = placedAt ?? new Date();
     const fromPlacement = base.getTime() + expressMinutes * 60_000;
     const anchor        = cookingStartedAt ?? base;
@@ -237,10 +245,11 @@ const items = dto.itemSummary.map((summary, i) => {
     expressPickupSlotMs = Math.max(fromPlacement, anchor.getTime() + MIN_BUFFER_MS);
   }
 
-  const resolvedEstimatedPrepTime: number =
-    resolvedType === 'express' && expressMinutes !== undefined
-      ? expressMinutes
-      : dto.totalPrepMinutes;
+  // Always use actual DB prep time for the cooking timer — expressMinutes
+  // is only used for the pickup slot deadline, not the prep time display.
+  const resolvedEstimatedPrepTime: number = dto.totalPrepMinutes > 0
+    ? dto.totalPrepMinutes
+    : expressMinutes ?? 5;
 
   return {
     id:                dto.id,
@@ -389,11 +398,14 @@ const loadBoard = useCallback(async () => {
 
       setBoardData(data);
 
-      const activeOrders = [
+const activeOrders = [
         ...(data.columns.PENDING ?? []),
         ...(data.columns.COOKING ?? []),
         ...(data.columns.READY   ?? []),
-      ].map(toFrontendOrder);
+      ]
+        // FIX: strip any cancelled orders the backend may include in active columns
+        .filter(dto => (dto.status as string) !== 'CANCELLED')
+        .map(toFrontendOrder);
 
       if (isFirstLoad.current) {
         activeOrders.forEach(o => knownOrderIds.current.add(o.id));
@@ -423,8 +435,20 @@ const loadBoard = useCallback(async () => {
         }
       }
 
-      setOrders(activeOrders);
-      setCompletedOrders((data.columns.COMPLETED ?? []).slice(0, 50).map(toFrontendOrder));
+// FIX: filter out any orders that came back as CANCELLED from backend
+// Backend may briefly return cancelled orders in PENDING/COOKING columns
+// before removing them — strip them here so the Kanban never shows them.
+const visibleOrders = activeOrders.filter(
+  o => (o.backendStatus as string) !== 'CANCELLED'
+);
+
+setOrders(visibleOrders);
+
+setCompletedOrders(
+  (data.columns.COMPLETED ?? [])
+    .slice(0, 50)
+    .map(toFrontendOrder)
+);
       setError(null);
     } catch (err: any) {
       if (err.name === 'AbortError') return;
