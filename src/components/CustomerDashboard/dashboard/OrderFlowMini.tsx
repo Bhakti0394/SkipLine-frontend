@@ -14,7 +14,7 @@ import '../overview-styles/OrderFlowMini.scss';
 // OrderFlowMini was labelling that status 'Pending' while MyOrders labelled it
 // 'Order Confirmed', so the Overview and Orders pages showed different text for
 // the same order — confusing users into thinking the statuses disagreed.
-//o
+//
 // The backend enum has no PREPARING state.
 // Valid backend statuses: PENDING → COOKING → READY → COMPLETED.
 // Frontend mapping (dtoToOrder in SkipLineContext):
@@ -58,13 +58,13 @@ export function OrderFlowMini() {
     o => o.wasSwapped && o.status !== 'cancelled' && o.status !== 'completed'
   ).length;
 
-const displayOrders = selectedStatus
-    ? activeOrders.filter(o =>
+  const displayOrders = selectedStatus
+    ? [...activeOrders, ...delayedOrders].filter(o =>
         selectedStatus === 'confirmed'
           ? o.status === 'confirmed' || o.status === 'delayed'
           : o.status === selectedStatus
       ).slice(0, 3)
-    : activeOrders.slice(0, 3);
+    : [...activeOrders, ...delayedOrders].slice(0, 3);
 
   return (
     <motion.div

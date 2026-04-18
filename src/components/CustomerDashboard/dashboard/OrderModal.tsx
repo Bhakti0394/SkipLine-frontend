@@ -119,7 +119,7 @@ export function OrderModal({
   const isExpressMode  = !isScheduleMode && !!meal && (meal.isExpress || forceExpressMode);
 
   // ── resetForm defined before useEffect that uses it ──────────────────────
-const resetForm = () => {
+  const resetForm = () => {
     setQuantity(1);
     setSelectedSlot(null);
     setSelectedExpressOption(null);
@@ -129,7 +129,6 @@ const resetForm = () => {
     setShowSuccess(false);
     setTodaySlots([]);
     setTomorrowSlots([]);
-    setAddonsLoaded(false);
   };
 
   // ── useEffect #1: fetch add-ons ───────────────────────────────────────────
@@ -143,44 +142,24 @@ const resetForm = () => {
 
   // ── useEffect #2: fetch slots ─────────────────────────────────────────────
   useEffect(() => {
-  if (!isOpen || !meal) return;
-  if (isExpressMode && meal.prepTime <= 15) return;
+    if (!isOpen || !meal) return;
+    if (isExpressMode && meal.prepTime <= 15) return;
 
-  let cancelled = false;
-  setSlotsLoading(true);
+    let cancelled = false;
+    setSlotsLoading(true);
 
-  if (isScheduleMode) {
-    // Tomorrow slots: no prep-time filter needed (always hours ahead)
-    fetchCustomerSlotsTomorrow()
-      .then(slots => {
-        if (!cancelled) {
-          setTomorrowSlots(slots);
-          setSlotsLoading(false);
-        }
-      })
-      .catch(() => { if (!cancelled) setSlotsLoading(false); });
- } else {
-    fetchCustomerSlots()
-      .then(slots => {
-        if (!cancelled) {
-          // FIX [SLOT-PREPTIME]: Hide slots the kitchen can't fulfil in time.
-          // Minimum valid pickup = now + dish prepTime + 5 min assembly buffer.
-          // Example: 10:23, Hyderabadi Biryani 20 min prep
-          //   minPickup = 10:23 + 25 min = 10:48
-          //   → slot 10:30 hidden (only 7 min gap)
-          //   → slot 11:00 shown (37 min gap ✓)
-          const minPickupMs = Date.now() + (meal.prepTime + 5) * 60 * 1000;
-          setTodaySlots(
-            slots.filter(s => new Date(s.slotTime).getTime() >= minPickupMs)
-          );
-          setSlotsLoading(false);
-        }
-      })
-      .catch(() => { if (!cancelled) setSlotsLoading(false); });
-  }
+    if (isScheduleMode) {
+      fetchCustomerSlotsTomorrow()
+        .then(slots => { if (!cancelled) { setTomorrowSlots(slots); setSlotsLoading(false); } })
+        .catch(() => { if (!cancelled) setSlotsLoading(false); });
+    } else {
+      fetchCustomerSlots()
+        .then(slots => { if (!cancelled) { setTodaySlots(slots); setSlotsLoading(false); } })
+        .catch(() => { if (!cancelled) setSlotsLoading(false); });
+    }
 
-  return () => { cancelled = true; };
-}, [isOpen, meal, isScheduleMode, isExpressMode]);
+    return () => { cancelled = true; };
+  }, [isOpen, meal, isScheduleMode, isExpressMode]);
 
   // ── useEffect #3: reset on close ─────────────────────────────────────────
   // ✅ FIXED: moved above the early return so hook count never changes
@@ -269,7 +248,6 @@ if (isExpressMode && selectedExpressArrival) {
         pickupTime:          expressPickupTime!,
         isScheduled:         false,
         scheduledDate:       undefined,
-        expressMinutes: selectedExpressArrival.minutes,
         orderType,
       });
     } else {
@@ -513,7 +491,7 @@ if (isExpressMode && selectedExpressArrival) {
 
                     {/* ── Pickup / Arrival section ── */}
                     <div className="modal__section">
-                     <div className="modal__section-header">
+                      <div className="modal__section-header">
                         {isScheduleMode ? (
                           <Calendar className="modal__section-icon modal__section-icon--schedule" />
                         ) : isExpressMode ? (
@@ -526,22 +504,6 @@ if (isExpressMode && selectedExpressArrival) {
                         </h3>
                         <span className="modal__required">*Required</span>
                       </div>
-                      {!isExpressMode && !isScheduleMode && (() => {
-                        const BUFFER_MIN = 5;
-                        const earliestMs = Date.now() + (meal.prepTime + BUFFER_MIN) * 60 * 1000;
-                        const earliestTime = new Date(earliestMs).toLocaleTimeString('en-IN', {
-                          hour: 'numeric', minute: '2-digit', hour12: true,
-                        });
-                        return (
-                          <div className="modal__slot-earliest-hint">
-                            <Clock className="modal__slot-earliest-hint-icon" />
-                            <span>
-                              Earliest pickup:&nbsp;<strong>{earliestTime}</strong>
-                              &nbsp;· {meal.prepTime} min prep + {BUFFER_MIN} min plating
-                            </span>
-                          </div>
-                        );
-                      })()}
 
                       {/* EXPRESS */}
                       {isExpressMode ? (

@@ -33,14 +33,8 @@ function formatPickupTime(pickupSlotTime?: string | null, fallback?: string): st
   }
 }
 
-function buildOrderRef(
-  customerName: string,
-  orderType: 'express' | 'normal' | 'scheduled',
-  expressMinutes?: number
-): string {
-  const tag = orderType === 'express'
-    ? `EXPRESS-${expressMinutes ?? 10}`   // e.g. EXPRESS-10
-    : orderType === 'scheduled' ? 'SCHEDULED' : 'NORMAL';
+function buildOrderRef(customerName: string, orderType: 'express' | 'normal' | 'scheduled'): string {
+  const tag = orderType === 'express' ? 'EXPRESS' : orderType === 'scheduled' ? 'SCHEDULED' : 'NORMAL';
   return `${generateCustomerOrderRef(customerName)}-${tag}`;
 }
 
@@ -97,7 +91,7 @@ export default function Checkout() {
       const backendMenuItemId = item.menuItemId || item.meal.id;
 
       const req: PlaceOrderRequest = {
-       orderRef: buildOrderRef(customerIdentifier, orderType, item.expressMinutes),
+        orderRef:     buildOrderRef(customerIdentifier, orderType),
         menuItemIds:  toValidUUIDs([backendMenuItemId]),
         pickupSlotId: toValidUUID(item.pickupSlotId),
       };
@@ -132,13 +126,14 @@ export default function Checkout() {
           const itemPrepTime = item.meal.prepTime ?? dto.totalPrepMinutes;
           const timeSaved    = itemPrepTime > 0 ? Math.floor(itemPrepTime * 0.8) : 15;
 
-const localOrder = {
+          const localOrder = {
             id:                   dto.id,
             orderRef:             dto.orderRef,
             meal:                 item.meal.name,
             restaurant:           item.meal.restaurant,
             image:                item.meal.image,
             status:               'confirmed' as const,
+            // FIX: use formatPickupTime instead of inline ternary
             pickupTime:           formatPickupTime(dto.pickupSlotTime, item.pickupTime),
             pickupSlotId:         item.pickupSlotId,
             estimatedReady:       `${dto.totalPrepMinutes} min`,
@@ -152,12 +147,6 @@ const localOrder = {
             timeSaved,
             kitchenQueuePosition: 1,
             orderType,
-            // FIX [SWAP-PROGRESS]: now typed fields on Order — no more any-casts.
-            // totalPrepMinutes drives computeProgress() in MyOrders.
-            // pickupSlotTime is the raw ISO string kept for re-formatting after extend.
-            createdAt:            Date.now(),
-            totalPrepMinutes:     dto.totalPrepMinutes ?? 0,
-            pickupSlotTime:       dto.pickupSlotTime ?? null,
           };
 
           createdOrders.push(addOrder(localOrder));

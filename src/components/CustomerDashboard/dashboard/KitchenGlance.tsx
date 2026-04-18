@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { ChefHat, TrendingUp, Clock, Flame, AlertCircle } from 'lucide-react';
-
+import { useSkipLine } from '../../../customer-context/SkipLineContext';
 import '../overview-styles/Kitchenglance.scss';
 
 interface KitchenGlanceProps {
@@ -8,7 +8,10 @@ interface KitchenGlanceProps {
   busiestHour:  { time: string; orders: number };
   avgPrepTime:  number;
   bottleneck?:  string;
-  loading?:     boolean;
+  // FIX: accept real kitchen capacity from board metrics instead of hardcoding 3.
+  // CustomerDashboard/Index.tsx passes board.metrics.activeChefCount here.
+  // Falls back to 3 when board data is unavailable (unauthenticated / 403).
+  kitchenCapacity?: number;
 }
 
 export function KitchenGlance({
@@ -16,9 +19,15 @@ export function KitchenGlance({
   busiestHour,
   avgPrepTime,
   bottleneck,
-  loading = false,
+  kitchenCapacity = 3,
 }: KitchenGlanceProps) {
-  const isOverCapacity = !!bottleneck;
+  const { orders, kitchenState } = useSkipLine();
+
+  const activeCount    = kitchenState.activeOrders.length;
+  const queuedCount    = kitchenState.queuedOrders.length;
+  // FIX: use real capacity from backend, not hardcoded 3
+const isOverCapacity = activeCount >= kitchenCapacity || queuedCount > 0;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -50,7 +59,6 @@ export function KitchenGlance({
       </div>
 
       {/* Stats Grid */}
-{/* Stats Grid */}
       <div className="kitchen-glance__grid">
         {/* Top Selling Dish */}
         <motion.div
@@ -61,19 +69,10 @@ export function KitchenGlance({
             <Flame className="kitchen-glance__card-icon" />
             <span className="kitchen-glance__card-label">Most Ordered Today</span>
           </div>
-          {loading ? (
-            <>
-              <p className="kitchen-glance__card-value kitchen-glance__card-skeleton" style={{ width: '60%', height: '1.4em', borderRadius: 4, background: 'var(--color-border-tertiary)' }} />
-              <p className="kitchen-glance__card-detail" style={{ width: '80%', height: '0.9em', borderRadius: 4, background: 'var(--color-border-tertiary)', marginTop: 6 }} />
-            </>
-          ) : (
-            <>
-              <p className="kitchen-glance__card-value">{topDish.name}</p>
-              <p className="kitchen-glance__card-detail kitchen-glance__card-detail--accent">
-                Chosen {topDish.orders} times today
-              </p>
-            </>
-          )}
+          <p className="kitchen-glance__card-value">{topDish.name}</p>
+          <p className="kitchen-glance__card-detail kitchen-glance__card-detail--accent">
+            Chosen {topDish.orders} times today
+          </p>
         </motion.div>
 
         {/* Busiest Hour */}
@@ -85,19 +84,10 @@ export function KitchenGlance({
             <TrendingUp className="kitchen-glance__card-icon" />
             <span className="kitchen-glance__card-label">Busiest Time</span>
           </div>
-          {loading ? (
-            <>
-              <p className="kitchen-glance__card-value kitchen-glance__card-skeleton" style={{ width: '45%', height: '1.4em', borderRadius: 4, background: 'var(--color-border-tertiary)' }} />
-              <p className="kitchen-glance__card-detail" style={{ width: '70%', height: '0.9em', borderRadius: 4, background: 'var(--color-border-tertiary)', marginTop: 6 }} />
-            </>
-          ) : (
-            <>
-              <p className="kitchen-glance__card-value">{busiestHour.time}</p>
-              <p className="kitchen-glance__card-detail kitchen-glance__card-detail--primary">
-                {busiestHour.orders} orders placed
-              </p>
-            </>
-          )}
+          <p className="kitchen-glance__card-value">{busiestHour.time}</p>
+          <p className="kitchen-glance__card-detail kitchen-glance__card-detail--primary">
+            {busiestHour.orders} orders placed
+          </p>
         </motion.div>
 
         {/* Avg Prep Time */}
@@ -109,19 +99,10 @@ export function KitchenGlance({
             <Clock className="kitchen-glance__card-icon" />
             <span className="kitchen-glance__card-label">Average Prep Time</span>
           </div>
-          {loading ? (
-            <>
-              <p className="kitchen-glance__card-value kitchen-glance__card-skeleton" style={{ width: '40%', height: '1.4em', borderRadius: 4, background: 'var(--color-border-tertiary)' }} />
-              <p className="kitchen-glance__card-detail" style={{ width: '90%', height: '0.9em', borderRadius: 4, background: 'var(--color-border-tertiary)', marginTop: 6 }} />
-            </>
-          ) : (
-            <>
-              <p className="kitchen-glance__card-value">{avgPrepTime} min</p>
-              <p className="kitchen-glance__card-detail kitchen-glance__card-detail--success">
-                Orders are being prepared on schedule
-              </p>
-            </>
-          )}
+          <p className="kitchen-glance__card-value">{avgPrepTime} min</p>
+          <p className="kitchen-glance__card-detail kitchen-glance__card-detail--success">
+            Orders are being prepared on schedule
+          </p>
         </motion.div>
 
         {/* Bottleneck / Status */}
@@ -139,12 +120,7 @@ export function KitchenGlance({
             }`} />
             <span className="kitchen-glance__card-label">Kitchen Status</span>
           </div>
-          {loading ? (
-            <>
-              <p className="kitchen-glance__card-value kitchen-glance__card-skeleton" style={{ width: '55%', height: '1.4em', borderRadius: 4, background: 'var(--color-border-tertiary)' }} />
-              <p className="kitchen-glance__card-detail" style={{ width: '75%', height: '0.9em', borderRadius: 4, background: 'var(--color-border-tertiary)', marginTop: 6 }} />
-            </>
-          ) : bottleneck ? (
+          {bottleneck ? (
             <>
               <p className="kitchen-glance__card-value kitchen-glance__card-value--warning">
                 Slight Delay
@@ -167,49 +143,35 @@ export function KitchenGlance({
       </div>
 
       {/* Capacity indicator */}
-{/* Kitchen load bar — only shown after data loads */}
-      {loading ? (
-        <div className="kitchen-glance__capacity">
-          <div className="kitchen-glance__capacity-header">
-            <span className="kitchen-glance__capacity-label">Fetching kitchen status…</span>
-          </div>
-          <div className="kitchen-glance__capacity-bar">
-            <motion.div
-              animate={{ x: ['0%', '100%', '0%'] }}
-              transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
-              style={{ width: '30%', height: '100%', borderRadius: 'inherit' }}
-              className="kitchen-glance__capacity-fill kitchen-glance__capacity-fill--success"
-            />
-          </div>
+      <div className="kitchen-glance__capacity">
+        <div className="kitchen-glance__capacity-header">
+          <span className="kitchen-glance__capacity-label">
+            Current Kitchen Load
+          </span>
+          <span className={`kitchen-glance__capacity-value ${
+            isOverCapacity
+              ? 'kitchen-glance__capacity-value--danger'
+              : 'kitchen-glance__capacity-value--success'
+          }`}>
+            {/* FIX: show real capacity denominator */}
+            {activeCount}/{kitchenCapacity} being prepared &bull; {queuedCount} waiting
+          </span>
         </div>
-      ) : (
-        <div className="kitchen-glance__capacity">
-          <div className="kitchen-glance__capacity-header">
-            <span className="kitchen-glance__capacity-label">
-              Current Kitchen Load
-            </span>
-            <span className={`kitchen-glance__capacity-value ${
-              isOverCapacity
-                ? 'kitchen-glance__capacity-value--danger'
-                : 'kitchen-glance__capacity-value--success'
-            }`}>
-              {isOverCapacity ? 'High load' : 'Normal load'}
-            </span>
-          </div>
-          <div className="kitchen-glance__capacity-bar">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: isOverCapacity ? '85%' : '40%' }}
-              transition={{ duration: 0.8, delay: 0.5 }}
-              className={`kitchen-glance__capacity-fill ${
-                isOverCapacity
-                  ? 'kitchen-glance__capacity-fill--warning'
-                  : 'kitchen-glance__capacity-fill--success'
-              }`}
-            />
-          </div>
+        <div className="kitchen-glance__capacity-bar">
+          <motion.div
+            initial={{ width: 0 }}
+          animate={{ width: `${kitchenCapacity > 0 ? Math.min((activeCount / kitchenCapacity) * 100, 100) : 0}%` }}
+            transition={{ duration: 0.8, delay: 0.5 }}
+            className={`kitchen-glance__capacity-fill ${
+              activeCount >= kitchenCapacity
+                ? 'kitchen-glance__capacity-fill--danger'
+                : activeCount >= kitchenCapacity * 0.67
+                ? 'kitchen-glance__capacity-fill--warning'
+                : 'kitchen-glance__capacity-fill--success'
+            }`}
+          />
         </div>
-      )}
+      </div>
     </motion.div>
   );
 }

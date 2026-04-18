@@ -327,13 +327,10 @@ const toastedOrderIds      = useRef<Set<string>>(new Set());
   ]);
 
   // ── Status change ──────────────────────────────────────────────────────────
-const ordersRef2 = useRef(orders);
-  useEffect(() => { ordersRef2.current = orders; }, [orders]);
-
   const handleStatusChange = useCallback(async (
     orderId: string, status: OrderStatus, assignedTo?: string,
   ) => {
-    const order = ordersRef2.current.find(o => o.id === orderId);
+    const order = orders.find(o => o.id === orderId);
 
     if (order) {
      if (!canTransition(BACKEND_STATUS[order.status], BACKEND_STATUS[status])) {
@@ -380,7 +377,7 @@ const ordersRef2 = useRef(orders);
     } catch (err: any) {
       showToast('error', 'Status update failed', err.message ?? 'Could not update order status.');
     }
-}, [updateOrderStatus, consumeForOrder, notifyOrderStatus, settings?.orderAlerts]);
+  }, [updateOrderStatus, orders, consumeForOrder, notifyOrderStatus, settings?.orderAlerts]);
 
   // ── Other handlers ─────────────────────────────────────────────────────────
   const handleAddOrder = useCallback(() => {

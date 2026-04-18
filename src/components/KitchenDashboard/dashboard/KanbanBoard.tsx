@@ -258,14 +258,11 @@ function CookingCardInner({
       {/* Row 1: Order number + type badge */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
         <span
-         style={{
-  fontFamily:  'monospace', fontWeight: 700, fontSize: '0.75rem',
-  overflow:    'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-  flex:        '1 1 0', minWidth: 0,
-  color: order.orderNumber.startsWith('ORD-')
-    ? '#fb923c'
-    : 'rgba(241,245,249,0.95)',
-}}
+          style={{
+            fontFamily:  'monospace', fontWeight: 700, fontSize: '0.75rem',
+            overflow:    'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            flex:        '1 1 0', minWidth: 0, color: 'rgba(241,245,249,0.95)',
+          }}
           title={order.orderNumber}
         >
           {order.orderNumber}
@@ -705,20 +702,6 @@ const handleDragStart = useCallback((start: DragStart) => {
     }
   }, [onChefAssign, setOrderPending]);
 
-  // Express orders: auto-move from pending → cooking immediately (3s grace for UI to settle).
-// No chef required to be pre-assigned — kitchen sees them as highest priority.
-useEffect(() => {
-  const expressTimers: ReturnType<typeof setTimeout>[] = [];
-  for (const order of safeOrders) {
-    if (order.status !== 'pending' || order.orderType !== 'express') continue;
-    if (pendingOrderIds.has(order.id)) continue;
-    const timer = setTimeout(async () => {
-      try { await onStatusChange(order.id, 'cooking'); } catch { /* parent handles */ }
-    }, 3000);
-    expressTimers.push(timer);
-  }
-  return () => { expressTimers.forEach(clearTimeout); };
-}, [safeOrders, onStatusChange, pendingOrderIds]);
    // ── Auto-advance: when estimatedPrepTime elapses, move cooking→ready ────────
   useEffect(() => {
     const cookingOrders = safeOrders.filter(o => o.status === 'cooking');
@@ -895,13 +878,9 @@ useEffect(() => {
                               >
                                 <div className="order-card__header">
                                   <div className="order-card__header-left">
-                                    <span className="order-card__number" title={order.orderNumber}
-  style={order.orderNumber.startsWith('ORD-') ? {
-    color: '#fb923c',
-    fontWeight: 800,
-  } : undefined}>
-  {order.orderNumber}
-</span>
+                                    <span className="order-card__number" title={order.orderNumber}>
+                                      {order.orderNumber}
+                                    </span>
                                     <OrderTypeBadge orderType={order.orderType ?? 'normal'} />
                                     {scheduledLocked && <ScheduledLockBadge />}
                                   </div>
