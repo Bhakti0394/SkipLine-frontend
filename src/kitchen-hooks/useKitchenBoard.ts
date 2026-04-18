@@ -229,14 +229,16 @@ const items = dto.itemSummary.map((summary, i) => {
 let expressMinutes: ExpressMinutes | undefined;
   let expressPickupSlotMs: number | undefined;
 
-  if (resolvedType === 'express' && !dto.pickupSlotTime) {
-    // FIX: use actual DB prep time instead of random hash.
-    // Previously expressMinutes was picked from [5,10,15] via simpleHash(dto.id)
-    // causing Vada Pav (5 min DB) to show ~10 min on the kitchen card randomly.
-    // Now we clamp the actual prepTime to the nearest valid express window,
-    // so a 5-min dish always shows 5, 8-min shows 10, 12-min shows 15, etc.
-    const actualPrep = dto.totalPrepMinutes > 0 ? dto.totalPrepMinutes : 5;
-    expressMinutes = actualPrep <= 5 ? 5 : actualPrep <= 10 ? 10 : 15;
+if (resolvedType === 'express' && !dto.pickupSlotTime) {
+  // Parse window from orderRef e.g. "ORD-...-EXPRESS-10"
+  const refMatch = (dto.orderRef ?? '').match(/-EXPRESS-(\d+)/);
+  const parsedWindow = refMatch ? parseInt(refMatch[1], 10) : null;
+
+  // Use parsed window if valid, else fall back to prepTime snap
+  const actualPrep = dto.totalPrepMinutes > 0 ? dto.totalPrepMinutes : 5;
+  expressMinutes = (parsedWindow === 5 || parsedWindow === 10 || parsedWindow === 15)
+    ? parsedWindow
+    : actualPrep <= 5 ? 5 : actualPrep <= 10 ? 10 : 15;
 
     const base          = placedAt ?? new Date();
     const fromPlacement = base.getTime() + expressMinutes * 60_000;
@@ -251,7 +253,7 @@ let expressMinutes: ExpressMinutes | undefined;
     ? dto.totalPrepMinutes
     : expressMinutes ?? 5;
 
-  return {
+ return {
     id:                dto.id,
     orderNumber:       dto.orderRef,
     customerName:      dto.customerName ?? dto.orderRef,
@@ -265,7 +267,19 @@ let expressMinutes: ExpressMinutes | undefined;
     assignedTo:     dto.assignedChefName ?? undefined,
     assignedChefId: dto.assignedChefId   ?? undefined,
     createdAt:      placedAt ?? new Date(),
-    startedAt:      cookingStartedAt,
+    // FIX [SWAP-TIMER]: Use placedAt as the cooking anchor when startedAt
+    // is before the swap. We detect this by checking if elapsed cooking time
+    // already exceeds the new prepTime — if so, the timer would show overdue
+    // immediately. Reset startedAt to now so the new prep window starts fresh.
+    startedAt: (() => {
+      if (!cookingStartedAt) return undefined;
+      const elapsedSec = (Date.now() - cookingStartedAt.getTime()) / 1000;
+      const prepSec    = resolvedEstimatedPrepTime * 60;
+      // If elapsed > new prep time, the dish was swapped mid-cook.
+      // Reset startedAt to now so the timer shows full new prep window.
+      if (elapsedSec > prepSec) return new Date();
+      return cookingStartedAt;
+    })(),
     ...(readyAt     ? { readyAt }     : {}),
     completedAt,
     ...(dto.pickupSlotTime
@@ -465,9 +479,24 @@ setCompletedOrders(
     }
   }, [isKitchen]);
 
-  useEffect(() => {
+ useEffect(() => {
     return () => { abortRef.current?.abort(); };
   }, []);
+
+  // Reload board immediately when customer cancels — avoids waiting for the 10s poll
+  useEffect(() => {
+    if (!isKitchen) return;
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('skipline_order_events');
+      channel.onmessage = (e) => {
+        if (e.data?.type === 'ORDER_CANCELLED') {
+          loadBoard();
+        }
+      };
+    } catch { /* BroadcastChannel not available */ }
+    return () => { channel?.close(); };
+  }, [isKitchen, loadBoard]);
 
   // FIX [ROLE-GUARD]: only start polling when KITCHEN role is active
   useEffect(() => {
@@ -638,12 +667,10 @@ const assignChef = useCallback(async (orderId: string, chefId: string) => {
     try {
       await assignChefApi(orderId, chefId);
     } catch (err: any) {
-      if (!statusUpdateInFlightRef.current) await loadBoard();
+      await loadBoard();
       throw err;
     }
-    if (!statusUpdateInFlightRef.current) {
-      await loadBoard();
-    }
+    await loadBoard();
   }, [loadBoard]);
 
   const addOrder = useCallback(async (orderRef: string, menuItemIds: string[]): Promise<string> => {

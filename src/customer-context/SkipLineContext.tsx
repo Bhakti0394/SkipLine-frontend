@@ -88,17 +88,21 @@ interface SkipLineContextType {
   orders:                  Order[];
   addOrder:                (order: Omit<Order, 'id' | 'createdAt' | 'kitchenQueuePosition'> & { id?: string }) => Order;
   updateOrderStatus:       (orderId: string, status: Order['status']) => void;
+  // FIX [SWAP-CTX-OVERWRITE]: after a swap, context held stale meal/price/
+  // totalPrepMinutes. The contextOrders sync useEffect in MyOrders then
+  // re-applied stale context data over the correctly-swapped local state.
+  // This method lets swap callers keep context in sync.
+  updateOrderFields:       (orderId: string, fields: Partial<Order>) => void;
   orderHistory:            Order[];
   kitchenState:            KitchenState;
   getQueuePosition:        (orderId: string) => number;
   metrics:                 UserMetrics;
   updateMetrics:           (updates: Partial<UserMetrics>) => void;
   resetDemo:               () => void;
- simulateKitchenProgress: () => void;
+  simulateKitchenProgress: () => void;
   loading: boolean;
   error:   string | null;
 }
-
 
 const SkipLineContext = createContext<SkipLineContextType | undefined>(undefined);
 
@@ -132,22 +136,22 @@ function formatPickupTime(pickupSlotTime?: string | null): string {
 }
 
 // -- DTO -> Order mapper --
+
 function dtoToOrder(dto: CustomerOrderDto): Order {
   const image    = imageForSummary(dto.itemSummary);
   const mealName = dto.itemSummary?.length > 0
     ? dto.itemSummary.map(s => s.replace(/^\d+x\s*/, '')).join(', ')
     : dto.orderRef;
 
- const statusMap: Record<string, Order['status']> = {
-  pending:   'confirmed',
-  confirmed: 'confirmed',
-  preparing: 'cooking',
-  cooking:   'cooking',
-  ready:     'ready',
-  completed: 'completed',
-  cancelled: 'cancelled',
-};
-
+  const statusMap: Record<string, Order['status']> = {
+    pending:   'confirmed',
+    confirmed: 'confirmed',
+    preparing: 'cooking',
+    cooking:   'cooking',
+    ready:     'ready',
+    completed: 'completed',
+    cancelled: 'cancelled',
+  };
 
   return {
     id:                   dto.id,
@@ -155,7 +159,7 @@ function dtoToOrder(dto: CustomerOrderDto): Order {
     restaurant:           '',
     image,
     status:               statusMap[dto.status] ?? 'confirmed',
-   pickupTime: formatPickupTime(dto.pickupSlotTime),
+    pickupTime:           formatPickupTime(dto.pickupSlotTime),
     pickupSlotId:         dto.pickupSlotId ?? '',
     estimatedReady:       `${dto.totalPrepMinutes} min`,
     price:                dto.totalPrice ?? 0,
@@ -169,6 +173,42 @@ function dtoToOrder(dto: CustomerOrderDto): Order {
     createdAt:            dto.placedAt ? new Date(dto.placedAt).getTime() : Date.now(),
     timeSaved:            dto.totalPrepMinutes > 0 ? Math.floor(dto.totalPrepMinutes * 0.8) : 10,
     orderRef:             dto.orderRef,
+    totalPrepMinutes:     dto.totalPrepMinutes ?? 0,
+    pickupSlotTime:       dto.pickupSlotTime ?? null,
+    // ── NEW: wire express fields through so OrderSuccess receives them ──
+    isExpress:            dto.isExpress ?? false,
+    editLockedUntil:      dto.editLockedUntil ? new Date(dto.editLockedUntil) : null,
+    scheduledCookAt:      dto.scheduledCookAt ? new Date(dto.scheduledCookAt) : null,
+  };
+}
+
+
+return {
+    id:                   dto.id,
+    meal:                 mealName,
+    restaurant:           '',
+    image,
+    status:               statusMap[dto.status] ?? 'confirmed',
+    pickupTime:           formatPickupTime(dto.pickupSlotTime),
+    pickupSlotId:         dto.pickupSlotId ?? '',
+    estimatedReady:       `${dto.totalPrepMinutes} min`,
+    price:                dto.totalPrice ?? 0,
+    quantity:             1,
+    paymentStatus:        'paid',
+    paymentMethod:        'upi',
+    kitchenQueuePosition: 0,
+    addOns:               [],
+    spiceLevel:           'medium',
+    specialInstructions:  '',
+    createdAt:            dto.placedAt ? new Date(dto.placedAt).getTime() : Date.now(),
+    timeSaved:            dto.totalPrepMinutes > 0 ? Math.floor(dto.totalPrepMinutes * 0.8) : 10,
+    orderRef:             dto.orderRef,
+    // FIX: populate typed fields so computeProgress() works for orders loaded
+    // fresh from the API, not just orders coming through OrderSuccess navigation.
+ // FIX: populate typed fields so computeProgress() works for orders loaded
+    // fresh from the API, not just orders coming through OrderSuccess navigation.
+    totalPrepMinutes:     dto.totalPrepMinutes ?? 0,
+    pickupSlotTime:       dto.pickupSlotTime ?? null,
   };
 }
 
@@ -181,6 +221,7 @@ const demoOrderHistory: Order[] = [
     paymentStatus: 'paid', paymentMethod: 'upi', kitchenQueuePosition: 0,
     addOns: [], spiceLevel: 'medium', specialInstructions: '',
     createdAt: Date.now() - 86400000 * 2, timeSaved: 18,
+    totalPrepMinutes: 0, pickupSlotTime: null,
   },
   {
     id: 'ORD-HIST2', meal: 'Hyderabadi Biryani', restaurant: '', image: hydrebadiBiryani,
@@ -189,6 +230,7 @@ const demoOrderHistory: Order[] = [
     paymentStatus: 'paid', paymentMethod: 'card', kitchenQueuePosition: 0,
     addOns: [], spiceLevel: 'spicy', specialInstructions: '',
     createdAt: Date.now() - 86400000 * 3, timeSaved: 22,
+    totalPrepMinutes: 0, pickupSlotTime: null,
   },
   {
     id: 'ORD-HIST3', meal: 'Masala Dosa', restaurant: '', image: masalaDosa,
@@ -197,6 +239,7 @@ const demoOrderHistory: Order[] = [
     paymentStatus: 'paid', paymentMethod: 'upi', kitchenQueuePosition: 0,
     addOns: [], spiceLevel: 'mild', specialInstructions: '',
     createdAt: Date.now() - 86400000 * 5, timeSaved: 12,
+    totalPrepMinutes: 0, pickupSlotTime: null,
   },
 ];
 
@@ -208,6 +251,7 @@ const demoActiveOrders: Order[] = [
     paymentStatus: 'paid', paymentMethod: 'upi', kitchenQueuePosition: 1,
     addOns: [], spiceLevel: 'medium', specialInstructions: '',
     createdAt: Date.now() - 600000, timeSaved: 18,
+    totalPrepMinutes: 0, pickupSlotTime: null,
   },
   {
     id: 'ORD-DEMO2', meal: 'Hyderabadi Biryani', restaurant: '', image: hydrebadiBiryani,
@@ -216,6 +260,7 @@ const demoActiveOrders: Order[] = [
     paymentStatus: 'cash', paymentMethod: 'cash', kitchenQueuePosition: 2,
     addOns: [], spiceLevel: 'spicy', specialInstructions: '',
     createdAt: Date.now() - 300000, timeSaved: 22,
+    totalPrepMinutes: 0, pickupSlotTime: null,
   },
 ];
 
@@ -248,11 +293,25 @@ const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string
 };
     const mapped = statusMap[rawStatus] ?? 'confirmed';
 
-    if (TERMINAL_STATUSES.has(rawStatus)) {
+if (TERMINAL_STATUSES.has(rawStatus)) {
       sseUnsubscribers.current.get(orderId)?.();
       sseUnsubscribers.current.delete(orderId);
 
-      if (rawStatus === 'completed') {
+      if (rawStatus === 'cancelled') {
+        setOrders(prev =>
+          prev.map(o => o.id === orderId ? { ...o, status: 'cancelled' as Order['status'] } : o)
+        );
+        setMetrics(m => ({ ...m, activeOrders: Math.max(0, m.activeOrders - 1) }));
+        setKitchenState(ks => ({
+          activeOrders: ks.activeOrders.filter(id => id !== orderId),
+          queuedOrders: ks.queuedOrders.filter(id => id !== orderId),
+        }));
+        try {
+          const ch = new BroadcastChannel('skipline_order_events');
+          ch.postMessage({ type: 'ORDER_CANCELLED', orderId });
+          ch.close();
+        } catch { /* BroadcastChannel not supported */ }
+      } else if (rawStatus === 'completed') {
         setOrders(prev => {
           const order = prev.find(o => o.id === orderId);
           if (order) {
@@ -296,16 +355,19 @@ const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string
       confirmed: 'Your order is confirmed and in the queue.',
       cancelled: 'Your order has been cancelled.',
     };
-    window.dispatchEvent(new CustomEvent('order-status-changed', {
+window.dispatchEvent(new CustomEvent('order-status-changed', {
       detail: {
         title:   statusTitles[rawStatus]   ?? `Order ${rawStatus}`,
         message: statusMessages[rawStatus] ?? `Status updated to ${rawStatus}.`,
-        type:    rawStatus === 'ready'
-          ? 'order_ready'
-          : rawStatus === 'cooking' ? 'order_cooking' : 'order_confirmed',
+        type:    rawStatus === 'ready'      ? 'order_ready'
+               : rawStatus === 'cooking'   ? 'order_cooking'
+               : rawStatus === 'cancelled' ? 'info'
+               : rawStatus === 'preparing' ? 'order_preparing'
+               :                             'order_confirmed',
         orderId,
       },
-    }));  }, []);    
+    }));
+  }, []);
 
   const startPollingFallback = useCallback((orderId: string) => {
     const interval = setInterval(async () => {
@@ -444,7 +506,9 @@ Promise.allSettled([
       console.warn('[SkipLineContext] Streak fetch failed — keeping local value:', err.message)
     ),
 
-]).finally(() => setLoading(false));  // ← fires after ALL three settle regardless of outcome  }, [user, authLoading]);
+]).finally(() => setLoading(false));  // ← fires after ALL three settle regardless of outcome  
+// 
+}, [user, authLoading]);
 
   // -- Persist to localStorage --
   useEffect(() => {
@@ -554,15 +618,13 @@ Promise.allSettled([
   }, [orders, subscribeOrder]);
 
   // -- updateOrderStatus --
- const updateOrderStatus = useCallback((orderId: string, status: Order['status']) => {
-    // Pure updater — no side effects inside
+const updateOrderStatus = useCallback((orderId: string, status: Order['status']) => {
     setOrders(prev => {
       const order = prev.find(o => o.id === orderId);
       if (!order || order.status === status) return prev;
       return prev.map(o => o.id === orderId ? { ...o, status } : o);
     });
 
-    // Side effects outside updater — safe from React 18 double-invoke
     if (status === 'completed') {
       setOrders(prev => {
         const order = prev.find(o => o.id === orderId);
@@ -584,8 +646,20 @@ Promise.allSettled([
       sseUnsubscribers.current.get(orderId)?.();
       sseUnsubscribers.current.delete(orderId);
     }
-  }, []);
 
+    // FIX [CANCEL-SSE-LEAK]: cancelled orders were never closing their SSE/poll
+    // subscription. The completed branch handled cleanup but cancelled did not,
+    // leaving the connection alive and producing spurious status updates.
+    if (status === 'cancelled') {
+      sseUnsubscribers.current.get(orderId)?.();
+      sseUnsubscribers.current.delete(orderId);
+      setMetrics(m => ({ ...m, activeOrders: Math.max(0, m.activeOrders - 1) }));
+      setKitchenState(ks => ({
+        activeOrders: ks.activeOrders.filter(id => id !== orderId),
+        queuedOrders: ks.queuedOrders.filter(id => id !== orderId),
+      }));
+    }
+  }, []);
   // -- simulateKitchenProgress --
   const simulateKitchenProgress = useCallback(() => {
     const flow: Order['status'][] = ['confirmed', 'cooking', 'ready'];
@@ -616,14 +690,21 @@ Promise.allSettled([
   }, []);
 
   // -- updateMetrics --
+ // -- updateMetrics --
   const updateMetrics = useCallback((updates: Partial<UserMetrics>) =>
     setMetrics(prev => ({ ...prev, ...updates })), []);
 
+  // FIX [SWAP-CTX-OVERWRITE]: update arbitrary fields on an order in context
+  // so swap callers can keep meal/price/totalPrepMinutes/image in sync.
+  const updateOrderFields = useCallback((orderId: string, fields: Partial<Order>) => {
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...fields } : o));
+  }, []);
+
   return (
-    <SkipLineContext.Provider value={{
+<SkipLineContext.Provider value={{
       cart, addToCart, removeFromCart, updateCartItem, clearCart, cartTotal, cartItemsCount,
-      orders, addOrder, updateOrderStatus, orderHistory, kitchenState, getQueuePosition,
-       metrics, updateMetrics, resetDemo, simulateKitchenProgress,
+      orders, addOrder, updateOrderStatus, updateOrderFields, orderHistory, kitchenState, getQueuePosition,
+      metrics, updateMetrics, resetDemo, simulateKitchenProgress,
       loading, error,
     }}>
       {children}

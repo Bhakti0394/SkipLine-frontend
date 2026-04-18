@@ -179,6 +179,9 @@ export interface CustomerOrderDto {
   cookingStartedAt: string | null;
   readyAt:          string | null;
   completedAt:      string | null;
+  isExpress:        boolean;           // ADD
+  editLockedUntil:  string | null;     // ADD — ISO string from backend, null for express
+  scheduledCookAt:  string | null;     // ADD — ISO string, null for express
 }
 
 export interface PlaceOrderRequest {
@@ -613,7 +616,7 @@ const STATS_FALLBACK: CustomerPlatformStatsDto = {
 export async function fetchCustomerPlatformStats(): Promise<CustomerPlatformStatsDto> {
   try {
     const res = await fetch(`${CUSTOMER_URL}/stats`, {
-      headers: authHeadersNoBody(),
+      headers: customerAuthHeaders(),
     });
      handle401(res);
     if (!res.ok) return STATS_FALLBACK;
@@ -623,6 +626,20 @@ export async function fetchCustomerPlatformStats(): Promise<CustomerPlatformStat
   }
 }
 
+export async function updateMenuItem(
+  id: string,
+  updates: Partial<Pick<MenuItemDto, 'prepTimeMinutes' | 'available' | 'price'>>
+): Promise<MenuItemDto> {
+  const res = await fetch(`${BASE_URL}/menu-items/${id}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  handle401(res);
+  if (!res.ok) throw new Error((await res.text()) || `Update failed: ${res.status}`);
+  return res.json();
+}
 // ── SSE subscription ──────────────────────────────────────────────────────────
 
 export function subscribeToOrderStatus(

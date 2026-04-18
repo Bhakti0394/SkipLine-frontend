@@ -19,12 +19,17 @@ import {
   Clock, ChefHat, CheckCircle2, Flame, MapPin,
   RefreshCw, Zap, Leaf, TrendingUp, Package, XCircle,
   AlertTriangle, Sparkles, Award, Utensils,
+  RefreshCw as SwapIcon, Search, X, Loader2, AlertCircle,
 } from 'lucide-react';
 import { DashboardLayout } from '../../components/CustomerDashboard/layout/DashboardLayout';
 import { Button } from '../../components/ui/button';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from '../../customer-hooks/use-toast';
-import { fetchCustomerOrders, CustomerOrderDto } from '../../kitchen-api/kitchenApi';
+import {
+  fetchCustomerOrders, cancelCustomerOrder, CustomerOrderDto,
+  swapCustomerOrderDish, extendCustomerOrderSlot,
+  fetchCustomerSlots, fetchCustomerMenuItems, MenuItemDto,
+} from '../../kitchen-api/kitchenApi';
 import { useNotifications } from '../../customer-context/NotificationContext';
 import { useSkipLine } from '../../customer-context/SkipLineContext';
 import '../../components/CustomerDashboard/styles/Myorders.scss';
@@ -66,23 +71,34 @@ function computeProgress(order: LocalOrder): number {
   if (order.status === 'ready' || order.status === 'completed') return 100;
   if (order.status === 'cancelled') return 0;
 
-  const createdAt = order.createdAt;
+  // Status-based hard ceilings — progress can NEVER exceed these
+  // regardless of how much time has elapsed. This ensures the bar
+  // reflects actual kitchen state, not just wall clock time.
+  const statusCeilings: Record<string, number> = {
+    confirmed: 20,
+    preparing: 45,
+    cooking:   85,
+    delayed:   85,
+  };
+  const ceiling = statusCeilings[order.status] ?? 20;
+
   const totalMin = order.totalPrepMinutes && order.totalPrepMinutes > 0
     ? order.totalPrepMinutes
     : 20;
 
-  if (!createdAt) {
-    const fallback: Record<string, number> = { confirmed: 15, preparing: 40, cooking: 70 };
-    return fallback[order.status] ?? 15;
+  if (!order.createdAt) {
+    const fallback: Record<string, number> = { confirmed: 10, preparing: 35, cooking: 60 };
+    return fallback[order.status] ?? 10;
   }
 
-  const elapsedMin = (Date.now() - createdAt) / 60000;
+  const elapsedMin = (Date.now() - order.createdAt) / 60000;
   const rawProgress = (elapsedMin / totalMin) * 100;
 
   const floors: Record<string, number> = { confirmed: 5, preparing: 20, cooking: 45 };
   const floor = floors[order.status] ?? 5;
 
-  return Math.round(Math.min(99, Math.max(floor, rawProgress)));
+  // Clamp between floor and status ceiling — never bleeds into next status range
+  return Math.round(Math.min(ceiling, Math.max(floor, rawProgress)));
 }
 
 // pending/confirmed excluded — "Order Confirmed" fires once in OrderSuccess.tsx
@@ -122,6 +138,37 @@ const LOCAL_MEAL_IMAGE_MAP: Record<string, string> = {
   'Pizza': '/customer-assets/pizza.jpg',
   'Cheese Pizza': '/customer-assets/pizza.jpg',
 };
+
+interface SwapDish {
+  id: string; meal: string; price: number; image: string;
+  timeSaved: number; category: string; isExpress: boolean;
+}
+
+function menuItemToSwapDish(item: MenuItemDto): SwapDish {
+  const image = LOCAL_MEAL_IMAGE_MAP[item.name] ?? '/customer-assets/butter-chicken.jpg';
+  return {
+    id: item.id, meal: item.name, price: item.price ?? 0, image,
+    timeSaved: item.prepTimeMinutes > 0 ? Math.floor(item.prepTimeMinutes * 0.8) : 5,
+    category: item.category ?? 'Other', isExpress: item.isExpress ?? item.prepTimeMinutes <= 15,
+  };
+}
+
+function addMinutesToTime(time: string, minutes: number): string {
+  const parts = time.trim().split(' ');
+  const [hourStr, minStr] = parts[0].split(':');
+  let hours = parseInt(hourStr, 10);
+  const mins = parseInt(minStr, 10);
+  const period = (parts[1] || 'am').toUpperCase();
+  if (period === 'PM' && hours !== 12) hours += 12;
+  if (period === 'AM' && hours === 12) hours = 0;
+  const totalMins = hours * 60 + mins + minutes;
+  const newHours24 = Math.floor(totalMins / 60) % 24;
+  const newMins = totalMins % 60;
+  const newPeriod = newHours24 >= 12 ? 'pm' : 'am';
+  let newHours12 = newHours24 % 12;
+  if (newHours12 === 0) newHours12 = 12;
+  return `${newHours12}:${newMins.toString().padStart(2, '0')} ${newPeriod}`;
+}
 
 function imageForDtoSummary(summary: string[]): string {
   const first = summary?.[0]?.replace(/^\d+x\s*/, '') ?? '';
@@ -217,17 +264,17 @@ export default function MyOrders() {
   const location      = useLocation();
   const locationState = location.state as LocationState | null;
   const { addNotification }   = useNotifications();
-  const { orders: contextOrders, updateOrderStatus: ctxUpdateStatus } = useSkipLine();
+  const { orders: contextOrders, updateOrderStatus: ctxUpdateStatus, updateOrderFields: ctxUpdateFields } = useSkipLine();
 
   const [orders, setOrders] = useState<LocalOrder[]>(() => {
     if (locationState?.fromOrderSuccess && locationState?.orders?.length) {
       return locationState.orders.map(o => ({
         ...o,
-        status:        o.wasCancelled ? 'cancelled' : (o.status || 'confirmed'),
+       status:        o.wasCancelled ? 'cancelled' : (o.status ?? 'confirmed'),
         paymentStatus: o.paymentStatus || 'paid',
       }));
     }
-    const seeded = contextOrders.filter(o => o.status !== 'completed');
+const seeded = contextOrders.filter(o => o.status !== 'completed');
     if (seeded.length > 0) {
       return seeded.map(o => ({
         id: o.id, orderRef: (o as any).orderRef || o.id, meal: o.meal,
@@ -236,17 +283,33 @@ export default function MyOrders() {
         kitchenQueuePosition: o.kitchenQueuePosition, status: o.status,
         paymentStatus: o.paymentStatus as 'paid' | 'pending' | 'cash',
         pickupPoint: (o as any).pickupPoint,
+        createdAt: o.createdAt,
+        totalPrepMinutes: (o as any).totalPrepMinutes ?? 0,
       }));
     }
     return [];
   });
 
-  const [,forceUpdate] = useState(0);
+
+const [,forceUpdate] = useState(0);
 useEffect(() => {
   const id = setInterval(() => forceUpdate(n => n + 1), PROGRESS_REFRESH_INTERVAL);
   return () => clearInterval(id);
 }, []);
   const prevStatusRef = useRef<Record<string, string>>({});
+
+  // -- Order action modal state --
+  const [activeOrderId,         setActiveOrderId]         = useState<string | null>(null);
+  const [showSwapModal,         setShowSwapModal]         = useState(false);
+  const [showExtendModal,       setShowExtendModal]       = useState(false);
+  const [showCancelModal,       setShowCancelModal]       = useState(false);
+  const [swapDishes,            setSwapDishes]            = useState<SwapDish[]>([]);
+  const [swapLoading,           setSwapLoading]           = useState(false);
+  const [swapSearchQuery,       setSwapSearchQuery]       = useState('');
+  const [swapCategory,          setSwapCategory]          = useState('All');
+  const [extendSlots,           setExtendSlots]           = useState<{ slotId: string; displayTime: string; remaining: number }[]>([]);
+  const [extendLoading,         setExtendLoading]         = useState(false);
+  const [actionPending,         setActionPending]         = useState(false);
 
   useEffect(() => {
   if (!contextOrders.length) return;
@@ -275,7 +338,7 @@ useEffect(() => {
 
     const existingIds = new Set(prev.map(p => p.id));
 
-    const newOrders = contextOrders
+const newOrders = contextOrders
       .filter(o => o.status !== 'completed' && !existingIds.has(o.id))
       .map(o => ({
         id: o.id,
@@ -291,6 +354,8 @@ useEffect(() => {
         status: localStatusMap[o.status] ?? o.status,
         paymentStatus: o.paymentStatus as 'paid' | 'pending' | 'cash',
         pickupPoint: (o as any).pickupPoint,
+        createdAt: o.createdAt,
+        totalPrepMinutes: (o as any).totalPrepMinutes ?? 0,
       }));
 
     const updated = prev.map(p => {
@@ -376,11 +441,12 @@ const pollOrders = useCallback(async () => {
     const token = localStorage.getItem('auth_token');
     if (!token) return;
 
-    const currentContextIds = new Set(contextOrders.map(o => o.id));
+    // FIX [POLL-RESET]: contextOrders removed from deps — reading it via a ref
+    // instead so pollOrders identity is stable and the setInterval doesn't
+    // restart every time an SSE update changes contextOrders.
     const uncovered = orders.filter(o =>
       o.status !== 'completed' &&
-      o.status !== 'cancelled' &&
-      !currentContextIds.has(o.id)
+      o.status !== 'cancelled'
     );
     if (!uncovered.length) return;
 
@@ -396,7 +462,7 @@ const pollOrders = useCallback(async () => {
         applyStatusUpdate(r.value.id, statusMap[r.value.status] ?? r.value.status);
       }
     });
-  }, [orders, applyStatusUpdate, contextOrders]);
+ }, [orders, applyStatusUpdate]);
 
   useEffect(() => {
     const id = setInterval(pollOrders, FALLBACK_POLL_INTERVAL);
@@ -439,7 +505,176 @@ const pollOrders = useCallback(async () => {
     };
   })();
 
-const updateOrderStatus = useCallback((orderId: string, newStatus: string) => {
+const openSwap = useCallback(async (orderId: string) => {
+    setActiveOrderId(orderId);
+    setSwapSearchQuery('');
+    setSwapCategory('All');
+    setShowSwapModal(true);
+    if (swapDishes.length > 0) return;
+    setSwapLoading(true);
+    try {
+      const items = await fetchCustomerMenuItems();
+      setSwapDishes(items.filter(i => i.available).map(menuItemToSwapDish));
+    } catch { /* show empty state */ }
+    finally { setSwapLoading(false); }
+  }, [swapDishes.length]);
+
+const confirmSwap = useCallback(async (dish: SwapDish) => {
+  if (!activeOrderId) return;
+  const order = orders.find(o => o.id === activeOrderId);
+  if (!order) return;
+  setActionPending(true);
+  try {
+    const dto = await swapCustomerOrderDish(activeOrderId, dish.id);
+
+    const newPrepMinutes = dto.totalPrepMinutes > 0 ? dto.totalPrepMinutes : order.totalPrepMinutes ?? 0;
+    const newTimeSaved   = newPrepMinutes > 0 ? Math.floor(newPrepMinutes * 0.8) : dish.timeSaved;
+
+    // FIX [SWAP-PICKUP-TIME]: after swap the backend keeps the same slot,
+    // so dto.pickupSlotTime is the authoritative pickup time (may already be
+    // extended). Re-format it exactly like Checkout.tsx / dtoToLocal() do.
+    // If no slot, fall back to now + prepTime so customer sees a real time.
+    let newPickupTime = order.pickupTime; // safe fallback
+    if (dto.pickupSlotTime) {
+      const parsed = new Date(dto.pickupSlotTime);
+      if (!isNaN(parsed.getTime())) {
+        newPickupTime = parsed.toLocaleTimeString('en-IN', {
+          hour: '2-digit', minute: '2-digit', hour12: true,
+        });
+      }
+    } else if (newPrepMinutes > 0) {
+      // No slot on order — derive from now + prep time
+      newPickupTime = new Date(Date.now() + newPrepMinutes * 60 * 1000)
+        .toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+
+    const swappedFields = {
+      meal:             dish.meal,
+      price:            dto.totalPrice ?? dish.price,
+      image:            dish.image,
+      timeSaved:        newTimeSaved,
+      totalPrepMinutes: newPrepMinutes,
+      createdAt:        Date.now(),
+      wasSwapped:       true,
+      originalMeal:     order.wasSwapped ? order.originalMeal : order.meal,
+      pickupTime:       newPickupTime,                         // ← NEW
+      pickupSlotTime:   dto.pickupSlotTime ?? order.pickupSlotTime, // ← NEW
+    };
+
+    setOrders(prev => prev.map(o =>
+      o.id === activeOrderId ? { ...o, ...swappedFields } : o
+    ));
+    // Keep context in sync so contextOrders useEffect doesn't overwrite swap
+    ctxUpdateFields(activeOrderId, swappedFields);
+    setShowSwapModal(false);
+    toast({ title: 'Dish Swapped!', description: `Changed to ${dish.meal}. Pickup: ${newPickupTime}` });
+  } catch (err: any) {
+    toast({ title: 'Swap failed', description: err.message, variant: 'destructive' });
+  } finally { setActionPending(false); }
+}, [activeOrderId, orders, ctxUpdateFields]);
+
+const openExtend = useCallback(async (orderId: string) => {
+    setActiveOrderId(orderId);
+    setShowExtendModal(true);
+    setExtendLoading(true);
+    try {
+      const slots = await fetchCustomerSlots();
+      const order = orders.find(o => o.id === orderId);
+
+      // FIX [EXTEND-MYORDERS-EARLIER-SLOT]: only show slots strictly AFTER the
+      // order's current pickup slot so the customer cannot accidentally move
+      // their pickup backwards. For ASAP/express orders (no real slot time),
+      // show all future slots since any slot is an improvement.
+      const currentSlotMs: number = (() => {
+        if (!order) return Date.now();
+        // Use stored ISO string if available (most accurate)
+        if (order.pickupSlotTime) {
+          const p = new Date(order.pickupSlotTime);
+          if (!isNaN(p.getTime())) return p.getTime();
+        }
+        // Fall back to parsing the display string
+        if (!order.pickupTime || order.pickupTime === 'ASAP') return Date.now();
+        const spaced = order.pickupTime.trim().replace(/([0-9])(am|pm)/gi, '$1 $2');
+        const parts  = spaced.split(/\s+/);
+        const [hStr, mStr] = (parts[0] ?? '0:00').split(':');
+        let h = parseInt(hStr, 10);
+        const m = parseInt(mStr, 10);
+        if (isNaN(h) || isNaN(m)) return Date.now();
+        const period = (parts[1] ?? 'AM').toUpperCase();
+        if (period === 'PM' && h !== 12) h += 12;
+        if (period === 'AM' && h === 12) h = 0;
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0).getTime();
+      })();
+
+      setExtendSlots(
+        slots
+          .filter(s => s.remaining > 0 && new Date(s.slotTime).getTime() > currentSlotMs)
+          .map(s => ({ slotId: s.slotId, displayTime: s.displayTime, remaining: s.remaining }))
+      );
+    } catch { setExtendSlots([]); }
+    finally { setExtendLoading(false); }
+  }, [orders]);
+
+const confirmExtend = useCallback(async (slotId: string, displayTime: string) => {
+  if (!activeOrderId) return;
+  setActionPending(true);
+  try {
+    const dto = await extendCustomerOrderSlot(activeOrderId, slotId);
+
+    // FIX [EXTEND-SLOT-TIME]: dto.pickupSlotTime is authoritative (backend
+    // saveAndFlush + re-fetch ensures fresh slot). displayTime is only a
+    // fallback if backend returns null (shouldn't happen after backend fix).
+    const newPickupTime = dto.pickupSlotTime
+      ? (() => {
+          const parsed = new Date(dto.pickupSlotTime);
+          return isNaN(parsed.getTime()) ? displayTime :
+            parsed.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+        })()
+      : displayTime;
+
+    const extendedFields = {
+      pickupTime:     newPickupTime,
+      pickupSlotTime: dto.pickupSlotTime ?? undefined, // ← persist so swap reads correct base
+      status:         'delayed' as const,
+    };
+
+    setOrders(prev => prev.map(o =>
+      o.id === activeOrderId ? { ...o, ...extendedFields } : o
+    ));
+    // Keep context in sync — prevents contextOrders effect from overwriting
+    // the extended pickupTime on next SSE update
+    ctxUpdateFields(activeOrderId, extendedFields);
+
+    setShowExtendModal(false);
+    toast({ title: 'Slot Extended!', description: `New pickup: ${newPickupTime}` });
+  } catch (err: any) {
+    toast({ title: 'Extend failed', description: err.message, variant: 'destructive' });
+  } finally { setActionPending(false); }
+}, [activeOrderId, ctxUpdateFields]);
+
+  const openCancel = useCallback((orderId: string) => {
+    setActiveOrderId(orderId);
+    setShowCancelModal(true);
+  }, []);
+
+const handleCancelOrder = useCallback(async (orderId: string) => {
+    try {
+      await cancelCustomerOrder(orderId);
+      applyStatusUpdate(orderId, 'cancelled');
+      ctxUpdateStatus(orderId, 'cancelled' as any);
+      try {
+        const ch = new BroadcastChannel('skipline_order_events');
+        ch.postMessage({ type: 'ORDER_CANCELLED', orderId });
+        ch.close();
+      } catch { }
+      toast({ title: 'Order Cancelled', description: 'Your order has been cancelled.', variant: 'destructive' });
+    } catch (err: any) {
+      toast({ title: 'Cannot Cancel', description: err.message, variant: 'destructive' });
+    }
+  }, [applyStatusUpdate, ctxUpdateStatus]);
+
+  const updateOrderStatus = useCallback((orderId: string, newStatus: string) => {
     if (newStatus === 'completed') {
       // Remove immediately from list — don't just change status
       setOrders(prev => prev.filter(o => o.id !== orderId));
@@ -689,6 +924,25 @@ const updateOrderStatus = useCallback((orderId: string, newStatus: string) => {
                           </>
                         )}
                       </div>
+                      {order.status === 'confirmed' && !isCancelled && (
+                        <div className="orders__actions-row">
+                          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                            <Button onClick={() => openSwap(order.id)} variant="outline" className="orders__action-btn orders__action-btn--swap">
+                              <RefreshCw className="orders__action-icon" />Swap Dish
+                            </Button>
+                          </motion.div>
+                          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                            <Button onClick={() => openExtend(order.id)} variant="outline" className="orders__action-btn orders__action-btn--extend">
+                              <Clock className="orders__action-icon" />Extend Slot
+                            </Button>
+                          </motion.div>
+                          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                            <Button onClick={() => openCancel(order.id)} variant="outline" className="orders__action-btn orders__action-btn--cancel">
+                              <XCircle className="orders__action-icon" />Cancel
+                            </Button>
+                          </motion.div>
+                        </div>
+                      )}
                       {order.status === 'ready' && !isCancelled && (
                         <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                           <Button onClick={() => updateOrderStatus(order.id, 'completed')} className="orders__collect-btn">
@@ -728,6 +982,144 @@ const updateOrderStatus = useCallback((orderId: string, newStatus: string) => {
           </motion.div>
         )}
       </div>
+   {/* SWAP MODAL */}
+      <AnimatePresence>
+        {showSwapModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="orders__modal-overlay" onClick={() => setShowSwapModal(false)}>
+            <motion.div initial={{ scale: 0.9, opacity: 0, y: 50 }} animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 50 }} onClick={e => e.stopPropagation()}
+              className="orders__modal-box">
+              <div className="orders__modal-header">
+                <div>
+                  <h3 className="orders__modal-title">Swap Dish</h3>
+                  <p className="orders__modal-subtitle">Pick a different dish</p>
+                </div>
+                <button onClick={() => setShowSwapModal(false)} className="orders__modal-close"><X size={20} /></button>
+              </div>
+              <div className="orders__modal-search">
+                <Search size={16} className="orders__modal-search-icon" />
+                <input autoFocus placeholder="Search dishes..." value={swapSearchQuery}
+                  onChange={e => setSwapSearchQuery(e.target.value)} className="orders__modal-search-input" />
+              </div>
+              <div className="orders__modal-categories">
+                {['All', ...Array.from(new Set(swapDishes.map(d => d.category)))].map(cat => (
+                  <button key={cat} onClick={() => setSwapCategory(cat)}
+                    className={`orders__modal-cat ${swapCategory === cat ? 'orders__modal-cat--active' : ''}`}>{cat}</button>
+                ))}
+              </div>
+              <div className="orders__modal-list">
+                {swapLoading ? (
+                  <div className="orders__modal-loading"><Loader2 size={28} className="orders__spin" /></div>
+                ) : swapDishes
+                    .filter(d => d.meal.toLowerCase().includes(swapSearchQuery.toLowerCase()) &&
+                      (swapCategory === 'All' || d.category === swapCategory))
+                    .map(dish => {
+                      const cur = orders.find(o => o.id === activeOrderId);
+                      const diff = dish.price - (cur?.price ?? 0);
+                      const isCur = dish.meal === cur?.meal;
+                      return (
+                        <motion.div key={dish.id} whileHover={{ scale: 1.01 }}
+                          onClick={() => !isCur && !actionPending && confirmSwap(dish)}
+                          className={`orders__swap-item ${isCur ? 'orders__swap-item--current' : ''}`}>
+                          <img src={dish.image} alt={dish.meal} className="orders__swap-item-img" />
+                          <div className="orders__swap-item-info">
+                            <p className="orders__swap-item-name">{dish.meal}{isCur && <span className="orders__swap-item-cur"> (current)</span>}</p>
+                            <p className="orders__swap-item-cat">{dish.category}</p>
+                          </div>
+                          <div className="orders__swap-item-price">
+                            <p>Rs.{dish.price}</p>
+                            {!isCur && diff !== 0 && (
+                              <p className={diff > 0 ? 'orders__swap-item-extra' : 'orders__swap-item-refund'}>
+                                {diff > 0 ? '+' : ''}Rs.{Math.abs(diff)}
+                              </p>
+                            )}
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* EXTEND SLOT MODAL */}
+      <AnimatePresence>
+        {showExtendModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="orders__modal-overlay" onClick={() => setShowExtendModal(false)}>
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }} onClick={e => e.stopPropagation()}
+              className="orders__modal-box orders__modal-box--sm">
+              <div className="orders__modal-header">
+                <h3 className="orders__modal-title">Extend Pickup Slot</h3>
+                <button onClick={() => setShowExtendModal(false)} className="orders__modal-close"><X size={20} /></button>
+              </div>
+              {extendLoading ? (
+                <div className="orders__modal-loading"><Loader2 size={28} className="orders__spin" /></div>
+              ) : extendSlots.length === 0 ? (
+                <div className="orders__modal-empty" style={{ padding: '1.5rem', textAlign: 'center' }}>
+                  <p style={{ fontWeight: 500, marginBottom: 6 }}>All slots are currently full</p>
+                  <p style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>
+                    Your food will be kept warm at the counter — just arrive when you can.
+                  </p>
+                </div>
+              ) : (
+                <div className="orders__modal-list">
+                  {extendSlots.map(slot => (
+                    <motion.button key={slot.slotId} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                      disabled={actionPending}
+                      onClick={() => confirmExtend(slot.slotId, slot.displayTime)}
+                      className="orders__slot-item">
+                      <Clock size={18} className="orders__slot-icon" />
+                      <div>
+                        <p className="orders__slot-time">{slot.displayTime}</p>
+                        <p className="orders__slot-rem">{slot.remaining} slots left</p>
+                      </div>
+                      {actionPending && <Loader2 size={16} className="orders__spin" />}
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* CANCEL CONFIRM MODAL */}
+      <AnimatePresence>
+        {showCancelModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="orders__modal-overlay" onClick={() => setShowCancelModal(false)}>
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }} onClick={e => e.stopPropagation()}
+              className="orders__modal-box orders__modal-box--sm">
+              <div className="orders__cancel-modal-icon"><AlertCircle size={32} /></div>
+              <h3 className="orders__modal-title" style={{ textAlign: 'center' }}>Cancel Order?</h3>
+              <p className="orders__modal-subtitle" style={{ textAlign: 'center' }}>
+                {orders.find(o => o.id === activeOrderId)?.paymentStatus === 'paid'
+                  ? `Rs.${orders.find(o => o.id === activeOrderId)?.price} refund in 5-7 days.`
+                  : 'This cannot be undone.'}
+              </p>
+              <div className="orders__cancel-modal-actions">
+                <Button variant="outline" onClick={() => setShowCancelModal(false)}
+                  className="orders__cancel-modal-keep">Keep Order</Button>
+                <Button disabled={actionPending} onClick={async () => {
+                  if (!activeOrderId) return;
+                  setActionPending(true);
+                  await handleCancelOrder(activeOrderId);
+                  setActionPending(false);
+                  setShowCancelModal(false);
+                }} className="orders__cancel-modal-confirm">
+                  {actionPending ? <Loader2 size={16} className="orders__spin" /> : 'Yes, Cancel'}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </DashboardLayout>
   );
 }

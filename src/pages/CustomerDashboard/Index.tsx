@@ -62,8 +62,8 @@ const FALLBACK_KITCHEN: KitchenGlanceData = {
 const Index = () => {
   const { user }                      = useAuth();
   const { metrics, kitchenState }     = useSkipLine();
-  const [kitchenData, setKitchenData] = useState<KitchenGlanceData>(FALLBACK_KITCHEN);
-
+ const [kitchenData, setKitchenData]     = useState<KitchenGlanceData>(FALLBACK_KITCHEN);
+  const [kitchenLoading, setKitchenLoading] = useState(true);
   const firstName = user?.fullName?.split(' ')[0] ?? user?.email ?? 'there';
 
   const timeSavedTrend       = computeTrend(metrics.timeSaved,        ' min');
@@ -75,7 +75,7 @@ const Index = () => {
   // /api/customer/kitchen-summary) instead of fetchBoard() (requires KITCHEN
   // role, hits /api/kitchen/board). The old call produced a 403 on every
   // customer dashboard load because the customer JWT doesn't have KITCHEN role.
-  useEffect(() => {
+ useEffect(() => {
     fetchCustomerKitchenSummary()
       .then(summary => {
         setKitchenData({
@@ -97,6 +97,9 @@ const Index = () => {
         // fetchCustomerKitchenSummary already returns the fallback on error,
         // so this path only fires on unexpected exceptions — keep fallback state.
         console.warn('[Index] Kitchen summary unavailable:', err.message);
+      })
+      .finally(() => {
+        setKitchenLoading(false);
       });
   }, []);
 
@@ -177,13 +180,10 @@ const Index = () => {
           topDish={kitchenData.topDish}
           busiestHour={kitchenData.busiestHour}
           avgPrepTime={kitchenData.avgPrepTime}
-          bottleneck={
-            kitchenData.bottleneck ??
-            (kitchenState.queuedOrders.length > 2 ? 'High queue volume' : undefined)
-          }
+          bottleneck={kitchenData.bottleneck}
+          loading={kitchenLoading}
         />
       </div>
-
       {kitchenState.queuedOrders.length > 3 && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}

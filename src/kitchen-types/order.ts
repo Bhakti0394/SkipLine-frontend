@@ -37,11 +37,13 @@ export interface Order {
   assignedTo?:       string;
   assignedChefId?:   string;
   createdAt:         Date;
-  startedAt?:        Date;   // cookingStartedAt from backend
-  readyAt?:          Date;   // FIX [F1]: was missing – useOrderTimer resolveReadyAnchorMs reads this
+  startedAt?:        Date;
+  readyAt?:          Date;
   completedAt?:      Date;
-  // FIX [F2]: was missing – toFrontendOrder spreads this; useOrderTimer + KanbanBoard sort read it
-  pickupSlotMs?:     number; // epoch ms of pickup slot – used by timers and priority sort
+  pickupSlotMs?:     number;
+  isExpress?:        boolean;          // ADD
+  editLockedUntil?:  Date | null;      // ADD — null means no lock (express)
+  scheduledCookAt?:  Date | null;      // ADD — when kitchen should start cooking
 }
 
 export interface CapacitySnapshot {

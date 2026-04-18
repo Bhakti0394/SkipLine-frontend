@@ -233,12 +233,19 @@ export function StreakCard() {
       { streakRequired: 30, name: 'Legendary VIP',  emoji: '👑', description: 'VIP status unlocked! Access exclusive menu items & special perks. 👑' },
     ];
 
-    const handleMilestone = (event: CustomEvent<{ streak: number }>) => {
-  const def = rewards.find(r => r.streakRequired === event.detail.streak);
+const handleMilestone = (event: CustomEvent<{ streak: number }>) => {
+  const def = REWARD_DEFS.find(r => r.streakRequired === event.detail.streak); // use REWARD_DEFS
   if (!def) return;
   const milestoneReward: Reward = {
-    ...def,
-    unlocked: true,
+    id:              String(def.streakRequired),
+    name:            def.name,
+    emoji:           def.emoji,
+    icon:            Star,                // placeholder — StreakCelebration doesn't render icon
+    streakRequired:  def.streakRequired,
+    description:     def.description,
+    unlocked:        true,
+    type:            'badge',
+    color:           '',
   };
       setCelebratingReward(milestoneReward);
       setShowCelebration(true);
@@ -251,7 +258,7 @@ export function StreakCard() {
 
     window.addEventListener('streak-milestone', handleMilestone as EventListener);
     return () => window.removeEventListener('streak-milestone', handleMilestone as EventListener);
- }, [addNotification, rewards]);
+ }, [addNotification]);
 
   const nextReward =
     rewards.find((r) => !r.unlocked) || rewards[rewards.length - 1];

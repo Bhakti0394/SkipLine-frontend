@@ -1125,3 +1125,30 @@ $sm: 640px;
   0%, 100% { opacity: 0.2; }
   50%       { opacity: 0.4; }
 }
+// Earliest-pickup hint shown below "Pickup Time" heading
+// Earliest-pickup hint — sits below the section header row as its own block
+.modal__slot-earliest-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: rgba(251, 146, 60, 0.06);   // subtle orange wash
+  border: 1px solid rgba(251, 146, 60, 0.15);
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.9);
+  line-height: 1.4;
+
+  strong {
+    color: #fb923c;   // orange-400 — warm, readable
+    font-weight: 700;
+  }
+
+  .modal__slot-earliest-hint-icon {
+    width: 0.75rem;
+    height: 0.75rem;
+    flex-shrink: 0;
+    color: #fb923c;
+    opacity: 0.85;
+  }
+}

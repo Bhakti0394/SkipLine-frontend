@@ -117,7 +117,9 @@ export default function OrderHistory() {
   const totalSpent     = showBackend
     ? completedBackend.reduce((s, o) => s + (o.totalPrice ?? 0), 0)
     : contextHistory.reduce((s, o) => s + o.price, 0);
-  const totalTimeSaved = contextHistory.reduce((s, o) => s + o.timeSaved, 0);
+const totalTimeSaved = showBackend
+    ? completedBackend.reduce((s, o) => s + (o.totalPrepMinutes > 0 ? Math.floor(o.totalPrepMinutes * 0.8) : 10), 0)
+    : contextHistory.reduce((s, o) => s + o.timeSaved, 0);
 
   const particles = Array.from({ length: 10 }, (_, i) => ({
     id: i, size: Math.random() * 4 + 2, x: Math.random() * 100, y: Math.random() * 100,

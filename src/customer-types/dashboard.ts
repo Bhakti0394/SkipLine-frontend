@@ -53,6 +53,7 @@ export interface CartItem {
    * Equals meal.id for items fetched from the real backend.
    */
   menuItemId:          string;
+  expressMinutes?: number;
   meal:                Meal;
   quantity:            number;
   addOns:              AddOn[];
@@ -70,7 +71,8 @@ export type OrderStatus =
   | 'cooking'
   | 'ready'
   | 'completed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'delayed';
 
 export interface Order {
   id:                   string;
@@ -92,12 +94,17 @@ export interface Order {
   createdAt:            number;
   timeSaved:            number;
   orderRef?:            string;
-  // FIX: Checkout.tsx passes orderType inside addOrder() — must be on Order
-  // or TypeScript rejects the extra property on the object literal.
   orderType?:           OrderType;
-  // FIX: OrderSuccess.tsx and SkipLineContext track these on active orders.
   wasSwapped?:          boolean;
   originalMeal?:        string;
+  // FIX [SWAP-PROGRESS]: required by computeProgress() in MyOrders.
+  // Was previously only set via `as any` casts, reading as undefined (0)
+  // whenever context sync overwrote local state after a swap.
+  totalPrepMinutes:     number;
+  // FIX [EXTEND-SLOT]: raw ISO string needed to reformat time after extend.
+  pickupSlotTime?:      string | null;
+  // FIX [CANCEL-NAV]: passed in navigation state from OrderSuccess.
+  wasCancelled?:        boolean;
 }
 
 export interface TimeSlot {
