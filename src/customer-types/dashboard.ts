@@ -98,8 +98,12 @@ export interface Order {
   // FIX: OrderSuccess.tsx and SkipLineContext track these on active orders.
   wasSwapped?:          boolean;
   originalMeal?:        string;
+  totalPrepMinutes?:    number;
+  pickupSlotTime?:      string | null;
+  isExpress?:           boolean;
+  editLockedUntil?:     Date | null;
+  scheduledCookAt?:     Date | null;
 }
-
 export interface TimeSlot {
   id:             string;
   time:           string;

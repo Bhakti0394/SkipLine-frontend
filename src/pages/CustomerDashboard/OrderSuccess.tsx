@@ -37,7 +37,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { toast } from '../../customer-hooks/use-toast';
 import { useNotifications } from '../../customer-context/NotificationContext';
-
+import { CustomerSlotDto } from '../../kitchen-api/kitchenApi';
 import {
   cancelCustomerOrder,
   swapCustomerOrderDish,
@@ -209,8 +209,9 @@ const notify = useCallback((
   const [showConfetti, setShowConfetti]                   = useState(false);
   const [showFeedback, setShowFeedback]                   = useState(false);
   const [currentFeedbackIndex, setCurrentFeedbackIndex]   = useState(0);
-  const [canEditOrder, setCanEditOrder]                   = useState(true);
-  const [timeRemaining, setTimeRemaining]                 = useState(600);
+const isExpressOrder = (locationState?.orders?.[0] as any)?.isExpress === true;
+const [canEditOrder, setCanEditOrder]                   = useState(!isExpressOrder);
+const [timeRemaining, setTimeRemaining]                 = useState(600);
   const [showSwapOptions, setShowSwapOptions]             = useState(false);
   const [showLatePickupOptions, setShowLatePickupOptions] = useState(false);
   const [isRunningLate, setIsRunningLate]                 = useState(false);
@@ -221,10 +222,14 @@ const notify = useCallback((
 const [swapDishes,      setSwapDishes]      = useState<SwapDish[]>([]);
   const [swapDishLoading, setSwapDishLoading] = useState(false);
   const [swapDishError,   setSwapDishError]   = useState(false);
+  const [lateSlots,        setLateSlots]        = useState<CustomerSlotDto[]>([]);
+const [lateSlotsLoading, setLateSlotsLoading] = useState(false);
+const [lateSlotsError,   setLateSlotsError]   = useState(false);
 
   // Edit window countdown — guarded inside so it no-ops when canEditOrder=false
+  // Edit window countdown — skipped entirely for express orders
   useEffect(() => {
-    if (!canEditOrder) return;
+    if (!canEditOrder || isExpressOrder) return;
     const interval = setInterval(() => {
       setTimeRemaining(prev => {
         if (prev <= 1) { setCanEditOrder(false); return 0; }
@@ -232,8 +237,7 @@ const [swapDishes,      setSwapDishes]      = useState<SwapDish[]>([]);
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [canEditOrder]);
-
+  }, [canEditOrder, isExpressOrder]);
   // Confetti + feedback triggers — guarded: only fire when there are orders
   useEffect(() => {
     if (!locationState?.orders?.length) return;
@@ -364,80 +368,60 @@ setOrders(prev =>
   notify('success', 'Dish Swapped!', `${cur.meal} → ${dish.meal}. ${msg}`);
 };
 
- const confirmRunningLate = async (mins: number) => {
-  let newSlotId: string | null = null;
-  let newDisplayTime = addMinutesToTime(orders[0].pickupTime, mins);
-
+const handleOpenLateModal = useCallback(async () => {
+  if (!canEditOrder) return;
+  setShowLatePickupOptions(true);
+  setLateSlots([]);
+  setLateSlotsError(false);
+  setLateSlotsLoading(true);
   try {
-    const slots = await fetchCustomerSlots();
-
-    const currentSlot = slots.find(
-      s => s.slotId === orders[0].pickupSlotId
-    );
-
-    const currentPickupMs = new Date(
-      currentSlot?.slotTime ?? Date.now()
-    ).getTime();
-
-    const targetMs = currentPickupMs + mins * 60 * 1000;
-
-    // Find first available slot >= target time
-    const candidate = slots
-      .filter(
-        s =>
-          s.remaining > 0 &&
-          new Date(s.slotTime).getTime() >= targetMs
+    const allSlots = await fetchCustomerSlots();
+    const currentOrder = orders[0];
+    const currentSlotIso = allSlots.find(
+      s => s.slotId === currentOrder.pickupSlotId
+    )?.slotTime;
+    const baselineMs = currentSlotIso
+      ? new Date(currentSlotIso).getTime()
+      : Date.now();
+const candidates = allSlots
+  .filter(s =>
+    s.remaining > 0 &&
+    new Date(s.slotTime).getTime() > baselineMs
+  )
+      .sort((a, b) =>
+        new Date(a.slotTime).getTime() - new Date(b.slotTime).getTime()
       )
-      .sort(
-        (a, b) =>
-          new Date(a.slotTime).getTime() -
-          new Date(b.slotTime).getTime()
-      )[0];
+      .slice(0, 4);
+    if (candidates.length === 0) setLateSlotsError(true);
+    else setLateSlots(candidates);
+  } catch {
+    setLateSlotsError(true);
+  } finally {
+    setLateSlotsLoading(false);
+  }
+}, [canEditOrder, orders]);
 
-    if (!candidate) {
-      toast({
-        title: 'No slots available',
-        description: 'No open slots found for that time.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    newSlotId = candidate.slotId;
-    newDisplayTime = candidate.displayTime;
-
-    // Backend call
-    await extendCustomerOrderSlot(orders[0].id, newSlotId);
-
+const confirmRunningLate = async (slot: CustomerSlotDto) => {
+  const confirmedDisplayTime = slot.displayTime;
+  const confirmedSlotId      = slot.slotId;
+  try {
+    await extendCustomerOrderSlot(orders[0].id, confirmedSlotId);
   } catch (err: any) {
-    toast({
-      title: 'Extend failed',
-      description: err.message,
-      variant: 'destructive',
-    });
+    toast({ title: 'Extend failed', description: err.message, variant: 'destructive' });
     return;
   }
-
   setIsRunningLate(true);
-
   setOrders(prev =>
     prev.map(o => ({
       ...o,
-      pickupTime: newDisplayTime,
-      pickupSlotId: newSlotId ?? o.pickupSlotId,
-      status: 'delayed' as any,
-      delayedBy: (o.delayedBy || 0) + mins,
+      pickupTime:   confirmedDisplayTime,
+      pickupSlotId: confirmedSlotId,
+      status:       'delayed' as any,
     }))
   );
-
   setShowLatePickupOptions(false);
-
-  toast({
-    title: 'Pickup Extended!',
-    description: `New time: ${newDisplayTime}`,
-  });
-
-notify('warning', `Extended +${mins} min`, `New pickup: ${newDisplayTime}`);
+  toast({ title: 'Pickup Extended!', description: `New time: ${confirmedDisplayTime}` });
+  notify('warning', 'Pickup Extended', `New pickup: ${confirmedDisplayTime}`);
 };
 
 const confirmCancelOrder = async () => {
@@ -562,8 +546,28 @@ const navigateToOrders = () => navigate('/customer-dashboard/orders', {
           <div className="order-success__edit-timer-content">
             <Timer className="order-success__edit-timer-icon" />
             <div className="order-success__edit-timer-text">
-              <p className="order-success__edit-timer-label">{canEditOrder ? 'Free to edit or cancel' : 'Edit window expired'}</p>
-              <p className="order-success__edit-timer-value">{canEditOrder ? formatTime(timeRemaining) : '0:00'}</p>
+              <p className="order-success__edit-timer-label">
+                {isExpressOrder
+                  ? 'Express orders cannot be edited'
+                  : canEditOrder
+                  ? 'Free to edit or cancel'
+                  : 'Edit window expired'}
+              </p>
+              {isExpressOrder ? (
+                <p className="order-success__edit-timer-label" style={{
+                  fontSize: '0.85rem',
+                  color: '#fb923c',
+                  fontWeight: 600,
+                  marginTop: '0.2rem',
+                  fontFamily: 'inherit',
+                }}>
+                  ⚡ Your food is being prepared right now
+                </p>
+              ) : (
+                <p className="order-success__edit-timer-value">
+                  {canEditOrder ? formatTime(timeRemaining) : '0:00'}
+                </p>
+              )}
             </div>
           </div>
           {canEditOrder && (
@@ -577,7 +581,7 @@ const navigateToOrders = () => navigate('/customer-dashboard/orders', {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.1 }} className="order-success__quick-actions">
           {[
             { key: 'swap',   icon: <RefreshCw />, label: 'Swap Dish',     sub: canEditOrder ? 'Change your order' : 'Not available', fn: () => handleSwapDish(0) },
-            { key: 'late',   icon: <Clock />,     label: 'Running Late?', sub: canEditOrder ? 'Extend pickup time' : 'Not available', fn: () => setShowLatePickupOptions(true) },
+            { key: 'late',   icon: <Clock />,     label: 'Running Late?', sub: canEditOrder ? 'Extend pickup time' : 'Not available', fn: () => handleOpenLateModal() },
             { key: 'cancel', icon: <XCircle />,   label: 'Cancel Order',  sub: canEditOrder ? '100% refund'       : 'Not available', fn: () => setShowCancelConfirmation(true) },
           ].map(({ key, icon, label, sub, fn }) => (
             <motion.button key={key} whileHover={canEditOrder ? { scale: 1.02 } : {}} whileTap={canEditOrder ? { scale: 0.98 } : {}}
@@ -760,27 +764,88 @@ const navigateToOrders = () => navigate('/customer-dashboard/orders', {
       </AnimatePresence>
 
       {/* LATE PICKUP MODAL */}
-      <AnimatePresence>
-        {showLatePickupOptions && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="order-success__modal-overlay" onClick={() => setShowLatePickupOptions(false)}>
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} onClick={e => e.stopPropagation()} className="order-success__modal">
-              <h3 className="order-success__modal-title">Extend Pickup Time</h3>
-              <p className="order-success__modal-subtitle">Current: <strong>{orders[0].pickupTime}</strong></p>
-              <div className="order-success__modal-options">
-                {[10, 15, 20].map(m => (
-                  <button key={m} onClick={() => confirmRunningLate(m)} className="order-success__modal-option">
-                    <Clock size={18} className="order-success__modal-option-icon" />
-                    <div><span>+{m} minutes</span><span className="order-success__modal-option-sub">New time: {addMinutesToTime(orders[0].pickupTime, m)}</span></div>
-                  </button>
-                ))}
-              </div>
-              <div className="order-success__modal-info"><Flame size={14} /><p>We'll keep your food warm in the warming zone</p></div>
-              <Button variant="ghost" onClick={() => setShowLatePickupOptions(false)} style={{ width: '100%', marginTop: '0.5rem' }}>Cancel</Button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+     {/* LATE PICKUP MODAL */}
+<AnimatePresence>
+  {showLatePickupOptions && (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="order-success__modal-overlay"
+      onClick={() => setShowLatePickupOptions(false)}
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        onClick={e => e.stopPropagation()}
+        className="order-success__modal"
+      >
+        <h3 className="order-success__modal-title">Extend Pickup Time</h3>
+        <p className="order-success__modal-subtitle">
+          Current: <strong>{orders[0].pickupTime}</strong>
+        </p>
 
+        <div className="order-success__modal-options">
+          {lateSlotsLoading && (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem' }}>
+              <Loader2 style={{ animation: 'spin 1s linear infinite', color: '#ff6b35', width: 28, height: 28 }} />
+            </div>
+          )}
+
+          {!lateSlotsLoading && lateSlotsError && (
+            <div style={{ textAlign: 'center', padding: '1rem', color: 'hsl(var(--muted-foreground))' }}>
+              <AlertCircle size={20} style={{ marginBottom: '0.5rem' }} />
+              <p style={{ fontSize: '0.85rem' }}>No available slots found in the next 2 hours.</p>
+            </div>
+          )}
+
+          {!lateSlotsLoading && !lateSlotsError && lateSlots.map(slot => {
+            const slotMs      = new Date(slot.slotTime).getTime();
+            const currentMs   = orders[0].pickupSlotId
+              ? slotMs  // relative diff shown below
+              : slotMs;
+            const capacityPct = Math.round(
+              ((slot.maxCapacity - slot.remaining) / slot.maxCapacity) * 100
+            );
+            return (
+              <button
+                key={slot.slotId}
+                onClick={() => confirmRunningLate(slot)}
+                className="order-success__modal-option"
+              >
+                <Clock size={18} className="order-success__modal-option-icon" />
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontWeight: 600 }}>{slot.displayTime}</span>
+                  <span className="order-success__modal-option-sub">
+                    {slot.remaining} spot{slot.remaining !== 1 ? 's' : ''} left
+                    &nbsp;·&nbsp;
+                    <span style={{
+                      color: capacityPct >= 80 ? '#ef4444'
+                           : capacityPct >= 50 ? '#f59e0b'
+                           : '#22c55e'
+                    }}>
+                      {capacityPct >= 80 ? 'Filling fast' : capacityPct >= 50 ? 'Moderate' : 'Available'}
+                    </span>
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="order-success__modal-info">
+          <Flame size={14} />
+          <p>We'll keep your food warm in the warming zone</p>
+        </div>
+        <Button
+          variant="ghost"
+          onClick={() => setShowLatePickupOptions(false)}
+          style={{ width: '100%', marginTop: '0.5rem' }}
+        >
+          Cancel
+        </Button>
+      </motion.div>
+    </motion.div>
+  )}
+</AnimatePresence>
       {/* CANCEL MODAL */}
       <AnimatePresence>
         {showCancelConfirmation && (

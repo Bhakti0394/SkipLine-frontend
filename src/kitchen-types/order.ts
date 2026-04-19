@@ -41,7 +41,10 @@ export interface Order {
   readyAt?:          Date;   // FIX [F1]: was missing – useOrderTimer resolveReadyAnchorMs reads this
   completedAt?:      Date;
   // FIX [F2]: was missing – toFrontendOrder spreads this; useOrderTimer + KanbanBoard sort read it
-  pickupSlotMs?:     number; // epoch ms of pickup slot – used by timers and priority sort
+pickupSlotMs?:     number;
+  isExpress?:        boolean;
+  editLockedUntil?:  Date | null;
+  scheduledCookAt?:  Date | null;
 }
 
 export interface CapacitySnapshot {

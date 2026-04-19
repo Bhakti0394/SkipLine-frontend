@@ -1,47 +1,37 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Clock, Flame, CheckCircle2, ChevronRight,
-  RefreshCw, XCircle, Zap, ShoppingBag, Star, ArrowRight,
+  RefreshCw, XCircle, Zap, ShoppingBag, Star, ArrowRight, Loader2,
 } from 'lucide-react';
 import { useSkipLine } from '../../../customer-context/SkipLineContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import '../overview-styles/OrderFlowMini.scss';
 
-// FIX [LABEL-MISMATCH]: 'confirmed' step label changed from 'Pending' → 'Order Confirmed'
-// to match the label used in MyOrders.tsx statusConfig.
-//
-// Root cause: dtoToOrder() in SkipLineContext maps backend 'pending' → frontend 'confirmed'.
-// OrderFlowMini was labelling that status 'Pending' while MyOrders labelled it
-// 'Order Confirmed', so the Overview and Orders pages showed different text for
-// the same order — confusing users into thinking the statuses disagreed.
-//
-// The backend enum has no PREPARING state.
-// Valid backend statuses: PENDING → COOKING → READY → COMPLETED.
-// Frontend mapping (dtoToOrder in SkipLineContext):
-//   "pending"   → status: 'confirmed'  (shown as "Order Confirmed")  ← fixed
-//   "cooking"   → status: 'cooking'    (shown as "Cooking")
-//   "ready"     → status: 'ready'      (shown as "Ready! 🎉")
-//   "completed" → moves to order history
 const statusSteps = [
   { key: 'confirmed', label: 'Order Confirmed', icon: Clock,        color: 'blue'   },
   { key: 'cooking',   label: 'Cooking',         icon: Flame,        color: 'orange' },
   { key: 'ready',     label: 'Ready! 🎉',       icon: CheckCircle2, color: 'green'  },
 ];
 
-// Perks shown in the empty state to encourage ordering
 const orderPerks = [
   { emoji: '⚡', label: 'Real-time tracking', detail: 'Watch your order move from kitchen to pickup' },
   { emoji: '🔥', label: 'Streak rewards',     detail: 'Every order adds to your daily streak' },
   { emoji: '👑', label: 'VIP priority',       detail: 'Loyal customers skip the queue automatically' },
 ];
 
+
 export function OrderFlowMini() {
-  const { orders } = useSkipLine();
+  const { orders, loading } = useSkipLine();
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
+
+  // Reset filter when orders change so stale filter doesn't hide newly arrived orders
+  useEffect(() => {
+    setSelectedStatus(null);
+  }, [orders.length]);
 
   const activeOrders    = orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled');
   const cancelledOrders = orders.filter(o => o.status === 'cancelled');
-  const delayedOrders   = orders.filter(o => o.status === 'delayed');
+ const delayedOrders = orders.filter(o => (o.status as string) === 'delayed');
   const hasActiveOrders = activeOrders.length > 0 || delayedOrders.length > 0;
 
   const statusCounts = statusSteps.reduce((acc, step) => {
@@ -61,10 +51,35 @@ export function OrderFlowMini() {
   const displayOrders = selectedStatus
     ? [...activeOrders, ...delayedOrders].filter(o =>
         selectedStatus === 'confirmed'
-          ? o.status === 'confirmed' || o.status === 'delayed'
-          : o.status === selectedStatus
+          ? o.status === 'confirmed' || (o.status as string) === 'delayed'
+          : (o.status as string) === selectedStatus
       ).slice(0, 3)
     : [...activeOrders, ...delayedOrders].slice(0, 3);
+
+  // Loading skeleton
+  if (loading) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.4 }}
+        className="flow-enhanced"
+      >
+        <div className="flow-enhanced__bg-animated" />
+        <div className="flow-enhanced__wrap">
+          <div className="flow-enhanced__header">
+            <div className="flow-enhanced__title-section">
+              <h3 className="flow-enhanced__title">Your Orders</h3>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '2rem', gap: '0.5rem', color: 'hsl(var(--muted-foreground))' }}>
+            <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+            <span style={{ fontSize: '0.85rem' }}>Loading orders...</span>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -77,7 +92,7 @@ export function OrderFlowMini() {
 
       <div className="flow-enhanced__wrap">
 
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="flow-enhanced__header">
           <div className="flow-enhanced__title-section">
             <h3 className="flow-enhanced__title">Your Orders</h3>
@@ -125,7 +140,7 @@ export function OrderFlowMini() {
           </div>
         </div>
 
-        {/* ── Status Steps ── */}
+        {/* Status Steps */}
         <div className="flow-enhanced__steps">
           {statusSteps.map((step, i) => {
             const count      = statusCounts[step.key] || 0;
@@ -184,7 +199,7 @@ export function OrderFlowMini() {
           })}
         </div>
 
-        {/* ── ACTIVE: Recent orders list ── */}
+        {/* Active orders list */}
         <AnimatePresence mode="wait">
           {hasActiveOrders ? (
             <motion.div
@@ -202,10 +217,12 @@ export function OrderFlowMini() {
 
               <AnimatePresence mode="popLayout">
                 {displayOrders.map((order) => {
-                  const isDelayed     = order.status === 'delayed';
-                  const displayStatus = isDelayed ? 'confirmed' : order.status;
-                  const step          = statusSteps.find(s => s.key === displayStatus) || statusSteps[0];
-                  const Icon          = step.icon;
+                  const isDelayed  = (order.status as string) === 'delayed';
+                  const rawStatus     = isDelayed ? 'confirmed' : order.status;
+                 
+                  // Safe fallback — never show wrong stage label
+                  const step = statusSteps.find(s => s.key === rawStatus) ?? statusSteps[0];
+                  const Icon = step.icon;
 
                   return (
                     <motion.div
@@ -234,7 +251,12 @@ export function OrderFlowMini() {
                               </span>
                             )}
                           </div>
-                          <p className="flow-enhanced__order-id">{order.id}</p>
+                          {/* Show pickup time under meal name */}
+                          <p className="flow-enhanced__order-id">
+                            {order.pickupTime && order.pickupTime !== 'ASAP'
+                              ? `Pickup: ${order.pickupTime}`
+                              : (order as any).orderRef || order.id}
+                          </p>
                         </div>
                       </div>
 
@@ -257,7 +279,6 @@ export function OrderFlowMini() {
             </motion.div>
 
           ) : (
-            /* ── EMPTY: Attraction state ── */
             <motion.div
               key="empty"
               initial={{ opacity: 0, y: 10 }}
@@ -314,7 +335,6 @@ export function OrderFlowMini() {
           )}
         </AnimatePresence>
 
-        {/* ── Footer tip (active orders only) ── */}
         {hasActiveOrders && (
           <motion.div
             initial={{ opacity: 0 }}

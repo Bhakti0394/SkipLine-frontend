@@ -44,6 +44,7 @@ interface LocalOrder {
   createdAt?: number;
   totalPrepMinutes?: number;
   pickupSlotTime?: string;
+  cookingStartedAt?: number;
 }
 
 interface LocationState {
@@ -66,23 +67,27 @@ function computeProgress(order: LocalOrder): number {
   if (order.status === 'ready' || order.status === 'completed') return 100;
   if (order.status === 'cancelled') return 0;
 
-  const createdAt = order.createdAt;
+  // confirmed/pending — order not yet cooking, show fixed low progress
+  if (order.status === 'confirmed' || order.status === 'pending') return 5;
+
   const totalMin = order.totalPrepMinutes && order.totalPrepMinutes > 0
     ? order.totalPrepMinutes
     : 20;
 
-  if (!createdAt) {
-    const fallback: Record<string, number> = { confirmed: 15, preparing: 40, cooking: 70 };
-    return fallback[order.status] ?? 15;
+  // cooking — only count elapsed time from when cooking actually started
+  // Never use createdAt here — that includes queue wait time which is wrong
+  const cookingStartedAt = (order as any).cookingStartedAt as number | undefined;
+  const anchor = cookingStartedAt ?? null;
+
+  if (!anchor) {
+    // Cooking but no cookingStartedAt yet — show modest progress
+    return order.status === 'cooking' ? 10 : 5;
   }
 
-  const elapsedMin = (Date.now() - createdAt) / 60000;
+  const elapsedMin = (Date.now() - anchor) / 60000;
   const rawProgress = (elapsedMin / totalMin) * 100;
 
-  const floors: Record<string, number> = { confirmed: 5, preparing: 20, cooking: 45 };
-  const floor = floors[order.status] ?? 5;
-
-  return Math.round(Math.min(99, Math.max(floor, rawProgress)));
+  return Math.round(Math.min(99, Math.max(10, rawProgress)));
 }
 
 // pending/confirmed excluded — "Order Confirmed" fires once in OrderSuccess.tsx
@@ -180,9 +185,10 @@ function dtoToLocal(dto: CustomerOrderDto): LocalOrder {
     status: statusMap[dto.status] ?? 'confirmed',
     paymentStatus: 'paid',
  pickupPoint: undefined,
-    createdAt: dto.placedAt ? new Date(dto.placedAt).getTime() : Date.now(),
-    totalPrepMinutes: dto.totalPrepMinutes ?? 0,
-    pickupSlotTime: dto.pickupSlotTime ?? undefined,
+   createdAt:        dto.placedAt          ? new Date(dto.placedAt).getTime()          : Date.now(),
+    totalPrepMinutes: dto.totalPrepMinutes  ?? 0,
+    pickupSlotTime:   dto.pickupSlotTime    ?? undefined,
+    cookingStartedAt: dto.cookingStartedAt  ? new Date(dto.cookingStartedAt).getTime()  : undefined,
   };
 }
 

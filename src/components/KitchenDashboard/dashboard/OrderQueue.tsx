@@ -36,6 +36,27 @@ function slotPressure(slot: SlotCapacityDto): 'full' | 'near' | 'ok' {
   return (slot.currentBookings / slot.maxCapacity) >= 0.7 ? 'near' : 'ok';
 }
 
+// How many minutes until cooking MUST start to hit pickup on time
+// Returns negative if already overdue to start
+function minutesUntilCookStart(order: Order): number | null {
+  if (order.status !== 'pending') return null;
+  const pickupMs = (order as any).pickupSlotMs as number | undefined;
+  if (!pickupMs) return null;
+  const prepMs     = (order.estimatedPrepTime ?? 15) * 60_000;
+  const mustStartMs = pickupMs - prepMs;
+  return (mustStartMs - serverNow()) / 60_000;
+}
+
+type QueueUrgency = 'critical' | 'warning' | 'normal';
+
+function getQueueUrgency(order: Order): QueueUrgency {
+  const minsLeft = minutesUntilCookStart(order);
+  if (minsLeft === null) return 'normal';
+  if (minsLeft <= 0)  return 'critical'; // must have started already
+  if (minsLeft <= 5)  return 'warning';  // 5 min window left
+  return 'normal';
+}
+
 // -- Attention card --
 function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
   order:          Order;
@@ -43,9 +64,16 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
   onStatusChange: (id: string, status: OrderStatus) => Promise<void>;
   onAssignChef?:  (id: string, chefId: string) => Promise<void>;
 }) {
-  const [selected,   setSelected]   = useState('');
-  const [assigning,  setAssigning]  = useState(false);
-  const [assignErr,  setAssignErr]  = useState<string | null>(null);
+  const [selected,  setSelected]  = useState('');
+  const [assigning, setAssigning] = useState(false);
+  const [assignErr, setAssignErr] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  // Re-render every 30s so urgency badge stays live
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     setSelected('');
@@ -57,34 +85,50 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
     && order.estimatedPrepTime != null
     && order.elapsedMinutes > order.estimatedPrepTime;
 
-  const isScheduledLocked = order.orderType === 'scheduled' && order.status === 'pending' && !order.assignedTo;
+  const isScheduledLocked = order.orderType === 'scheduled'
+    && order.status === 'pending'
+    && !order.assignedTo;
+
   const isUnassigned   = !order.assignedTo && order.status === 'pending';
   const delayMin       = isOverdue
     ? Math.round((order.elapsedMinutes ?? 0) - (order.estimatedPrepTime ?? 0))
     : 0;
   const availableChefs = staff.filter(s => s.onShift && s.status !== 'full');
 
+  // Urgency for PENDING orders
+  const urgency     = getQueueUrgency(order);
+  const minsLeft    = minutesUntilCookStart(order);
+
+  const urgencyLabel =
+    urgency === 'critical' ? '🔴 START NOW — missed cook window' :
+    urgency === 'warning'  ? `⚠️ Start in ${Math.ceil(minsLeft!)}m or pickup missed` :
+    null;
+
+  const cardMod = isOverdue   ? 'overdue'
+                : urgency === 'critical' ? 'overdue'
+                : urgency === 'warning'  ? 'warning'
+                : 'unassigned';
+
   const orderTypeEmoji =
     order.orderType === 'express'   ? '⚡' :
     order.orderType === 'scheduled' ? '📅' : '●';
 
-const handleAssign = async (chefId: string) => {
-  if (!chefId || !onAssignChef || assigning) return;
-  setAssigning(true);
-  setAssignErr(null);
-  try {
-    await onAssignChef(order.id, chefId);
-    setSelected('');    // ← only reset on success
-  } catch (e: any) {
-    setAssignErr(e?.message ?? 'Assign failed');
-    // leave selected intact so user sees which chef failed
-  } finally {
-    setAssigning(false);
-  }
-};
+  const handleAssign = async (chefId: string) => {
+    if (!chefId || !onAssignChef || assigning) return;
+    setAssigning(true);
+    setAssignErr(null);
+    try {
+      await onAssignChef(order.id, chefId);
+      setSelected('');
+    } catch (e: any) {
+      setAssignErr(e?.message ?? 'Assign failed');
+    } finally {
+      setAssigning(false);
+    }
+  };
 
   return (
-    <div className={`oq-card oq-card--${isOverdue ? 'overdue' : 'unassigned'}`}>
+    <div className={`oq-card oq-card--${cardMod}`}>
       <div className="oq-card__header">
         <div className="oq-card__title-row">
           <span className="oq-card__ref">{order.orderNumber}</span>
@@ -92,15 +136,44 @@ const handleAssign = async (chefId: string) => {
             {orderTypeEmoji} {order.orderType}
           </span>
         </div>
-        <span className={`oq-card__badge oq-card__badge--${isOverdue ? 'overdue' : isScheduledLocked ? 'scheduled' : 'unassigned'}`}>
-          {isOverdue ? `+${delayMin}m overdue` : isScheduledLocked ? 'Pre-booked — assign chef' : 'Unassigned'}
+        <span className={`oq-card__badge oq-card__badge--${cardMod}`}>
+          {isOverdue
+            ? `+${delayMin}m overdue`
+            : isScheduledLocked
+            ? 'Pre-booked — assign chef'
+            : urgency !== 'normal' && urgencyLabel
+            ? urgencyLabel
+            : 'Unassigned'}
         </span>
       </div>
+
+      {/* Urgency bar — only for pending orders with a pickup deadline */}
+      {order.status === 'pending' && urgency !== 'normal' && (
+        <div className={`oq-card__urgency-bar oq-card__urgency-bar--${urgency}`}>
+          <span className="oq-card__urgency-icon">
+            {urgency === 'critical' ? '🔴' : '⚠️'}
+          </span>
+          <span className="oq-card__urgency-text">
+            {urgency === 'critical'
+              ? 'Cook window passed — assign chef & start immediately'
+              : `Must start cooking within ${Math.ceil(minsLeft!)} min`}
+          </span>
+        </div>
+      )}
 
       <div className="oq-card__meta">
         <span>{order.customerName}</span>
         <span className="oq-card__dot" />
         <span>{order.items.map(i => i.name).join(', ')}</span>
+      </div>
+
+      {/* Pickup time — always visible on attention cards */}
+      <div className="oq-card__pickup">
+        <Clock size={11} />
+        <span>Pickup: {order.pickupTime}</span>
+        {order.estimatedPrepTime > 0 && (
+          <span className="oq-card__prep-hint">· {order.estimatedPrepTime}m prep</span>
+        )}
       </div>
 
       {order.assignedTo && (
@@ -112,7 +185,10 @@ const handleAssign = async (chefId: string) => {
 
       <div className="oq-card__actions">
         {isOverdue && (
-          <button className="oq-btn oq-btn--danger" onClick={() => onStatusChange(order.id, 'ready')}>
+          <button
+            className="oq-btn oq-btn--danger"
+            onClick={() => onStatusChange(order.id, 'ready')}
+          >
             Mark ready
           </button>
         )}
@@ -183,35 +259,39 @@ export function OrderQueue({
 
  // AFTER — correct, self-contained:
 const attentionOrders = useMemo(() => {
-    const nowMs = Date.now();
-    const overdue = activeOrders.filter(o => {
-      if (o.status !== 'cooking') return false;
-      // Prefer live clock over poll-updated elapsedMinutes (which lags by up to 10s).
-      // Use startedAt if available for real-time overdue detection.
-      const startedAt = (o as any).startedAt;
-      if (startedAt && o.estimatedPrepTime > 0) {
-        const startMs = startedAt instanceof Date
-          ? startedAt.getTime()
-          : new Date(startedAt).getTime();
-        const liveElapsedMin = (nowMs - startMs) / 60_000;
-        return liveElapsedMin > o.estimatedPrepTime;
-      }
-      // Fallback to backend-computed value
-      return (
-        o.elapsedMinutes != null &&
-        o.estimatedPrepTime != null &&
-        o.elapsedMinutes > o.estimatedPrepTime
-      );
-    });
+  const nowMs = Date.now();
+  const overdue = activeOrders.filter(o => {
+    if (o.status !== 'cooking') return false;
+    const startedAt = (o as any).startedAt;
+    if (startedAt && o.estimatedPrepTime > 0) {
+      const startMs = startedAt instanceof Date
+        ? startedAt.getTime()
+        : new Date(startedAt).getTime();
+      const liveElapsedMin = (nowMs - startMs) / 60_000;
+      return liveElapsedMin > o.estimatedPrepTime;
+    }
+    return (
+      o.elapsedMinutes != null &&
+      o.estimatedPrepTime != null &&
+      o.elapsedMinutes > o.estimatedPrepTime
+    );
+  });
+
   const unassigned = activeOrders
-      .filter(o => o.status === 'pending' && !o.assignedTo && o.orderType !== 'scheduled')
-      .sort((a, b) => {
-        const w = (a.orderType === 'express' ? 0 : 1) - (b.orderType === 'express' ? 0 : 1);
-        if (w !== 0) return w;
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      });
-    return [...overdue, ...unassigned];  // ← this line was missing
-  }, [activeOrders]);                    // ← closing was missing
+    .filter(o => o.status === 'pending' && !o.assignedTo && o.orderType !== 'scheduled')
+    .sort((a, b) => {
+      // Sort by urgency first: critical → warning → normal
+      const urgencyRank: Record<QueueUrgency, number> = { critical: 0, warning: 1, normal: 2 };
+      const uDiff = urgencyRank[getQueueUrgency(a)] - urgencyRank[getQueueUrgency(b)];
+      if (uDiff !== 0) return uDiff;
+      // Then express before normal
+      const w = (a.orderType === 'express' ? 0 : 1) - (b.orderType === 'express' ? 0 : 1);
+      if (w !== 0) return w;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+  return [...overdue, ...unassigned];
+}, [activeOrders]);                   // ← closing was missing
 
   const expressQueued  = useMemo(() => activeOrders.filter(o => o.orderType === 'express' && o.status === 'pending').length, [activeOrders]);
   const activeChefs    = useMemo(() => staff.filter(s => s.onShift), [staff]);

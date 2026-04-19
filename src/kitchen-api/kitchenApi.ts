@@ -179,6 +179,9 @@ export interface CustomerOrderDto {
   cookingStartedAt: string | null;
   readyAt:          string | null;
   completedAt:      string | null;
+  isExpress:        boolean;
+  editLockedUntil:  string | null;
+  scheduledCookAt:  string | null;
 }
 
 export interface PlaceOrderRequest {
