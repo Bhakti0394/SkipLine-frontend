@@ -563,6 +563,7 @@ const toastedOrderIds      = useRef<Set<string>>(new Set());
           orders={orders}
           staff={staff}
           readyCountdowns={readyCountdowns}
+          isSimulating={isSimulating}
           onStatusChange={handleStatusChange}
           onChefAssign={assignChef}
           columnRefs={{

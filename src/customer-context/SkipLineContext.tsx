@@ -169,6 +169,11 @@ function dtoToOrder(dto: CustomerOrderDto): Order {
     createdAt:            dto.placedAt ? new Date(dto.placedAt).getTime() : Date.now(),
     timeSaved:            dto.totalPrepMinutes > 0 ? Math.floor(dto.totalPrepMinutes * 0.8) : 10,
     orderRef:             dto.orderRef,
+    totalPrepMinutes:     dto.totalPrepMinutes ?? 0,
+    pickupSlotTime:       dto.pickupSlotTime ?? null,
+    isExpress:            dto.isExpress ?? false,
+    editLockedUntil:      dto.editLockedUntil ? new Date(dto.editLockedUntil) : null,
+    scheduledCookAt:      dto.scheduledCookAt ? new Date(dto.scheduledCookAt) : null,
   };
 }
 
@@ -393,18 +398,13 @@ Promise.allSettled([
         queuedOrders: [],
       });
     })
-    .catch(err => {
-      console.warn('[SkipLineContext] Orders fetch failed:', err.message);
-      setError(err.message ?? 'Failed to load orders');
-      try {
-        const s = localStorage.getItem(STORAGE_KEYS.ORDERS);
-        const h = localStorage.getItem(STORAGE_KEYS.HISTORY);
-        const k = localStorage.getItem(STORAGE_KEYS.KITCHEN);
-        if (s) setOrders(JSON.parse(s));
-        if (h) setOrderHistory(JSON.parse(h));
-        if (k) setKitchenState(JSON.parse(k));
-      } catch { /* stay with empty arrays */ }
-    }),
+   .catch(err => {
+  console.warn('[SkipLineContext] Orders fetch failed:', err.message);
+  setError(err.message ?? 'Failed to load orders');
+  // Do NOT restore orders from localStorage — statuses there are stale.
+  // Orders placed this session are already in memory via addOrder().
+  // Showing stale localStorage orders would display wrong stages in OrderFlowMini.
+}),
 
   fetchCustomerMetrics()
     .then(m => {
@@ -444,7 +444,9 @@ Promise.allSettled([
       console.warn('[SkipLineContext] Streak fetch failed — keeping local value:', err.message)
     ),
 
-]).finally(() => setLoading(false));  // ← fires after ALL three settle regardless of outcome  }, [user, authLoading]);
+]).finally(() => setLoading(false));
+
+}, [user, authLoading]);// ← fires after ALL three settle regardless of outcome  }, [user, authLoading]);
 
   // -- Persist to localStorage --
   useEffect(() => {

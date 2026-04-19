@@ -484,6 +484,7 @@ export interface KanbanBoardProps {
   orders:           Order[];
   staff:            StaffWorkloadDto[];
   readyCountdowns?: Record<string, number>;
+  isSimulating?:    boolean;
   onStatusChange:   (orderId: string, status: OrderStatus) => Promise<void>;
   onChefAssign:     (orderId: string, chefId: string)       => Promise<void>;
   columnRefs?:      Partial<Record<OrderStatus, React.RefObject<HTMLDivElement>>>;
@@ -494,7 +495,8 @@ const MAX_PENDING_MS = 30_000;
 // ── KanbanBoard ────────────────────────────────────────────────────────────────
 
 export function KanbanBoard({
-  orders, staff, readyCountdowns = {}, onStatusChange, onChefAssign, columnRefs = {},
+  orders, staff, readyCountdowns = {}, isSimulating = false,
+  onStatusChange, onChefAssign, columnRefs = {},
 }: KanbanBoardProps) {
   const safeOrders = orders ?? [];
 
@@ -703,10 +705,23 @@ const handleDragStart = useCallback((start: DragStart) => {
   }, [onChefAssign, setOrderPending]);
 
    // ── Auto-advance: when estimatedPrepTime elapses, move cooking→ready ────────
+// ── Auto-advance: only during simulation mode ────────────────────────────
+  // Real kitchen orders must be manually marked Ready by staff.
+  // Simulation mode auto-advances to keep the demo flowing.
   useEffect(() => {
+    const timerMap = autoAdvanceTimersRef.current;
+
+    // If simulation is OFF — clear all pending auto-advance timers and stop
+    if (!isSimulating) {
+      for (const id of Object.keys(timerMap)) {
+        clearTimeout(timerMap[id]);
+        delete timerMap[id];
+      }
+      return;
+    }
+
     const cookingOrders = safeOrders.filter(o => o.status === 'cooking');
     const currentIds    = new Set(cookingOrders.map(o => o.id));
-    const timerMap      = autoAdvanceTimersRef.current;
 
     // Clear timers for orders no longer cooking
     for (const id of Object.keys(timerMap)) {
@@ -722,17 +737,14 @@ const handleDragStart = useCallback((start: DragStart) => {
       const prepMs = (order.estimatedPrepTime ?? 0) * 60_000;
       if (prepMs <= 0) continue;
 
-      // Use order.startedAt (correct field per order.ts) not cookingStartedAt
-      const startedAt = order.startedAt
-        ? order.startedAt.getTime()
-        : new Date(order.createdAt).getTime();
+      // Only start countdown from actual cookingStartedAt.
+      // If startedAt is null the order hasn't actually started cooking yet — skip it.
+      if (!order.startedAt) continue;
+      const startedAt = order.startedAt.getTime();
       const remaining = Math.max(0, startedAt + prepMs - Date.now());
 
-     // Only schedule if time is actually remaining.
-      // Orders already past prep time stay in Cooking — chef must mark ready manually.
-      // This prevents instant mass-advance on every board reload for overdue orders.
+      // Only schedule if time is actually remaining.
       if (remaining <= 0) continue;
-
       timerMap[order.id] = setTimeout(async () => {
         delete timerMap[order.id];
         toast.info(`Auto-advancing ${order.orderNumber} to Ready`, {
@@ -742,7 +754,7 @@ const handleDragStart = useCallback((start: DragStart) => {
         try { await onStatusChange(order.id, 'ready'); } catch { /* onStatusChange handles errors */ }
       }, remaining);
     }
-  }, [safeOrders, onStatusChange]);
+  }, [safeOrders, onStatusChange, isSimulating]);
 
     // Clean up auto-advance timers on unmount
   useEffect(() => {
@@ -884,17 +896,18 @@ const handleDragStart = useCallback((start: DragStart) => {
                                     <OrderTypeBadge orderType={order.orderType ?? 'normal'} />
                                     {scheduledLocked && <ScheduledLockBadge />}
                                   </div>
-                                  <div className="order-card__meta">
-                                    {order.status === 'ready' && countdown !== undefined && (
-                                      <span className={[
-                                        'order-card__countdown',
-                                        countdownUrgent ? 'order-card__countdown--urgent' : '',
-                                      ].filter(Boolean).join(' ')}>
-                                        ✓ {countdown}s
-                                      </span>
-                                    )}
-                                    <OrderTimer order={order} compact />
-                                  </div>
+                                 <div className="order-card__meta">
+  {order.status === 'ready' && countdown !== undefined && (
+    <span className={[
+      'order-card__countdown',
+      countdownUrgent ? 'order-card__countdown--urgent' : '',
+    ].filter(Boolean).join(' ')}>
+      ✔ {countdown}s
+    </span>
+  )}
+  {/* Only show timer for cooking/ready — pending orders have no active cook time */}
+  {order.status !== 'pending' && <OrderTimer order={order} compact />}
+</div>
                                 </div>
 
                                 <div className="order-card__customer">

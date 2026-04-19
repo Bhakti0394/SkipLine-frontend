@@ -177,11 +177,27 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
 
   // ── COMPACT ───────────────────────────────────────────────────────────────
 
-  if (compact) {
+if (compact) {
     if (order.status === 'pending') {
+      // Non-express orders in Queue have no meaningful countdown until cooking starts.
+      // Show nothing — a blank timer is better than "0s to pickup" or stale SLA counts.
+      if (!isExpress) return null;
+
       const hasSlot = pickupCountdownSeconds !== null;
-      if (isExpress && !hasSlot) {
+
+      if (!hasSlot) {
+        // Express SLA countdown — only show if time is actually remaining.
+        // If the order has been in queue longer than the SLA budget, don't
+        // show "0s left" — just show a static urgent badge instead.
         const countdownSecs = Math.max(0, slaBudgetSeconds - orderAge);
+        if (countdownSecs === 0) {
+          return (
+            <div className="order-timer-compact order-timer-compact--overdue">
+              <AlertTriangle className="order-timer-compact__warn-icon" />
+              <span className="order-timer-compact__overdue">Waiting in queue</span>
+            </div>
+          );
+        }
         return (
           <div className={`order-timer-compact${isPendingUrgent ? ' order-timer-compact--overdue' : ''}`}>
             <Timer className="order-timer-compact__icon" />
@@ -194,16 +210,11 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
           </div>
         );
       }
+
       return (
         <div className={`order-timer-compact${isPendingUrgent ? ' order-timer-compact--overdue' : ''}`}>
-          {isExpress
-            ? <Zap className="order-timer-compact__icon" />
-            : <Calendar className="order-timer-compact__icon" />
-          }
-          {hasSlot
-            ? <span className="order-timer-compact__eta">{formatCountdown(pickupCountdownSeconds!)} to pickup</span>
-            : <span className="order-timer-compact__age">~{order.estimatedPrepTime ?? '?'}m est.</span>
-          }
+          <Zap className="order-timer-compact__icon" />
+          <span className="order-timer-compact__eta">{formatCountdown(pickupCountdownSeconds!)} to pickup</span>
           {isPendingUrgent && (
             <span className="order-timer-compact__overdue">
               <AlertTriangle className="order-timer-compact__warn-icon" />soon!
@@ -213,7 +224,7 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
       );
     }
 
- if (order.status === 'cooking') {
+    if (order.status === 'cooking') {
       const secsLeft = expressDeadlineMs !== null
         ? Math.max(0, eta)
         : (eta > 0 ? eta : null);
@@ -250,7 +261,23 @@ export function OrderTimer({ order, compact = false }: OrderTimerProps) {
   // ── FULL ──────────────────────────────────────────────────────────────────
 
   // ── PENDING full ──────────────────────────────────────────────────────────
-  if (order.status === 'pending') {
+if (order.status === 'pending') {
+    // Non-express orders: show est. prep time only — no countdown
+    if (!isExpress) {
+      return (
+        <div className="order-timer">
+          {(order.estimatedPrepTime ?? 0) > 0 && (
+            <div className="order-timer__row order-timer__row--muted">
+              <span className="order-timer__row-label">
+                <Timer className="order-timer__row-icon" />Est. prep
+              </span>
+              <span className="order-timer__row-value">{order.estimatedPrepTime}m</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     const hasSlot = pickupCountdownSeconds !== null;
 
     if (isExpress && !hasSlot) {

@@ -126,14 +126,13 @@ export default function Checkout() {
           const itemPrepTime = item.meal.prepTime ?? dto.totalPrepMinutes;
           const timeSaved    = itemPrepTime > 0 ? Math.floor(itemPrepTime * 0.8) : 15;
 
-          const localOrder = {
+         const localOrder = {
             id:                   dto.id,
             orderRef:             dto.orderRef,
             meal:                 item.meal.name,
             restaurant:           item.meal.restaurant,
             image:                item.meal.image,
             status:               'confirmed' as const,
-            // FIX: use formatPickupTime instead of inline ternary
             pickupTime:           formatPickupTime(dto.pickupSlotTime, item.pickupTime),
             pickupSlotId:         item.pickupSlotId,
             estimatedReady:       `${dto.totalPrepMinutes} min`,
@@ -147,6 +146,11 @@ export default function Checkout() {
             timeSaved,
             kitchenQueuePosition: 1,
             orderType,
+            totalPrepMinutes:     dto.totalPrepMinutes ?? 0,
+            pickupSlotTime:       dto.pickupSlotTime ?? null,
+            isExpress:            dto.isExpress ?? false,
+            editLockedUntil:      dto.editLockedUntil ? new Date(dto.editLockedUntil) : null,
+            scheduledCookAt:      dto.scheduledCookAt ? new Date(dto.scheduledCookAt) : null,
           };
 
           createdOrders.push(addOrder(localOrder));
