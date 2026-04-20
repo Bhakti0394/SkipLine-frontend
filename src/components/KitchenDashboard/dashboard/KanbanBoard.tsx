@@ -492,6 +492,27 @@ export interface KanbanBoardProps {
 
 const MAX_PENDING_MS = 30_000;
 
+// ── Group Ready orders by pickup slot time ──────────────────────────────────
+function groupBySlot(orders: Order[]): { slotLabel: string; orders: Order[] }[] {
+  const map = new Map<string, Order[]>();
+  for (const order of orders) {
+    const key = (!order.pickupTime || order.pickupTime === 'TBD' || order.pickupTime === 'ASAP')
+      ? 'No Slot'
+      : order.pickupTime;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(order);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => {
+      if (a === 'No Slot') return 1;
+      if (b === 'No Slot') return -1;
+      const tA = new Date(`${new Date().toDateString()} ${a}`).getTime();
+      const tB = new Date(`${new Date().toDateString()} ${b}`).getTime();
+      return (isNaN(tA) ? Infinity : tA) - (isNaN(tB) ? Infinity : tB);
+    })
+    .map(([slotLabel, orders]) => ({ slotLabel, orders }));
+}
+
 // ── KanbanBoard ────────────────────────────────────────────────────────────────
 
 export function KanbanBoard({
@@ -505,8 +526,8 @@ const pendingIdsRef        = useRef<Set<string>>(new Set());
   const pendingTimersRef     = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const ordersRef            = useRef(safeOrders);
   const cookingStateRef      = useRef<Record<string, CookingState>>({});
-  const autoAdvanceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});  // ← ADD
-
+ const autoAdvanceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+const uncollectedTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // ── State ────────────────────────────────────────────────────────────────────
   const [pendingOrderIds, setPendingOrderIds] = useState<Set<string>>(new Set());
   const [draggingOrder,   setDraggingOrder]   = useState<Order | null>(null);
@@ -765,6 +786,61 @@ const handleDragStart = useCallback((start: DragStart) => {
       autoAdvanceTimersRef.current = {};
     };
   }, []);
+  // ── Auto-uncollected: Ready orders not completed 15min after slot time ──
+const UNCOLLECTED_DELAY_MS = 15 * 60 * 1000;
+
+useEffect(() => {
+  const timerMap = uncollectedTimersRef.current;
+  const readyOrders = safeOrders.filter(o => o.status === 'ready');
+  const currentIds  = new Set(readyOrders.map(o => o.id));
+
+  // Clear timers for orders no longer in Ready
+  for (const id of Object.keys(timerMap)) {
+    if (!currentIds.has(id)) {
+      clearTimeout(timerMap[id]);
+      delete timerMap[id];
+    }
+  }
+
+  for (const order of readyOrders) {
+    if (timerMap[order.id]) continue;
+
+    // Calculate delay from slot time + 15min
+    const slotMs = (order as any).pickupSlotMs as number | undefined;
+    const anchorMs = slotMs ?? Date.now();
+    const fireAt  = anchorMs + UNCOLLECTED_DELAY_MS;
+    const delay   = Math.max(0, fireAt - Date.now());
+
+    timerMap[order.id] = setTimeout(async () => {
+      delete timerMap[order.id];
+      // Confirm still Ready before auto-completing
+      const stillReady = ordersRef.current.find(
+        o => o.id === order.id
+      )?.status === 'ready';
+      if (!stillReady) return;
+
+      toast.warning(`⏰ Uncollected: ${order.orderNumber}`, {
+        description: 'Auto-completing — customer did not collect.',
+        duration: 4000,
+      });
+      try {
+        await onStatusChange(order.id, 'completed');
+      } catch {
+        // onStatusChange handles errors internally
+      }
+    }, delay);
+  }
+}, [safeOrders, onStatusChange]);
+
+// Cleanup uncollected timers on unmount
+useEffect(() => {
+  return () => {
+    for (const id of Object.keys(uncollectedTimersRef.current)) {
+      clearTimeout(uncollectedTimersRef.current[id]);
+    }
+    uncollectedTimersRef.current = {};
+  };
+}, []);
 
   // FIX: moved makeCookingChefHandler after handleChefAssign (correct dependency order)
 
@@ -807,19 +883,166 @@ const handleDragStart = useCallback((start: DragStart) => {
                   </span>
                 </div>
 
-                <Droppable droppableId={column.status}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      className={[
-                        'kanban-column__content',
-                        snapshot.isDraggingOver ? 'kanban-column__content--dragging-over' : '',
-                        isInvalid               ? 'kanban-column__content--drop-invalid' : '',
-                        isValidTarget           ? 'kanban-column__content--drop-valid'   : '',
-                      ].filter(Boolean).join(' ')}
+               <Droppable droppableId={column.status}>
+  {(provided, snapshot) => (
+    <div
+      ref={provided.innerRef}
+      {...provided.droppableProps}
+      className={[
+        'kanban-column__content',
+        snapshot.isDraggingOver ? 'kanban-column__content--dragging-over' : '',
+        isInvalid               ? 'kanban-column__content--drop-invalid'  : '',
+        isValidTarget           ? 'kanban-column__content--drop-valid'    : '',
+      ].filter(Boolean).join(' ')}
+    >
+      {column.status === 'ready' ? (
+        // ── READY: grouped by pickup slot ──────────────────
+        <>
+          {columnOrders.length === 0 && !snapshot.isDraggingOver && (
+            <div className="kanban-column__empty">No orders</div>
+          )}
+          {groupBySlot(columnOrders).map(({ slotLabel, orders: slotOrders }) => {
+            const allPending = slotOrders.some(o => pendingOrderIds.has(o.id));
+            return (
+              <div key={slotLabel} style={{ marginBottom: '0.75rem' }}>
+
+                {/* Slot header + Complete Slot button */}
+                <div style={{
+                  display:        'flex',
+                  alignItems:     'center',
+                  justifyContent: 'space-between',
+                  padding:        '0.28rem 0.5rem',
+                  background:     'rgba(16,185,129,0.08)',
+                  border:         '1px solid rgba(16,185,129,0.22)',
+                  borderRadius:   '0.375rem',
+                  marginBottom:   '0.4rem',
+                }}>
+                  <span style={{
+                    fontSize:      '0.63rem',
+                    fontWeight:    700,
+                    color:         '#6ee7b7',
+                    letterSpacing: '0.04em',
+                  }}>
+                    🕐 {slotLabel} · {slotOrders.length} order{slotOrders.length !== 1 ? 's' : ''}
+                  </span>
+                  <button
+                    disabled={allPending}
+                    style={{
+                      fontSize:     '0.60rem',
+                      fontWeight:   700,
+                      padding:      '0.18rem 0.5rem',
+                      borderRadius: '0.3rem',
+                      background:   allPending ? 'rgba(16,185,129,0.25)' : '#10b981',
+                      color:        '#fff',
+                      border:       'none',
+                      cursor:       allPending ? 'not-allowed' : 'pointer',
+                      opacity:      allPending ? 0.55 : 1,
+                      transition:   'opacity 0.15s',
+                    }}
+                    onClick={async () => {
+                      for (const o of slotOrders) {
+                        if (pendingOrderIds.has(o.id)) continue;
+                        await handleCardAction(o.id, 'completed');
+                      }
+                    }}
+                  >
+                    ✓ Complete Slot
+                  </button>
+                </div>
+
+                {/* Individual draggable cards inside slot group */}
+                {slotOrders.map((order, index) => {
+                  const isPending       = pendingOrderIds.has(order.id);
+                  const countdown       = readyCountdowns[order.id];
+                  const countdownUrgent = countdown !== undefined && countdown <= 5;
+                  const nextStatus      = 'completed' as OrderStatus;
+                  const actionLabel     = 'Complete';
+                  const scheduledLocked = false; // ready orders are never locked
+
+                  return (
+                    <Draggable
+                      key={order.id}
+                      draggableId={order.id}
+                      index={index}
+                      isDragDisabled={isPending}
                     >
-                      {columnOrders.map((order, index) => {
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          style={{ ...provided.draggableProps.style }}
+                          className={[
+                            'order-card',
+                            snapshot.isDragging     ? 'order-card--dragging'    : '',
+                            `order-card--${order.orderType}`,
+                            isPending               ? 'order-card--pending-api' : '',
+                          ].filter(Boolean).join(' ')}
+                        >
+                          <div className="order-card__header">
+                            <div className="order-card__header-left">
+                              <span className="order-card__number" title={order.orderNumber}>
+                                {order.orderNumber}
+                              </span>
+                              <OrderTypeBadge orderType={order.orderType ?? 'normal'} />
+                            </div>
+                            <div className="order-card__meta">
+                              {countdown !== undefined && (
+                                <span className={[
+                                  'order-card__countdown',
+                                  countdownUrgent ? 'order-card__countdown--urgent' : '',
+                                ].filter(Boolean).join(' ')}>
+                                  ✓ {countdown}s
+                                </span>
+                              )}
+                              <OrderTimer order={order} compact />
+                            </div>
+                          </div>
+
+                          <div className="order-card__customer">
+                            <User className="order-card__customer-icon" />
+                            <span className="order-card__customer-name">
+                              {order.customerName}
+                            </span>
+                          </div>
+
+                          <div className="order-card__items">
+                            {order.items.slice(0, 2).map((item) => (
+                              <div key={item.id} className="order-card__item">
+                                <span className="order-card__item-quantity">{item.quantity}×</span>
+                                <span className="order-card__item-name">{item.name}</span>
+                              </div>
+                            ))}
+                            {order.items.length > 2 && (
+                              <span className="order-card__items-more">
+                                +{order.items.length - 2} more
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="order-card__footer">
+                            <button
+                              className="order-card__action order-card__action--ready"
+                              onClick={() => !isPending && handleCardAction(order.id, nextStatus)}
+                              disabled={isPending}
+                            >
+                              {isPending ? 'Updating…' : actionLabel}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  );
+                })}
+              </div>
+            );
+          })}
+          {provided.placeholder}
+        </>
+      ) : (
+        // ── QUEUE & COOKING: exactly as before ─────────────
+        <>
+          {columnOrders.map((order, index) => {
                         const isPending = pendingOrderIds.has(order.id);
 
                         // ── COOKING COLUMN ──────────────────────────────────
@@ -846,21 +1069,13 @@ const handleDragStart = useCallback((start: DragStart) => {
                         }
 
                         // ── QUEUE & READY COLUMNS ───────────────────────────
+                       // ── QUEUE COLUMN ONLY (ready handled above) ──────────
                         const countdown       = readyCountdowns[order.id];
                         const countdownUrgent = countdown !== undefined && countdown <= 5;
 
-                        const nextStatusMap: Partial<Record<OrderStatus, OrderStatus>> = {
-                          pending: 'cooking',
-                          ready:   'completed',
-                        };
-                        const actionLabelMap: Partial<Record<OrderStatus, string>> = {
-                          pending: 'Start Cooking',
-                          ready:   'Complete',
-                        };
-                        const nextStatus      = nextStatusMap[order.status];
-                        const actionLabel     = actionLabelMap[order.status];
+                        const nextStatus      = 'cooking' as OrderStatus;
+                        const actionLabel     = 'Start Cooking';
                         const scheduledLocked = isScheduledAndLocked(order);
-
                         return (
                           <Draggable
                             key={order.id}
@@ -897,16 +1112,7 @@ const handleDragStart = useCallback((start: DragStart) => {
                                     {scheduledLocked && <ScheduledLockBadge />}
                                   </div>
                                  <div className="order-card__meta">
-  {order.status === 'ready' && countdown !== undefined && (
-    <span className={[
-      'order-card__countdown',
-      countdownUrgent ? 'order-card__countdown--urgent' : '',
-    ].filter(Boolean).join(' ')}>
-      ✔ {countdown}s
-    </span>
-  )}
-  {/* Only show timer for cooking/ready — pending orders have no active cook time */}
-  {order.status !== 'pending' && <OrderTimer order={order} compact />}
+  {/* Pending queue cards have no active cook timer */}
 </div>
                                 </div>
 
@@ -1030,13 +1236,16 @@ const handleDragStart = useCallback((start: DragStart) => {
                         );
                       })}
 
-                      {provided.placeholder}
+{provided.placeholder}
                       {columnOrders.length === 0 && !snapshot.isDraggingOver && (
                         <div className="kanban-column__empty">No orders</div>
                       )}
-                    </div>
-                  )}
-                </Droppable>
+                 
+        </>
+      )}
+    </div>
+  )}
+</Droppable>
               </div>
             );
           })}
