@@ -30,32 +30,26 @@ export function OrderFlowMini() {
   }, [orders.length]);
 
   const activeOrders    = orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled');
-  const cancelledOrders = orders.filter(o => o.status === 'cancelled');
- const delayedOrders = orders.filter(o => (o.status as string) === 'delayed');
-  const hasActiveOrders = activeOrders.length > 0 || delayedOrders.length > 0;
+// AFTER
+const cancelledOrders = orders.filter(o => o.status === 'cancelled');
+const hasActiveOrders = activeOrders.length > 0;
 
-  const statusCounts = statusSteps.reduce((acc, step) => {
-    acc[step.key] = activeOrders.filter(o => o.status === step.key).length;
-    return acc;
-  }, {} as Record<string, number>);
-
-  if (delayedOrders.length > 0) {
-    statusCounts['confirmed'] = (statusCounts['confirmed'] || 0) + delayedOrders.length;
-  }
+const statusCounts = statusSteps.reduce((acc, step) => {
+  acc[step.key] = activeOrders.filter(o => o.status === step.key).length;
+  return acc;
+}, {} as Record<string, number>);
 
   const readyCount   = statusCounts['ready'] || 0;
   const swappedCount = orders.filter(
     o => o.wasSwapped && o.status !== 'cancelled' && o.status !== 'completed'
   ).length;
 
-  const displayOrders = selectedStatus
-    ? [...activeOrders, ...delayedOrders].filter(o =>
-        selectedStatus === 'confirmed'
-          ? o.status === 'confirmed' || (o.status as string) === 'delayed'
-          : (o.status as string) === selectedStatus
-      ).slice(0, 3)
-    : [...activeOrders, ...delayedOrders].slice(0, 3);
-
+  // AFTER
+const displayOrders = selectedStatus
+  ? activeOrders
+      .filter(o => o.status === selectedStatus)
+      .slice(0, 3)
+  : activeOrders.slice(0, 3);
   // Loading skeleton
   if (loading) {
     return (
@@ -217,11 +211,8 @@ export function OrderFlowMini() {
 
               <AnimatePresence mode="popLayout">
                 {displayOrders.map((order) => {
-                  const isDelayed  = (order.status as string) === 'delayed';
-                  const rawStatus     = isDelayed ? 'confirmed' : order.status;
-                 
-                  // Safe fallback — never show wrong stage label
-                  const step = statusSteps.find(s => s.key === rawStatus) ?? statusSteps[0];
+                 // AFTER
+const step = statusSteps.find(s => s.key === order.status) ?? statusSteps[0];
                   const Icon = step.icon;
 
                   return (

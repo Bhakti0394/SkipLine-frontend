@@ -163,8 +163,8 @@ const toastedOrderIds      = useRef<Set<string>>(new Set());
     staff, allStaff, backupStaff, capacityPercent, currentCapacity, activatingChefId,
     updateOrderStatus, assignChef, addOrder, triggerBurst,
     refresh: refreshBoard,
-    isSimulating, setIsSimulating, stopSimulation,
-    simulationSpeed, setSimulationSpeed,
+isSimulating, setIsSimulating, stopSimulation,
+    simulationSpeed, setSimulationSpeed, simulationSpeedRef,
     simulationError, isSimTriggerPending,
     initiateStaffRemoval, confirmStaffRemoval, cancelStaffRemoval,
     removalValidation, removalTargetId,
@@ -559,19 +559,15 @@ const toastedOrderIds      = useRef<Set<string>>(new Set());
   const renderKanbanView = () => (
     <div className="kanban-layout">
       <div className="kanban-layout__main">
-        <KanbanBoard
-          orders={orders}
-          staff={staff}
-          readyCountdowns={readyCountdowns}
-          isSimulating={isSimulating}
-          onStatusChange={handleStatusChange}
-          onChefAssign={assignChef}
-          columnRefs={{
-            pending: pendingColumnRef,
-            cooking: cookingColumnRef,
-            ready:   readyColumnRef,
-          }}
-        />
+     <KanbanBoard
+  orders={orders}
+  staff={staff}
+  readyCountdowns={readyCountdowns}
+  isSimulating={isSimulating}
+  simulationSpeedRef={simulationSpeedRef}
+  onStatusChange={updateOrderStatus}
+  onChefAssign={assignChef}
+/>
       </div>
       <div className="kanban-layout__sidebar">
         {renderSimulationControls()}

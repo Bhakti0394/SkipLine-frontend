@@ -153,8 +153,8 @@ export function OrderModal({
         .then(slots => { if (!cancelled) { setTomorrowSlots(slots); setSlotsLoading(false); } })
         .catch(() => { if (!cancelled) setSlotsLoading(false); });
     } else {
-      fetchCustomerSlots()
-        .then(slots => { if (!cancelled) { setTodaySlots(slots); setSlotsLoading(false); } })
+      fetchCustomerSlots(meal.prepTime)
+  .then(slots => { if (!cancelled) { setTodaySlots(slots); setSlotsLoading(false); } })
         .catch(() => { if (!cancelled) setSlotsLoading(false); });
     }
 
@@ -508,6 +508,7 @@ if (isExpressMode && selectedExpressArrival) {
                       {/* EXPRESS */}
                       {isExpressMode ? (
                         noExpressOptions ? (
+                          
                           slotsLoading ? (
                             <div className="modal__slots-loading">
                               <Loader2 className="modal__slots-loading-icon" />
@@ -518,22 +519,22 @@ if (isExpressMode && selectedExpressArrival) {
                           ) : (
                             <div className="modal__slots-grid">
                               {todaySlots.map((slot) => {
-                                const level  = queueLevel(slot.remaining, slot.maxCapacity);
-                                const isFull = slot.remaining === 0;
-                                return (
-                                  <motion.button
-                                    key={slot.slotId}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() => setSelectedSlot(slot.slotId)}
-                                    disabled={isFull}
-                                    className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
+  const level  = queueLevel(slot.remaining, slot.maxCapacity);
+  const isFull = slot.remaining === 0;
+  const slotMs = new Date(slot.slotTime).getTime();
+  const minPickupMs = Date.now() + (meal.prepTime + 5) * 60 * 1000;
+  const tooSoon = slotMs < minPickupMs;
+  return (
+    <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
+      onClick={() => !tooSoon && setSelectedSlot(slot.slotId)}
+      disabled={isFull || tooSoon} className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
                                   >
                                     <p className="modal__slot-time">{slot.displayTime}</p>
                                     <div className="modal__slot-queue">
                                       <span className={`modal__slot-dot modal__slot-dot--${level}`} />
                                       <span className="modal__slot-wait">
-                                        {isFull ? 'Full' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
-                                      </span>
+  {isFull ? 'Full' : tooSoon ? 'Too soon' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
+</span>
                                     </div>
                                   </motion.button>
                                 );
@@ -612,26 +613,32 @@ if (isExpressMode && selectedExpressArrival) {
                         ) : todaySlots.length === 0 ? (
                           <p className="modal__slots-empty">No slots available right now. Try again soon.</p>
                         ) : (
-                          <div className="modal__slots-grid">
-                            {todaySlots.map((slot) => {
-                              const level  = queueLevel(slot.remaining, slot.maxCapacity);
-                              const isFull = slot.remaining === 0;
-                              return (
-                                <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
-                                  onClick={() => setSelectedSlot(slot.slotId)}
-                                  disabled={isFull}
-                                  className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
-                                >
-                                  <p className="modal__slot-time">{slot.displayTime}</p>
-                                  <div className="modal__slot-queue">
-                                    <span className={`modal__slot-dot modal__slot-dot--${level}`} />
-                                    <span className="modal__slot-wait">
-                                      {isFull ? 'Full' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
-                                    </span>
-                                  </div>
-                                </motion.button>
-                              );
-                            })}
+                         <div className="modal__slots-grid">
+                           {todaySlots
+  .filter((slot) => {
+    const slotMs      = new Date(slot.slotTime).getTime();
+    const minPickupMs = Date.now() + (meal.prepTime + 5) * 60 * 1000;
+    return slotMs >= minPickupMs;
+  })
+  .map((slot) => {
+    const level  = queueLevel(slot.remaining, slot.maxCapacity);
+    const isFull = slot.remaining === 0;
+    return (
+      <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
+        onClick={() => !isFull && setSelectedSlot(slot.slotId)}
+        disabled={isFull}
+        className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
+      >
+        <p className="modal__slot-time">{slot.displayTime}</p>
+        <div className="modal__slot-queue">
+          <span className={`modal__slot-dot modal__slot-dot--${level}`} />
+          <span className="modal__slot-wait">
+            {isFull ? 'Full' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
+          </span>
+        </div>
+      </motion.button>
+    );
+  })}
                           </div>
                         )
                       )}

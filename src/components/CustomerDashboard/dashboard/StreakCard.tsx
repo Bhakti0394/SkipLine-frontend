@@ -124,6 +124,43 @@ function StreakCelebration({ reward, onClose }: StreakCelebrationProps) {
 
 // ─── Main Card ────────────────────────────────────────────────────────────────
 
+// ─── Static reward definitions (module-level — never recreated, no closure issues) ───
+
+const STATIC_REWARDS: Reward[] = [
+  {
+    id: '1', name: 'First Steps', emoji: '🌟', icon: Star,
+    streakRequired: 3,
+    description: "You're on a roll! Badge added to your profile.",
+    unlocked: false, type: 'badge', color: 'from-yellow-400 to-amber-500',
+  },
+  {
+    id: '2', name: 'On Fire!', emoji: '🔥', icon: Flame,
+    streakRequired: 7,
+    description: 'Score a free topping on your next order — on us! 🎁',
+    unlocked: false, type: 'perk', color: 'from-orange-400 to-red-500',
+  },
+  {
+    id: '3', name: 'Streak Master', emoji: '🏅', icon: Medal,
+    streakRequired: 14,
+    description: 'Skip the wait — your orders jump to the priority queue! ⚡',
+    unlocked: false, type: 'perk', color: 'from-blue-400 to-purple-500',
+  },
+  {
+    id: '4', name: 'Champion', emoji: '🏆', icon: Trophy,
+    streakRequired: 21,
+    description: '10% off every order, automatically applied at checkout. 💸',
+    unlocked: false, type: 'vip', color: 'from-purple-400 to-pink-500',
+  },
+  {
+    id: '5', name: 'Legendary VIP', emoji: '👑', icon: Crown,
+    streakRequired: 30,
+    description: 'VIP status unlocked! Access exclusive menu items & special perks. 👑',
+    unlocked: false, type: 'vip', color: 'from-amber-400 to-yellow-300',
+  },
+];
+
+// ─── Main Card ────────────────────────────────────────────────────────────────
+
 export function StreakCard() {
   const { metrics } = useSkipLine();
   const { addNotification } = useNotifications();
@@ -133,113 +170,39 @@ export function StreakCard() {
 
   const currentStreak = metrics.streak;
 
-  const rewards: Reward[] = [
-    {
-      id: '1',
-      name: 'First Steps',
-      emoji: '🌟',
-      icon: Star,
-      streakRequired: 3,
-      description: "You're on a roll! Badge added to your profile.",
-      unlocked: currentStreak >= 3,
-      type: 'badge',
-      color: 'from-yellow-400 to-amber-500',
-    },
-    {
-      id: '2',
-      name: 'On Fire!',
-      emoji: '🔥',
-      icon: Flame,
-      streakRequired: 7,
-      description: 'Score a free topping on your next order — on us! 🎁',
-      unlocked: currentStreak >= 7,
-      type: 'perk',
-      color: 'from-orange-400 to-red-500',
-    },
-    {
-      id: '3',
-      name: 'Streak Master',
-      emoji: '🏅',
-      icon: Medal,
-      streakRequired: 14,
-      description: 'Skip the wait — your orders jump to the priority queue! ⚡',
-      unlocked: currentStreak >= 14,
-      type: 'perk',
-      color: 'from-blue-400 to-purple-500',
-    },
-    {
-      id: '4',
-      name: 'Champion',
-      emoji: '🏆',
-      icon: Trophy,
-      streakRequired: 21,
-      description: '10% off every order, automatically applied at checkout. 💸',
-      unlocked: currentStreak >= 21,
-      type: 'vip',
-      color: 'from-purple-400 to-pink-500',
-    },
-    {
-      id: '5',
-      name: 'Legendary VIP',
-      emoji: '👑',
-      icon: Crown,
-      streakRequired: 30,
-      description: 'VIP status unlocked! Access exclusive menu items & special perks. 👑',
-      unlocked: currentStreak >= 30,
-      type: 'vip',
-      color: 'from-amber-400 to-yellow-300',
-    },
-  ];
+  // Derive unlocked state from live currentStreak — STATIC_REWARDS is the single source of truth
+  const rewards: Reward[] = STATIC_REWARDS.map(r => ({
+    ...r,
+    unlocked: currentStreak >= r.streakRequired,
+  }));
 
-  // Customer benefit highlights — 100% customer-facing, no operator language
+  // Customer benefit highlights
   const customerBenefits = [
     {
       icon: Tag,
-      colorClass: 'benefit--savings',
+      colorClass: '--savings',
       label: 'Save More',
       detail: 'Unlock discounts & free items the longer you streak.',
     },
     {
       icon: Clock,
-      colorClass: 'benefit--speed',
+      colorClass: '--speed',
       label: 'Skip the Queue',
       detail: 'Priority pickup so your order is always ready fast.',
     },
     {
       icon: Shield,
-      colorClass: 'benefit--vip',
+      colorClass: '--vip',
       label: 'VIP Access',
       detail: 'Exclusive menu items only loyal customers can see.',
     },
   ];
 
-  // Listen for streak milestone events
-// Listen for streak milestone events.
-  // The handler derives reward data directly from the event payload
-  // (milestone streak value) instead of closing over the rewards array —
-  // this eliminates the stale-closure risk when currentStreak changes
-  // between effect re-runs, and removes rewards from the dependency list.
   useEffect(() => {
-    const REWARD_DEFS: Array<{
-      streakRequired: number;
-      name: string;
-      emoji: string;
-      description: string;
-    }> = [
-      { streakRequired: 3,  name: 'First Steps',   emoji: '🌟', description: "You're on a roll! Badge added to your profile."                        },
-      { streakRequired: 7,  name: 'On Fire!',       emoji: '🔥', description: 'Score a free topping on your next order — on us! 🎁'                  },
-      { streakRequired: 14, name: 'Streak Master',  emoji: '🏅', description: 'Skip the wait — your orders jump to the priority queue! ⚡'           },
-      { streakRequired: 21, name: 'Champion',       emoji: '🏆', description: '10% off every order, automatically applied at checkout. 💸'           },
-      { streakRequired: 30, name: 'Legendary VIP',  emoji: '👑', description: 'VIP status unlocked! Access exclusive menu items & special perks. 👑' },
-    ];
-
     const handleMilestone = (event: CustomEvent<{ streak: number }>) => {
-  const def = rewards.find(r => r.streakRequired === event.detail.streak);
-  if (!def) return;
-  const milestoneReward: Reward = {
-    ...def,
-    unlocked: true,
-  };
+      const def = STATIC_REWARDS.find(r => r.streakRequired === event.detail.streak);
+      if (!def) return;
+      const milestoneReward: Reward = { ...def, unlocked: true };
       setCelebratingReward(milestoneReward);
       setShowCelebration(true);
       addNotification({
@@ -251,8 +214,7 @@ export function StreakCard() {
 
     window.addEventListener('streak-milestone', handleMilestone as EventListener);
     return () => window.removeEventListener('streak-milestone', handleMilestone as EventListener);
- }, [addNotification, rewards]);
-
+  }, [addNotification]); // STATIC_REWARDS is module-level — not a depa// ← stable: addNotification is useCallback, STATIC_REWARDS never changes
   const nextReward =
     rewards.find((r) => !r.unlocked) || rewards[rewards.length - 1];
   const prevRewardStreak =

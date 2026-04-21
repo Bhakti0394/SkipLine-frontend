@@ -375,7 +375,9 @@ const handleOpenLateModal = useCallback(async () => {
   setLateSlotsError(false);
   setLateSlotsLoading(true);
   try {
-    const allSlots = await fetchCustomerSlots();
+// AFTER — use the actual order's prep time, fall back to 25
+const prepMins = (orders[0] as any).totalPrepMinutes || 25;
+const allSlots = await fetchCustomerSlots(prepMins);
     const currentOrder = orders[0];
     const currentSlotIso = allSlots.find(
       s => s.slotId === currentOrder.pickupSlotId

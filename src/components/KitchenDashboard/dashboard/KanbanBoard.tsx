@@ -481,13 +481,14 @@ const columns: { status: OrderStatus; label: string; icon: React.ElementType; co
 // ── KanbanBoard props ──────────────────────────────────────────────────────────
 
 export interface KanbanBoardProps {
-  orders:           Order[];
-  staff:            StaffWorkloadDto[];
-  readyCountdowns?: Record<string, number>;
-  isSimulating?:    boolean;
-  onStatusChange:   (orderId: string, status: OrderStatus) => Promise<void>;
-  onChefAssign:     (orderId: string, chefId: string)       => Promise<void>;
-  columnRefs?:      Partial<Record<OrderStatus, React.RefObject<HTMLDivElement>>>;
+  orders:              Order[];
+  staff:               StaffWorkloadDto[];
+  readyCountdowns?:    Record<string, number>;
+  isSimulating?:       boolean;
+  simulationSpeedRef?: React.MutableRefObject<'slow' | 'normal' | 'fast'>;
+  onStatusChange:      (orderId: string, status: OrderStatus) => Promise<void>;
+  onChefAssign:        (orderId: string, chefId: string)       => Promise<void>;
+  columnRefs?:         Partial<Record<OrderStatus, React.RefObject<HTMLDivElement>>>;
 }
 
 const MAX_PENDING_MS = 30_000;
@@ -515,8 +516,17 @@ function groupBySlot(orders: Order[]): { slotLabel: string; orders: Order[] }[] 
 
 // ── KanbanBoard ────────────────────────────────────────────────────────────────
 
+// Speed multipliers matching useKitchenBoard — cook timers scale with sim speed
+// so fast mode actually drains orders faster, not just injects faster.
+const COOK_SPEED_MULTIPLIERS: Record<'slow' | 'normal' | 'fast', number> = {
+  slow:   0.5,
+  normal: 1.0,
+  fast:   2.0,
+};
+
 export function KanbanBoard({
   orders, staff, readyCountdowns = {}, isSimulating = false,
+  simulationSpeedRef,
   onStatusChange, onChefAssign, columnRefs = {},
 }: KanbanBoardProps) {
   const safeOrders = orders ?? [];
@@ -729,22 +739,16 @@ const handleDragStart = useCallback((start: DragStart) => {
 // ── Auto-advance: only during simulation mode ────────────────────────────
   // Real kitchen orders must be manually marked Ready by staff.
   // Simulation mode auto-advances to keep the demo flowing.
+ // — Auto-advance: COOKING → READY when prep time elapses ——————————————
+  // Runs regardless of isSimulating — real kitchen orders must always progress.
+  // isSimulating only gates new order injection, never order lifecycle timers.
+  // Speed multiplier applied: fast (2x) halves cook time, slow (0.5x) doubles it.
   useEffect(() => {
     const timerMap = autoAdvanceTimersRef.current;
-
-    // If simulation is OFF — clear all pending auto-advance timers and stop
-    if (!isSimulating) {
-      for (const id of Object.keys(timerMap)) {
-        clearTimeout(timerMap[id]);
-        delete timerMap[id];
-      }
-      return;
-    }
-
     const cookingOrders = safeOrders.filter(o => o.status === 'cooking');
     const currentIds    = new Set(cookingOrders.map(o => o.id));
 
-    // Clear timers for orders no longer cooking
+    // Clear timers for orders no longer in cooking
     for (const id of Object.keys(timerMap)) {
       if (!currentIds.has(id)) {
         clearTimeout(timerMap[id]);
@@ -757,25 +761,27 @@ const handleDragStart = useCallback((start: DragStart) => {
       if (!(order.assignedChefId || order.assignedTo)) continue;
       const prepMs = (order.estimatedPrepTime ?? 0) * 60_000;
       if (prepMs <= 0) continue;
-
-      // Only start countdown from actual cookingStartedAt.
-      // If startedAt is null the order hasn't actually started cooking yet — skip it.
       if (!order.startedAt) continue;
-      const startedAt = order.startedAt.getTime();
-      const remaining = Math.max(0, startedAt + prepMs - Date.now());
 
-      // Only schedule if time is actually remaining.
+      // Apply speed multiplier — fast mode (2x) makes dishes cook in half the time.
+      // Read from ref so speed changes mid-cook take effect on the next timer.
+      const speedMultiplier = COOK_SPEED_MULTIPLIERS[simulationSpeedRef?.current ?? 'normal'];
+      const scaledPrepMs    = prepMs / speedMultiplier;
+
+      const startedAt  = order.startedAt.getTime();
+      const remaining  = Math.max(0, startedAt + scaledPrepMs - Date.now());
+
       if (remaining <= 0) continue;
       timerMap[order.id] = setTimeout(async () => {
         delete timerMap[order.id];
         toast.info(`Auto-advancing ${order.orderNumber} to Ready`, {
-          description: 'Prep time elapsed.',
+          description: `Prep time elapsed (${simulationSpeedRef?.current ?? 'normal'} speed).`,
           duration: 3000,
         });
         try { await onStatusChange(order.id, 'ready'); } catch { /* onStatusChange handles errors */ }
       }, remaining);
     }
-  }, [safeOrders, onStatusChange, isSimulating]);
+  }, [safeOrders, onStatusChange, simulationSpeedRef]);
 
     // Clean up auto-advance timers on unmount
   useEffect(() => {
@@ -1219,17 +1225,55 @@ useEffect(() => {
                                   </div>
                                 )}
 
-                                {nextStatus && actionLabel && (
-                                  <div className="order-card__footer">
-                                    <button
-                                      className={`order-card__action order-card__action--${order.status}`}
-                                      onClick={() => !isPending && !scheduledLocked && handleCardAction(order.id, nextStatus)}
-                                      disabled={isPending || scheduledLocked}
-                                    >
-                                      {isPending ? 'Updating…' : actionLabel}
-                                    </button>
-                                  </div>
-                                )}
+                               {nextStatus && actionLabel && (() => {
+                                  const now = Date.now();
+                                  const scheduledCookAt = order.scheduledCookAt;
+                                  const isTooEarly = !!(
+                                    scheduledCookAt &&
+                                    order.orderType !== 'express' &&
+                                    now < scheduledCookAt.getTime()
+                                  );
+
+                                  // For NORMAL orders: show countdown until cook window
+                                  // For SCHEDULED orders: scheduledLocked already handles this
+                                  const minsUntilCook = isTooEarly
+                                    ? Math.ceil((scheduledCookAt!.getTime() - now) / 60_000)
+                                    : 0;
+
+                                  const isBlocked = isPending || scheduledLocked || isTooEarly;
+
+                                  const label = isPending
+                                    ? 'Updating…'
+                                    : scheduledLocked
+                                    ? 'Pre-booked — assign chef'
+                                    : isTooEarly && order.orderType === 'normal'
+                                    ? `⏳ Cook window in ${minsUntilCook}m`
+                                    : isTooEarly && order.orderType === 'scheduled'
+                                    ? `⏳ Starts in ${minsUntilCook}m`
+                                    : actionLabel;
+
+                                  return (
+                                    <div className="order-card__footer">
+                                      <button
+                                        className={`order-card__action order-card__action--${order.status}`}
+                                        style={isTooEarly ? {
+                                          opacity: 0.5,
+                                          cursor: 'not-allowed',
+                                          background: 'rgba(100,116,139,0.10)',
+                                          color: 'rgba(148,163,184,0.60)',
+                                          border: '1px solid rgba(100,116,139,0.20)',
+                                        } : undefined}
+                                        onClick={() => !isBlocked && handleCardAction(order.id, nextStatus)}
+                                        disabled={isBlocked}
+                                        title={isTooEarly
+                                          ? `Scheduled to start cooking at ${scheduledCookAt!.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })}`
+                                          : undefined}
+                                      >
+                                        {label}
+                                      </button>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             )}
                           </Draggable>
