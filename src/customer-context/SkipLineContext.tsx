@@ -528,7 +528,7 @@ Promise.allSettled([
       }
     }
 
-    setMetrics(prev => {
+ setMetrics(prev => {
       const newStreak = absoluteStreak !== null
         ? absoluteStreak
         : lastDate !== today
@@ -551,6 +551,16 @@ Promise.allSettled([
         streak:           newStreak,
       };
     });
+
+    // Re-sync streak from backend after order placement.
+    // The optimistic increment above handles instant UI feedback,
+    // but the server is the source of truth (handles multi-device,
+    // session gaps, and orders placed through other clients).
+    fetchCustomerStreak()
+      .then(serverStreak => {
+        setMetrics(prev => ({ ...prev, streak: serverStreak }));
+      })
+      .catch(() => { /* keep optimistic value on network failure */ });
 
    return newOrder;
   }, [orders, subscribeOrder]);

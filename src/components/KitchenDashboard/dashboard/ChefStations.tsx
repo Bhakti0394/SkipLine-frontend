@@ -1,9 +1,9 @@
 // ============================================================
-// ChefStations.tsx — File 1 look + File 2 backend (CoffeeIcon removed)
+// ChefStations.tsx — with onBreak toggle support
 // ============================================================
 //
 // status values from StaffWorkloadDto: 'available' | 'busy' | 'full'
-// 'break' does not exist in backend — CoffeeIcon removed entirely.
+// onBreak: boolean — toggled by admin, blocks order assignment
 
 import { memo, useMemo } from 'react';
 import { StaffWorkloadDto } from '../../../kitchen-api/kitchenApi';
@@ -22,6 +22,27 @@ const FlameIcon = () => (
   </svg>
 );
 
+// ─── Pause / Play icons for break toggle ─────────────────────────────────────
+
+const PauseIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+    fill="currentColor" width="10" height="10"
+  >
+    <rect x="6" y="4" width="4" height="16" rx="1" />
+    <rect x="14" y="4" width="4" height="16" rx="1" />
+  </svg>
+);
+
+const PlayIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+    fill="currentColor" width="10" height="10"
+  >
+    <polygon points="5,3 19,12 5,21" />
+  </svg>
+);
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getInitials(name: string): string {
@@ -29,19 +50,31 @@ function getInitials(name: string): string {
   return name.split(' ').map(w => w[0] ?? '').filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
 }
 
+// ─── Extended DTO — adds onBreak ─────────────────────────────────────────────
+// Your StaffWorkloadDto may not have onBreak yet.
+// Until backend adds it, we extend it here so the UI compiles cleanly.
+
+interface StaffWorkloadDtoWithBreak extends StaffWorkloadDto {
+  onBreak?: boolean;
+}
+
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface ChefStationsProps {
   /** ALL today's staff — active (onShift=true) and backup (onShift=false) */
-  staff:           StaffWorkloadDto[];
+  staff:             StaffWorkloadDtoWithBreak[];
   /** Fires when × is clicked on an active chef — parent handles modal */
-  onRemoveChef?:   (chefId: string) => void;
+  onRemoveChef?:     (chefId: string) => void;
   /** Fires when Activate is clicked on a backup chef */
-  onActivateChef?: (chefId: string) => void;
+  onActivateChef?:   (chefId: string) => void;
+  /** Fires when break toggle is clicked — parent calls PATCH /chefs/{id}/break */
+  onToggleBreak?:    (chefId: string, onBreak: boolean) => void;
   /** ChefId currently being removed — shows spinner on that card */
-  removingId?:     string | null;
+  removingId?:       string | null;
   /** ChefId currently being activated — shows spinner on that card */
-  activatingId?:   string | null;
+  activatingId?:     string | null;
+  /** ChefId whose break status is being saved — shows spinner on that card */
+  togglingBreakId?:  string | null;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -50,15 +83,15 @@ export const ChefStations = memo(function ChefStations({
   staff,
   onRemoveChef,
   onActivateChef,
+  onToggleBreak,
   removingId,
   activatingId,
+  togglingBreakId,
 }: ChefStationsProps) {
 
-  // Hooks MUST come before any conditional return — Rules of Hooks
   const activeStaff = useMemo(() => staff.filter(s => s.onShift),  [staff]);
   const backupStaff = useMemo(() => staff.filter(s => !s.onShift), [staff]);
 
-  // Empty state — safe to return after hooks
   if (staff.length === 0) {
     return (
       <div className="chef-stations">
@@ -83,50 +116,88 @@ export const ChefStations = memo(function ChefStations({
       {/* ── Active staff ── */}
       <div className="chef-stations__list">
         {activeStaff.map(chef => {
-          const status     = chef.status; // 'available' | 'busy' | 'full'
-          const isRemoving = removingId === chef.chefId;
-          const freeSlots  = chef.maxCapacity - chef.activeOrders;
+          const isOnBreak      = chef.onBreak ?? false;
+          // When on break, override visual status to 'break' for styling
+          const displayStatus  = isOnBreak ? 'break' : chef.status;
+          const isRemoving     = removingId === chef.chefId;
+          const isTogglingBreak = togglingBreakId === chef.chefId;
+          const freeSlots      = chef.maxCapacity - chef.activeOrders;
 
           return (
             <div
               key={chef.chefId}
-              className={`chef-item chef-item--${status}`}
-              title={`${chef.name} — ${chef.activeOrders}/${chef.maxCapacity} orders`}
+              className={`chef-item chef-item--${displayStatus}`}
+              title={`${chef.name} — ${isOnBreak ? 'on break' : `${chef.activeOrders}/${chef.maxCapacity} orders`}`}
             >
               {/* Avatar */}
-              <div className={`chef-item__avatar chef-item__avatar--${status}`}>
+              <div className={`chef-item__avatar chef-item__avatar--${displayStatus}`}>
                 {getInitials(chef.name)}
               </div>
 
               {/* Info */}
               <div className="chef-item__info">
-                <p className="chef-item__name">{chef.name}</p>
-                <p className="chef-item__stats">
-                  {chef.activeOrders}/{chef.maxCapacity} orders · {chef.completedToday} done today
+                <p className="chef-item__name">
+                  {chef.name}
+                  {isOnBreak && (
+                    <span className="chef-item__break-label">on break</span>
+                  )}
                 </p>
-                <div className="chef-item__bar-track">
-                  <div
-                    className={`chef-item__bar-fill chef-item__bar-fill--${status}`}
-                    style={{ width: `${Math.min(chef.loadPercent, 100)}%` }}
-                  />
-                </div>
-                <p className="chef-item__stats chef-item__stats--small">
-                  {freeSlots} free slot{freeSlots !== 1 ? 's' : ''}
-                </p>
+                {isOnBreak ? (
+                  <p className="chef-item__stats chef-item__stats--dim">
+                    Not accepting orders
+                  </p>
+                ) : (
+                  <>
+                    <p className="chef-item__stats">
+                      {chef.activeOrders}/{chef.maxCapacity} orders · {chef.completedToday} done today
+                    </p>
+                    <div className="chef-item__bar-track">
+                      <div
+                        className={`chef-item__bar-fill chef-item__bar-fill--${chef.status}`}
+                        style={{ width: `${Math.min(chef.loadPercent, 100)}%` }}
+                      />
+                    </div>
+                    <p className="chef-item__stats chef-item__stats--small">
+                      {freeSlots} free slot{freeSlots !== 1 ? 's' : ''}
+                    </p>
+                  </>
+                )}
               </div>
 
-              {/* Status — order badge + dot + remove btn */}
+              {/* Status — badge + dot + break toggle + remove btn */}
               <div className="chef-item__status">
 
-                {/* Order count badge */}
-                {chef.activeOrders > 0 && (
+                {/* Order count badge — hide when on break */}
+                {!isOnBreak && chef.activeOrders > 0 && (
                   <span className="chef-item__badge">
                     {chef.activeOrders}
                   </span>
                 )}
 
-                {/* Status dot: --available | --busy | --full */}
-                <span className={`chef-item__dot chef-item__dot--${status}`} />
+                {/* Status dot */}
+                <span className={`chef-item__dot chef-item__dot--${displayStatus}`} />
+
+                {/* Break toggle button */}
+                {onToggleBreak && (
+                  <button
+                    className={`chef-item__break-btn${isOnBreak ? ' chef-item__break-btn--active' : ''}`}
+                    title={
+                      isTogglingBreak
+                        ? 'Saving…'
+                        : isOnBreak
+                          ? `Mark ${chef.name} available`
+                          : `Mark ${chef.name} on break`
+                    }
+                    disabled={isTogglingBreak || isRemoving}
+                    onClick={() => {
+                      if (!isTogglingBreak && !isRemoving) {
+                        onToggleBreak(chef.chefId, !isOnBreak);
+                      }
+                    }}
+                  >
+                    {isTogglingBreak ? '…' : isOnBreak ? <PlayIcon /> : <PauseIcon />}
+                  </button>
+                )}
 
                 {/* Remove button */}
                 {onRemoveChef && (
@@ -175,15 +246,15 @@ export const ChefStations = memo(function ChefStations({
                   <div className="chef-item__status">
                     <span className="chef-item__dot chef-item__dot--backup" />
                     {onActivateChef && (
-                     <button
-                  className="chef-item__activate-btn"
-                  disabled={isActivating}
-                  onClick={() => !isActivating && onActivateChef(chef.chefId)}
-                  title={isActivating ? 'Activating…' : `Activate ${chef.name}`}
-                  style={isActivating ? { cursor: 'not-allowed', opacity: 0.6 } : undefined}
-                >
-                  {isActivating ? '…' : 'Activate'}
-                </button>
+                      <button
+                        className="chef-item__activate-btn"
+                        disabled={isActivating}
+                        onClick={() => !isActivating && onActivateChef(chef.chefId)}
+                        title={isActivating ? 'Activating…' : `Activate ${chef.name}`}
+                        style={isActivating ? { cursor: 'not-allowed', opacity: 0.6 } : undefined}
+                      >
+                        {isActivating ? '…' : 'Activate'}
+                      </button>
                     )}
                   </div>
                 </div>

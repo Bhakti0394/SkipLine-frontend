@@ -82,7 +82,38 @@ const SPEED_INTERVALS: Record<'slow' | 'normal' | 'fast', number> = {
 };
 
 // FIX [JITTER]: max random ms added to each interval to spread tick load.
+// FIX [JITTER]: max random ms added to each interval to spread tick load.
 const JITTER_MS = 1_000;
+
+// Speed multiplier applied to cook timers so fast/slow mode affects
+// how quickly orders drain — not just how fast new ones are injected.
+const SPEED_MULTIPLIERS: Record<'slow' | 'normal' | 'fast', number> = {
+  slow:   0.5,
+  normal: 1.0,
+  fast:   2.0,
+};
+
+// Backpressure tiers — instead of binary overload cutoff, injection
+// slows gracefully before stopping completely.
+// 0–60%  → full speed injection
+// 60–85% → half speed (warn operator)
+// 85–99% → quarter speed (alert operator)
+// 100%   → stop injection only, NEVER stop timers or sim
+type BackpressureTier = 'full' | 'half' | 'quarter' | 'stopped';
+
+function getBackpressureTier(capacityPct: number): BackpressureTier {
+  if (capacityPct >= 100) return 'stopped';
+  if (capacityPct >= 85)  return 'quarter';
+  if (capacityPct >= 60)  return 'half';
+  return 'full';
+}
+
+const BACKPRESSURE_MESSAGES: Record<BackpressureTier, string | null> = {
+  full:     null,
+  half:     'Kitchen busy — injection slowed to 50%',
+  quarter:  'Kitchen near capacity — injection slowed to 25%',
+  stopped:  'Kitchen at full capacity — injection paused, draining…',
+};
 
 const EMPTY_METRICS = {
   totalOrdersToday: 0, completedOrdersToday: 0, avgCookTimeMinutes: 0,
@@ -251,7 +282,7 @@ let expressMinutes: ExpressMinutes | undefined;
     ? dto.totalPrepMinutes
     : expressMinutes ?? 5;
 
-  return {
+return {
     id:                dto.id,
     orderNumber:       dto.orderRef,
     customerName:      dto.customerName ?? dto.orderRef,
@@ -274,6 +305,7 @@ let expressMinutes: ExpressMinutes | undefined;
             ? { pickupSlotMs: expressPickupSlotMs }
             : {}
     ),
+    scheduledCookAt: dto.scheduledCookAt ? new Date(dto.scheduledCookAt) : null,
   };
 }
 
@@ -336,8 +368,11 @@ const simIntervalRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { onNewOrdersRef.current = onNewOrders; }, [onNewOrders]);
 
-  const isSimulatingRef = useRef(isSimulating);
+const isSimulatingRef = useRef(isSimulating);
   useEffect(() => { isSimulatingRef.current = isSimulating; }, [isSimulating]);
+
+  const simulationSpeedRef = useRef(simulationSpeed);
+  useEffect(() => { simulationSpeedRef.current = simulationSpeed; }, [simulationSpeed]);
 
   const boardDataRef = useRef<KanbanBoardResponse | null>(null);
   useEffect(() => { boardDataRef.current = boardData; }, [boardData]);
@@ -493,9 +528,8 @@ setCompletedOrders(
     }
   }, []);
 
-  const scheduleAutoComplete = useCallback((order: Order) => {
-    if (!isSimulatingRef.current) return;
-    if (autoCompleteRefs.current[order.id]) return;
+const scheduleAutoComplete = useCallback((order: Order) => {
+  if (autoCompleteRefs.current[order.id]) return;
 
     setReadyCountdowns(prev => ({ ...prev, [order.id]: AUTO_COMPLETE_DELAY_MS / 1000 }));
 
@@ -509,13 +543,9 @@ setCompletedOrders(
     }, 1000);
 
 // AFTER — check BEFORE clearing refs, restore if sim was turned off
+// Always fire auto-complete regardless of sim state.
+// Sim off only stops new injection — ready orders must always drain.
 const timeout = setTimeout(async () => {
-  if (!isSimulatingRef.current) {
-    // Sim was turned off while timer was running — leave refs intact
-    // so the order can be rescheduled if sim turns on again.
-    return;
-  }
-
   delete autoCompleteRefs.current[order.id];
   clearInterval(interval);
   setReadyCountdowns(prev => { const n = { ...prev }; delete n[order.id]; return n; });
@@ -540,21 +570,16 @@ const timeout = setTimeout(async () => {
 // AFTER — when sim turns back on, force re-evaluation of ready orders
 // When sim turns back on OR new ready orders arrive, schedule auto-complete
 // When sim turns back on OR new ready orders arrive, schedule auto-complete
+// Always schedule auto-complete for ready orders — sim state is irrelevant.
+// Sim off only pauses injection. Existing ready orders must always drain
+// so the kitchen never freezes regardless of simulation state.
 useEffect(() => {
-  if (!isSimulating) {
-    for (const id of Object.keys(autoCompleteRefs.current)) {
-      cancelAutoComplete(id);
-    }
-  } else {
-    // Runs when isSimulating toggles ON and whenever orders changes —
-    // catches ready orders that arrived while simulation was already running.
-    for (const order of ordersRef.current) {
-      if (order.status === 'ready' && !autoCompleteRefs.current[order.id]) {
-        scheduleAutoComplete(order);
-      }
+  for (const order of ordersRef.current) {
+    if (order.status === 'ready' && !autoCompleteRefs.current[order.id]) {
+      scheduleAutoComplete(order);
     }
   }
-}, [isSimulating, orders, cancelAutoComplete, scheduleAutoComplete]);
+}, [orders, scheduleAutoComplete]);
 
   useEffect(() => {
     return () => {
@@ -658,40 +683,57 @@ const assignChef = useCallback(async (orderId: string, chefId: string) => {
     setSimulationError(null);
   }, []);
 
-  const runSimulationTick = useCallback(async () => {
+ const runSimulationTick = useCallback(async () => {
     // FIX [ROLE-GUARD]: never trigger simulation with a CUSTOMER token
     if (!isKitchen) return;
-   const currentMenuItems = menuItemsRef.current;
+    const currentMenuItems = menuItemsRef.current;
     if (currentMenuItems.length === 0) { setSimulationError('No menu items loaded'); return; }
-    if (selectCapacity(boardDataRef.current).isOverloaded) {
-      setSimulationError('Kitchen is at full capacity — simulation paused');
-      setIsSimulating(false);
+
+    // Backpressure — check capacity tier and decide injection rate.
+    // NEVER stop simulation — only slow or pause injection.
+    // Timers (cook + auto-complete) always keep running regardless.
+    const capacityPct = selectCapacity(boardDataRef.current).capacityPct;
+    const tier = getBackpressureTier(capacityPct);
+    const tierMsg = BACKPRESSURE_MESSAGES[tier];
+    if (tierMsg) setSimulationError(tierMsg);
+    else setSimulationError(null);
+
+    if (tier === 'stopped') {
+      // Kitchen full — skip injection this tick entirely.
+      // Do NOT call setIsSimulating(false) — sim stays alive so timers drain.
+      // Auto-resume: next tick will re-check capacity and inject if space freed.
+      try { await simulateAdvance(); } catch { /* best-effort — drain existing orders */ }
+      await new Promise(r => setTimeout(r, 300));
+      await loadBoard();
       return;
     }
+
+    // Probabilistic injection for half/quarter backpressure tiers.
+    // Instead of always injecting, skip some ticks proportionally.
+    if (tier === 'half'    && Math.random() > 0.5) return;
+    if (tier === 'quarter' && Math.random() > 0.25) return;
+
     setIsSimTriggerPending(true);
     try {
       const slots: SlotCapacityDto[] = boardDataRef.current?.upcomingSlots ?? [];
       const result: SimulationResult = await triggerSimulation(1, currentMenuItems, slots);
       if (result.rejected > 0 && result.reason) {
         setSimulationError(result.reason);
-        if (result.reason.includes('full capacity')) setIsSimulating(false);
-      } else {
+        // Never stop sim on rejection — just report and continue next tick
+      } else if (!tierMsg) {
         setSimulationError(null);
       }
-   if (result.generated > 0) {
-  // Each tick advances independently — do not gate on simAdvancePendingRef.
-  // simAdvancePendingRef is only for burst calls to avoid duplicate advances
-  // when burst and tick fire at the same millisecond. Tick always advances.
-  try { await simulateAdvance(); } catch { /* best-effort */ }
-  await new Promise(r => setTimeout(r, 300));
-  await loadBoard();
-}
+      if (result.generated > 0) {
+        try { await simulateAdvance(); } catch { /* best-effort */ }
+        await new Promise(r => setTimeout(r, 300));
+        await loadBoard();
+      }
     } catch (err: any) {
       setSimulationError(err.message);
     } finally {
       setIsSimTriggerPending(false);
     }
- }, [isKitchen, loadBoard]);
+  }, [isKitchen, loadBoard]);
 
   // FIX [JITTER]: recursive setTimeout so each tick gets a fresh jitter offset.
   useEffect(() => {
@@ -812,7 +854,7 @@ const assignChef = useCallback(async (orderId: string, chefId: string) => {
     }
 }, [isKitchen, loadBoard]);
 
-  return {
+return {
     orders, completedOrders, boardData, loading, error,
     counts, readyCountdowns,
     metrics, staff, allStaff, backupStaff, backupStaffCount,
@@ -822,7 +864,7 @@ const assignChef = useCallback(async (orderId: string, chefId: string) => {
     initiateStaffRemoval, confirmStaffRemoval, cancelStaffRemoval,
     removalValidation, removalTargetId, isValidatingRemoval, isConfirmingRemoval,
     isSimulating, setIsSimulating, stopSimulation,
-    simulationSpeed, setSimulationSpeed,
+    simulationSpeed, setSimulationSpeed, simulationSpeedRef,
     simulationError, isSimTriggerPending, triggerBurst, menuItems,
     canTransition,
   };

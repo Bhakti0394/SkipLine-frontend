@@ -60,6 +60,7 @@ export interface OrderCardDto {
   isLate:           boolean;
   priority?:        string;
   orderType?:       string;
+  scheduledCookAt:  string | null; // when kitchen should START cooking — null for express
 }
 
 export interface KitchenMetricsDto {
@@ -390,13 +391,16 @@ export async function removeChefFromShift(chefId: string): Promise<StaffWorkload
 // ── Orders (kitchen sim) ──────────────────────────────────────────────────────
 
 export async function createOrder(
-  orderRef: string, menuItemIds: string[], customerName?: string,
+  orderRef: string,
+  menuItemIds: string[],
+  customerName?: string,
+  pickupSlotId?: string,
 ): Promise<string> {
   const res = await fetch(`${BASE_URL}/orders`, {
     method: 'POST', credentials: 'include', headers: authHeaders(),
-    body: JSON.stringify({ orderRef, menuItemIds, customerName }),
+    body: JSON.stringify({ orderRef, menuItemIds, customerName, pickupSlotId }),
   });
- handle401(res);
+  handle401(res);
   if (!res.ok) throw new Error((await res.text()) || `Create order failed: ${res.status}`);
   return res.json();
 }
@@ -578,9 +582,9 @@ export async function fetchCustomerKitchenSummary(): Promise<CustomerKitchenSumm
 
 // ── Customer Slots ────────────────────────────────────────────────────────────
 
-export async function fetchCustomerSlots(): Promise<CustomerSlotDto[]> {
+export async function fetchCustomerSlots(prepTimeMinutes: number): Promise<CustomerSlotDto[]> {
   try {
-    const res = await fetch(`${CUSTOMER_URL}/slots`, {
+    const res = await fetch(`${CUSTOMER_URL}/slots?prepTimeMinutes=${prepTimeMinutes}`, {
       headers: customerAuthHeaders(),
     });
    handle401(res);
@@ -720,23 +724,27 @@ export async function triggerSimulation(
 // Sequential processing — slot tracker reads/writes are not concurrent,
   // preventing two orders in the same batch from both seeing remaining = 1
   // and both decrementing, over-booking a slot.
-  for (let i = 0; i < payloads.length && !kitchenFull; i++) {
+for (let i = 0; i < payloads.length && !kitchenFull; i++) {
     const { orderRef, menuItemIds, customerName, orderType } = payloads[i];
     try {
-      const orderId = await createOrder(orderRef, menuItemIds, customerName);
+      // Pick slot BEFORE creating order so backend attaches it atomically.
+      // Old flow: createOrder → reservePickupSlot (two calls, race window).
+      // New flow: createOrder(slotId) → done in one call, no race window.
+      let slotId: string | undefined;
       if (orderType === 'normal' || orderType === 'scheduled') {
         const slot = orderType === 'normal'
-          ? pickNormalSlot(slotTracker) : pickScheduledSlot(slotTracker);
+          ? pickNormalSlot(slotTracker)
+          : pickScheduledSlot(slotTracker);
         if (slot) {
-          try {
-            await reservePickupSlot(orderId, slot.slotId);
-            const tracked = slotTracker.find(s => s.slotId === slot.slotId);
-            if (tracked) tracked.remaining = Math.max(0, tracked.remaining - 1);
-          } catch (slotErr: any) {
-            console.warn(`[Sim] Slot reservation failed for ${orderRef}:`, slotErr.message);
-          }
+          slotId = slot.slotId;
+          // Decrement tracker immediately so next order in same batch
+          // sees the updated remaining count — prevents double-booking.
+          const tracked = slotTracker.find(s => s.slotId === slot.slotId);
+          if (tracked) tracked.remaining = Math.max(0, tracked.remaining - 1);
         }
       }
+      // slotId is undefined for express orders — backend handles null slotId correctly.
+      await createOrder(orderRef, menuItemIds, customerName, slotId);
       generated++;
     } catch (err: any) {
       rejected++;
