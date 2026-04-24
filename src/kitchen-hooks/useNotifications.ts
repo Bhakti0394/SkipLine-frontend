@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Order } from '../kitchen-types/order';
 import { InventoryItem, StockStatus } from '../kitchen-types/inventory';
+
 
 export interface Notification {
   id: string;
@@ -142,16 +143,31 @@ export type CapacityEvent =
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useNotifications() {
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
+const [notifications, setNotifications] = useState<Notification[]>(() => {
+    try {
+      const saved = localStorage.getItem('kitchen_notifications');
+      if (saved) {
+        const parsed = JSON.parse(saved) as Notification[];
+        return parsed.map(n => ({ ...n, timestamp: new Date(n.timestamp) }));
+      }
+    } catch { /* ignore */ }
+    return [{
       id: 'welcome',
       type: 'system',
       title: 'Welcome to SkipLine',
       message: 'Your kitchen dashboard is ready. Start managing orders efficiently!',
       timestamp: new Date(),
       read: false,
-    },
-  ]);
+    }];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kitchen_notifications', JSON.stringify(
+        notifications.slice(0, 50)
+      ));
+    } catch { /* ignore */ }
+  }, [notifications]);
 
   const lastSoundAt    = useRef<Record<string, number>>({});
   // Track last capacity event so we don't spam the same alert every 10s poll
@@ -214,16 +230,18 @@ export function useNotifications() {
   }, [addNotification, playThrottled]);
 
   const notifyOrderStatus = useCallback((order: Order, newStatus: string) => {
-    const messages: Record<string, string> = {
-      cooking:   `Order ${order.orderNumber} is now being prepared`,
-      ready:     `Order ${order.orderNumber} is ready for pickup! 🎉`,
-      completed: `Order ${order.orderNumber} has been completed ✅`,
-    };
-    const soundMap: Record<string, SoundType> = {
-      cooking:   'cooking',
-      ready:     'ready',
-      completed: 'completed',
-    };
+const messages: Record<string, string> = {
+  cooking:   `Order ${order.orderNumber} is now being prepared`,
+  ready:     `Order ${order.orderNumber} is ready for pickup! 🎉`,
+  completed: `Order ${order.orderNumber} has been completed ✅`,
+  cancelled: `Order ${order.orderNumber} was cancelled`,
+};
+const soundMap: Record<string, SoundType> = {
+  cooking:   'cooking',
+  ready:     'ready',
+  completed: 'completed',
+  cancelled: 'alert',
+};
     if (messages[newStatus]) {
       addNotification(
         'order',

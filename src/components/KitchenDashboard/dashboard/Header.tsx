@@ -6,6 +6,7 @@ import { LiveClock } from './LiveClock';
 import { NotificationsDropdown, Notification } from './NotificationsDropdown';
 import { UserProfileDropdown } from './Userprofiledropdown';
 import { KitchenSettings } from '../../../kitchen-types/settings';
+import { useAuth } from '../../../context/AuthContext';
 import {
   Sheet,
   SheetContent,
@@ -30,6 +31,9 @@ interface HeaderProps {
   onSettingsChange:        (settings: KitchenSettings) => void;
   onLogout?:               () => void;
   onProfileUpdate?:        (user: { name: string; email: string; role: string; initials: string }) => void;
+  // Search query — controlled by parent (Index.tsx), applied in list view
+  searchQuery?:            string;
+  onSearchChange?:         (query: string) => void;
 }
 
 const sheetStyles: React.CSSProperties = {
@@ -72,6 +76,8 @@ export function Header({
   onSettingsChange,
   onLogout = () => console.log('Logout'),
   onProfileUpdate,
+  searchQuery,
+  onSearchChange,
 }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -79,13 +85,12 @@ export function Header({
   // Previously hardcoded to "Jordan Davis / jordan.davis@SkipLine.com".
   // localStorage keys are set by AuthContext on login (auth_full_name, auth_email).
   // Falls back to sensible defaults if somehow not set.
-  const rawName  = localStorage.getItem('auth_full_name') ?? '';
-  const rawEmail = localStorage.getItem('auth_email') ?? '';
+const { user } = useAuth();
   const userProfile = {
-    name:     rawName  || 'Kitchen Staff',
-    email:    rawEmail || '',
+    name:     user?.fullName || 'Kitchen Staff',
+    email:    user?.email    || '',
     role:     'Kitchen Manager',
-    initials: getInitials(rawName || 'Kitchen Staff'),
+    initials: getInitials(user?.fullName || 'Kitchen Staff'),
   };
 
   const views: { mode: ViewMode; icon: React.ElementType; label: string }[] = [
@@ -142,7 +147,7 @@ export function Header({
                   </SheetTitle>
                 </SheetHeader>
 
-                {/* Mobile search */}
+              {/* Mobile search */}
                 <div
                   className="header__mobile-search-wrapper"
                   style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
@@ -157,10 +162,11 @@ export function Header({
                         border:     '1px solid rgba(249,115,22,0.2)',
                         color:      '#f1f5f9',
                       }}
+                      value={searchQuery ?? ''}
+                      onChange={e => onSearchChange?.(e.target.value)}
                     />
                   </div>
                 </div>
-
                 {/* Mobile nav */}
                 <div className="header__mobile-nav">
                   <div className="header__mobile-nav-heading">Navigation</div>
@@ -271,13 +277,15 @@ export function Header({
           </div>
 
           <div className="header__actions">
-            {/* Desktop search */}
+{/* Desktop search */}
             <div className="header__desktop-search">
               <div className="header__search-container">
                 <Search className="header__search-icon" />
                 <Input
                   placeholder="Search orders..."
                   className="header__search-input header__search-input--desktop"
+                  value={searchQuery ?? ''}
+                  onChange={e => onSearchChange?.(e.target.value)}
                 />
               </div>
             </div>

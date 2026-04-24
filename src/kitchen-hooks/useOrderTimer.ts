@@ -538,18 +538,18 @@ export function useOrderTimer(order: Order, sla: SlaBudgets = DEFAULT_SLA): Time
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
+}, [
     nowMs,
     order.id, order.status, order.orderType,
     cookingStartMs,
     pickupSlotMs,
-    order.createdAt, order.estimatedPrepTime, order.pickupTime,
-    // Use typed optional fields from Order — readyAt and completedAt
-    // are declared on the Order interface so no cast needed.
-    order.readyAt,
-    // pickupDeadlineAt and expressPickupSlotMs are not on the Order type —
-    // read via the already-resolved pickupSlotMs which covers both cases,
-    // since toFrontendOrder merges expressPickupSlotMs into pickupSlotMs.
+    // Use primitive ms values instead of Date objects to avoid
+    // re-running memo on every poll when reference changes but value doesn't
+    order.createdAt instanceof Date ? order.createdAt.getTime() : order.createdAt,
+    order.estimatedPrepTime, order.pickupTime,
+    order.readyAt instanceof Date ? order.readyAt.getTime() : order.readyAt,
+    order.startedAt instanceof Date ? order.startedAt.getTime() : order.startedAt,
+    order.assignedChefId,
     sla,
   ]);
 }

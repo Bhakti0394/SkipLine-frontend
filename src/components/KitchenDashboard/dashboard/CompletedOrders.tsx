@@ -181,16 +181,15 @@ const prevLengthRef = useRef(orders.length);
 useEffect(() => {
   const prevLen = prevLengthRef.current;
   prevLengthRef.current = orders.length;
-  if (orders.length < prevLen) {
-    setOpenId(prev => {
-      if (prev === null) return null;
-      const stillInOrders = orders.some(o => o.id === prev);
-      if (!stillInOrders) return null;
-      const stillInList = listRef.current.some(o => o.id === prev);
-      return stillInList ? prev : null;
-    });
-  }
-}, [orders]);
+  // Check both order removal AND filter changes (list may shrink without orders changing)
+  setOpenId(prev => {
+    if (prev === null) return null;
+    const stillInOrders = orders.some(o => o.id === prev);
+    if (!stillInOrders) return null;
+    const stillInList = listRef.current.some(o => o.id === prev);
+    return stillInList ? prev : null;
+  });
+}, [orders, list]); // list dep catches filter/search/sort changes
    return (
     <div className="co-panel">
 

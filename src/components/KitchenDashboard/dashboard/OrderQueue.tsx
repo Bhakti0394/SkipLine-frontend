@@ -15,6 +15,7 @@ interface OrderQueueProps {
   upcomingSlots?: SlotCapacityDto[];
   onStatusChange: (orderId: string, status: OrderStatus) => Promise<void>;
   onAssignChef?:  (orderId: string, chefId: string) => Promise<void>;
+  searchQuery?:   string;
 }
 
 // -- helpers --
@@ -58,12 +59,26 @@ function getQueueUrgency(order: Order): QueueUrgency {
 }
 
 // -- Attention card --
+// AFTER — add the guard after the function signature, before any hooks:
 function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
   order:          Order;
   staff:          StaffWorkloadDto[];
   onStatusChange: (id: string, status: OrderStatus) => Promise<void>;
   onAssignChef?:  (id: string, chefId: string) => Promise<void>;
 }) {
+  // Scheduled pending orders without a chef are intentionally locked until
+  // their prep window opens — they must never appear in the attention queue.
+  // attentionOrders already filters them out, but guard here defensively so
+  // any future caller change cannot accidentally render this card for them.
+  if (
+    order.orderType === 'scheduled' &&
+    order.status === 'pending' &&
+    !order.assignedTo &&
+    !order.assignedChefId
+  ) {
+    return null;
+  }
+
   const [selected,  setSelected]  = useState('');
   const [assigning, setAssigning] = useState(false);
   const [assignErr, setAssignErr] = useState<string | null>(null);
@@ -85,11 +100,8 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
     && order.estimatedPrepTime != null
     && order.elapsedMinutes > order.estimatedPrepTime;
 
-  const isScheduledLocked = order.orderType === 'scheduled'
-    && order.status === 'pending'
-    && !order.assignedTo;
-
-  const isUnassigned   = !order.assignedTo && order.status === 'pending';
+// AFTER — remove isScheduledLocked entirely, keep isUnassigned:
+  const isUnassigned = !order.assignedTo && !order.assignedChefId && order.status === 'pending';
   const delayMin       = isOverdue
     ? Math.round((order.elapsedMinutes ?? 0) - (order.estimatedPrepTime ?? 0))
     : 0;
@@ -135,12 +147,10 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
           <span className={`oq-card__type oq-card__type--${order.orderType}`}>
             {orderTypeEmoji} {order.orderType}
           </span>
-        </div>
+</div>
         <span className={`oq-card__badge oq-card__badge--${cardMod}`}>
           {isOverdue
             ? `+${delayMin}m overdue`
-            : isScheduledLocked
-            ? 'Pre-booked — assign chef'
             : urgency !== 'normal' && urgencyLabel
             ? urgencyLabel
             : 'Unassigned'}
@@ -254,53 +264,70 @@ export function OrderQueue({
   upcomingSlots = [],
   onStatusChange,
   onAssignChef,
+  searchQuery = '',
 }: OrderQueueProps) {
-  const activeOrders = useMemo(() => orders.filter(o => o.status !== 'completed'), [orders]);
-
- // AFTER — correct, self-contained:
-const attentionOrders = useMemo(() => {
-  const nowMs = Date.now();
-  const overdue = activeOrders.filter(o => {
-    if (o.status !== 'cooking') return false;
-    const startedAt = (o as any).startedAt;
-    if (startedAt && o.estimatedPrepTime > 0) {
-      const startMs = startedAt instanceof Date
-        ? startedAt.getTime()
-        : new Date(startedAt).getTime();
-      const liveElapsedMin = (nowMs - startMs) / 60_000;
-      return liveElapsedMin > o.estimatedPrepTime;
-    }
-    return (
-      o.elapsedMinutes != null &&
-      o.estimatedPrepTime != null &&
-      o.elapsedMinutes > o.estimatedPrepTime
+const activeOrders = useMemo(() => {
+    const all = orders.filter(o => o.status !== 'completed');
+    if (!searchQuery.trim()) return all;
+    const q = searchQuery.toLowerCase().trim();
+    return all.filter(o =>
+      o.orderNumber.toLowerCase().includes(q) ||
+      o.customerName.toLowerCase().includes(q) ||
+      o.items.some(i => i.name.toLowerCase().includes(q)) ||
+      (o.assignedTo ?? '').toLowerCase().includes(q)
     );
-  });
+  }, [orders, searchQuery]);
 
-  const unassigned = activeOrders
-    .filter(o => o.status === 'pending' && !o.assignedTo && o.orderType !== 'scheduled')
-    .sort((a, b) => {
-      // Sort by urgency first: critical → warning → normal
-      const urgencyRank: Record<QueueUrgency, number> = { critical: 0, warning: 1, normal: 2 };
-      const uDiff = urgencyRank[getQueueUrgency(a)] - urgencyRank[getQueueUrgency(b)];
-      if (uDiff !== 0) return uDiff;
-      // Then express before normal
-      const w = (a.orderType === 'express' ? 0 : 1) - (b.orderType === 'express' ? 0 : 1);
-      if (w !== 0) return w;
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    });
-
-  return [...overdue, ...unassigned];
-}, [activeOrders]);                   // ← closing was missing
-
-  const expressQueued  = useMemo(() => activeOrders.filter(o => o.orderType === 'express' && o.status === 'pending').length, [activeOrders]);
-  const activeChefs    = useMemo(() => staff.filter(s => s.onShift), [staff]);
-  const availableChefs = useMemo(() => activeChefs.filter(s => s.status !== 'full').length, [activeChefs]);
+  // tick must be declared before any useMemo that depends on it
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 60_000);
+    // 30s tick so overdue recalculation is never more than 30s stale
+    const id = setInterval(() => setTick(t => t + 1), 30_000);
     return () => clearInterval(id);
   }, []);
+
+  const attentionOrders = useMemo(() => {
+    const nowMs = Date.now();
+
+    const overdue = activeOrders.filter(o => {
+      if (o.status !== 'cooking') return false;
+      if (
+        o.orderType === 'scheduled' &&
+        o.scheduledCookAt &&
+        o.scheduledCookAt.getTime() > Date.now()
+      ) return false;
+      const startedAt = (o as any).startedAt;
+      if (startedAt && o.estimatedPrepTime > 0) {
+        const startMs = startedAt instanceof Date
+          ? startedAt.getTime()
+          : new Date(startedAt).getTime();
+        const liveElapsedMin = (nowMs - startMs) / 60_000;
+        return liveElapsedMin > o.estimatedPrepTime;
+      }
+      return (
+        o.elapsedMinutes != null &&
+        o.estimatedPrepTime != null &&
+        o.elapsedMinutes > o.estimatedPrepTime
+      );
+    });
+
+    const unassigned = activeOrders
+      .filter(o => o.status === 'pending' && !o.assignedTo && o.orderType !== 'scheduled')
+      .sort((a, b) => {
+        const urgencyRank: Record<QueueUrgency, number> = { critical: 0, warning: 1, normal: 2 };
+        const uDiff = urgencyRank[getQueueUrgency(a)] - urgencyRank[getQueueUrgency(b)];
+        if (uDiff !== 0) return uDiff;
+        const w = (a.orderType === 'express' ? 0 : 1) - (b.orderType === 'express' ? 0 : 1);
+        if (w !== 0) return w;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
+
+    return [...overdue, ...unassigned];
+  }, [activeOrders, tick]);
+
+ const expressQueued  = useMemo(() => activeOrders.filter(o => o.orderType === 'express' && o.status === 'pending').length, [activeOrders]);
+  const activeChefs    = useMemo(() => staff.filter(s => s.onShift), [staff]);
+  const availableChefs = useMemo(() => activeChefs.filter(s => s.status !== 'full').length, [activeChefs]);
 
   const timelineSlots = useMemo(() => {
     const now = Date.now();

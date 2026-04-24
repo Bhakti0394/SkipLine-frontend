@@ -104,7 +104,11 @@ function OrderTypeBadge({ orderType }: { orderType: OrderType }) {
   );
 }
 
-function ScheduledLockBadge() {
+function ScheduledLockBadge({ scheduledCookAt }: { scheduledCookAt?: Date | null }) {
+  const timeLabel = scheduledCookAt
+    ? scheduledCookAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })
+    : null;
+
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: '0.22rem',
@@ -114,30 +118,51 @@ function ScheduledLockBadge() {
       background: 'rgba(16,185,129,0.08)',
       border: '1px solid rgba(16,185,129,0.25)', color: '#6ee7b7',
       whiteSpace: 'nowrap' as const, flexShrink: 0, userSelect: 'none' as const,
-    }}>
+    }}
+    title={timeLabel ? `Cook window opens at ${timeLabel}` : 'Pre-booked scheduled order'}
+    >
       <Lock style={{ width: '0.55rem', height: '0.55rem', flexShrink: 0 }} />
-      Pre-booked
+      {timeLabel ? `Scheduled · ${timeLabel}` : 'Pre-booked'}
     </span>
   );
 }
 
-function ScheduledInfoBanner({ pickupTime }: { pickupTime: string }) {
-  const pickupLabel = (!pickupTime || pickupTime === 'TBD' || pickupTime === '—')
+function ScheduledInfoBanner({ pickupTime, scheduledCookAt }: { 
+  pickupTime: string;
+  scheduledCookAt?: Date | null;
+}) {
+  const pickupLabel = (!pickupTime || pickupTime === 'TBD' || pickupTime === 'ASAP')
     ? 'tomorrow'
     : pickupTime;
+
+  const unlockLabel = scheduledCookAt
+    ? scheduledCookAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })
+    : null;
 
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: '0.4rem',
       padding: '0.35rem 0.5rem', borderRadius: '0.375rem',
       background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.20)',
-      fontSize: '0.64rem', color: 'rgba(110,231,183,0.75)', lineHeight: 1.4,
+      fontSize: '0.64rem', color: 'rgba(110,231,183,0.75)', lineHeight: 1.5,
+      flexDirection: 'column',
     }}>
-      <Calendar style={{ width: '0.7rem', height: '0.7rem', flexShrink: 0, marginTop: '0.05rem' }} />
-      <span>
-        Pre-booked for <strong style={{ color: '#6ee7b7' }}>{pickupLabel}</strong>.
-        Assign a chef to release into cooking.
-      </span>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem' }}>
+        <Calendar style={{ width: '0.7rem', height: '0.7rem', flexShrink: 0, marginTop: '0.05rem' }} />
+        <span>
+          Scheduled pickup: <strong style={{ color: '#6ee7b7' }}>{pickupLabel}</strong>
+        </span>
+      </div>
+      {unlockLabel && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', paddingLeft: '1.1rem' }}>
+          <span style={{ color: 'rgba(110,231,183,0.55)' }}>
+            🔓 Cook window opens at <strong style={{ color: '#6ee7b7' }}>{unlockLabel}</strong>
+          </span>
+        </div>
+      )}
+      <div style={{ paddingLeft: '1.1rem', color: 'rgba(110,231,183,0.55)' }}>
+        ✓ Chef can be pre-assigned now — order releases automatically at cook window
+      </div>
     </div>
   );
 }
@@ -145,7 +170,6 @@ function ScheduledInfoBanner({ pickupTime }: { pickupTime: string }) {
 // ── CookingState ───────────────────────────────────────────────────────────────
 
 type CookingState = 'cooking' | 'overdue';
-
 const COOKING_CARD_STYLE: Record<CookingState, React.CSSProperties> = {
   cooking: {
     background:  'rgba(245,158,11,0.06)',
@@ -202,10 +226,10 @@ function CookingCardInner({
 
   const hasChef = !!(order.assignedChefId || order.assignedTo);
 
-  const isStillCooking  = !isOverdue && eta > 0;
-  const isButtonBlocked = isPending || !hasChef || isStillCooking;
+const isEarlyOverride = hasChef && eta > 0 && !isOverdue; // chef override: timer running but staff wants to mark ready
+const isButtonBlocked = isPending || !hasChef;            // only hard-block: pending API or no chef
 
-  const btnStyle: React.CSSProperties = (() => {
+const btnStyle: React.CSSProperties = (() => {
     if (isPending) return {
       background: 'rgba(100,116,139,0.12)',
       color:      'rgba(148,163,184,0.50)',
@@ -218,11 +242,11 @@ function CookingCardInner({
       border:     '1px solid rgba(239,68,68,0.20)',
       fontWeight: 600, cursor: 'not-allowed',
     };
-    if (isStillCooking) return {
-      background: 'rgba(100,116,139,0.10)',
-      color:      'rgba(148,163,184,0.40)',
-      border:     '1px solid rgba(100,116,139,0.15)',
-      fontWeight: 600, cursor: 'not-allowed',
+    if (isEarlyOverride) return {
+      background: 'rgba(245,158,11,0.15)',
+      color:      '#fbbf24',
+      border:     '1px solid rgba(245,158,11,0.40)',
+      fontWeight: 600, cursor: 'pointer',
     };
     return {
       background: '#dc2626',
@@ -234,13 +258,13 @@ function CookingCardInner({
     };
   })();
 
-  const btnLabel = isPending
+const btnLabel = isPending
     ? 'Updating…'
     : !hasChef
-    ? '⚠ Assign a chef first'
-    : isStillCooking
-    ? `⏳ Cooking… wait for timer`
-    : '⚠ Mark Ready Now';
+    ? '⚠  Assign a chef first'
+    : isEarlyOverride
+    ? `⚡ Override Ready (${Math.ceil(eta / 60)}m left)`
+    : '⚠  Mark Ready Now';
 
   return (
     <div
@@ -390,8 +414,14 @@ function CookingCardInner({
       <OrderTimer order={order} />
 
       {/* Row 6: Mark Ready button */}
-      <button
-        title={!hasChef ? 'Assign a chef before marking ready' : undefined}
+    <button
+        title={
+          !hasChef
+            ? 'Assign a chef before marking ready'
+            : isEarlyOverride
+            ? `Chef override — mark ready before timer ends (${Math.ceil(eta / 60)}m remaining)`
+            : undefined
+        }
         style={{
           width:          '100%',
           padding:        '0.38rem 0',
@@ -532,19 +562,28 @@ export function KanbanBoard({
   const safeOrders = orders ?? [];
 
   // ── Refs — all grouped at the top ───────────────────────────────────────────
-const pendingIdsRef        = useRef<Set<string>>(new Set());
-  const pendingTimersRef     = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const ordersRef            = useRef(safeOrders);
-  const cookingStateRef      = useRef<Record<string, CookingState>>({});
- const autoAdvanceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-const uncollectedTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+// ── Refs — all grouped at the top ───────────────────────────────────────────
+  const pendingIdsRef          = useRef<Set<string>>(new Set());
+  const pendingTimersRef       = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const ordersRef              = useRef(safeOrders);
+  const cookingStateRef        = useRef<Record<string, CookingState>>({});
+  const autoAdvanceTimersRef   = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const uncollectedTimersRef   = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Race guard — prevents double-completion between uncollected timer (15min)
+  // and useKitchenBoard scheduleAutoComplete (20s). Whichever fires second
+  // sees the id already in this set and exits without calling onStatusChange.
+  const completingOrderIds     = useRef<Set<string>>(new Set());
+  // Tracks startedAt per cooking order — when startedAt arrives late from
+  // backend poll, the stale-startedAt useEffect clears the existing timer
+  // so the auto-advance useEffect recreates it with the correct remaining time.
+  const startedAtMapRef        = useRef<Record<string, number>>({});
   // ── State ────────────────────────────────────────────────────────────────────
   const [pendingOrderIds, setPendingOrderIds] = useState<Set<string>>(new Set());
   const [draggingOrder,   setDraggingOrder]   = useState<Order | null>(null);
 
   // ── Keep ordersRef current ───────────────────────────────────────────────────
+// ── Keep ordersRef current ───────────────────────────────────────────────────
   useEffect(() => { ordersRef.current = safeOrders; }, [safeOrders]);
-
   // ── Inject keyframe CSS once ─────────────────────────────────────────────────
   // FIX: moved before all other useEffects so hook call order is consistent
 useEffect(() => {
@@ -595,6 +634,7 @@ useEffect(() => {
   }, []);
 
   // Clean up pending state for orders that have left the board
+// Clean up pending state and completingOrderIds for orders that have left the board
   useEffect(() => {
     const orderIdSet = new Set(safeOrders.map(o => o.id));
     let changed = false;
@@ -609,6 +649,11 @@ useEffect(() => {
       }
     }
     if (changed) setPendingOrderIds(new Set(pendingIdsRef.current));
+
+    // Prune completingOrderIds for orders no longer on board
+    for (const id of completingOrderIds.current) {
+      if (!orderIdSet.has(id)) completingOrderIds.current.delete(id);
+    }
   }, [safeOrders]);
 
   // Clean up all pending timers on unmount
@@ -743,46 +788,89 @@ const handleDragStart = useCallback((start: DragStart) => {
   // Runs regardless of isSimulating — real kitchen orders must always progress.
   // isSimulating only gates new order injection, never order lifecycle timers.
   // Speed multiplier applied: fast (2x) halves cook time, slow (0.5x) doubles it.
-  useEffect(() => {
-    const timerMap = autoAdvanceTimersRef.current;
-    const cookingOrders = safeOrders.filter(o => o.status === 'cooking');
-    const currentIds    = new Set(cookingOrders.map(o => o.id));
 
-    // Clear timers for orders no longer in cooking
-    for (const id of Object.keys(timerMap)) {
-      if (!currentIds.has(id)) {
-        clearTimeout(timerMap[id]);
-        delete timerMap[id];
-      }
+// Track startedAt per order so we reset auto-advance timer when it arrives from poll
+// Merged: handle startedAt changes AND timer creation in one effect
+// prevents the two-effect race where both run on same render cycle
+useEffect(() => {
+  const timerMap = autoAdvanceTimersRef.current;
+  const cookingOrders = safeOrders.filter(o => o.status === 'cooking');
+  const currentIds = new Set(cookingOrders.map(o => o.id));
+
+  // Clear timers for orders no longer cooking
+  for (const id of Object.keys(timerMap)) {
+    if (!currentIds.has(id)) {
+      clearTimeout(timerMap[id]);
+      delete timerMap[id];
     }
+  }
 
-    for (const order of cookingOrders) {
-      if (timerMap[order.id]) continue;
-      if (!(order.assignedChefId || order.assignedTo)) continue;
-      const prepMs = (order.estimatedPrepTime ?? 0) * 60_000;
-      if (prepMs <= 0) continue;
-      if (!order.startedAt) continue;
+  for (const order of cookingOrders) {
+    const newStartedAt = order.startedAt?.getTime() ?? null;
+    const prevStartedAt = startedAtMapRef.current[order.id] ?? null;
 
-      // Apply speed multiplier — fast mode (2x) makes dishes cook in half the time.
-      // Read from ref so speed changes mid-cook take effect on the next timer.
-      const speedMultiplier = COOK_SPEED_MULTIPLIERS[simulationSpeedRef?.current ?? 'normal'];
-      const scaledPrepMs    = prepMs / speedMultiplier;
-
-      const startedAt  = order.startedAt.getTime();
-      const remaining  = Math.max(0, startedAt + scaledPrepMs - Date.now());
-
-      if (remaining <= 0) continue;
-      timerMap[order.id] = setTimeout(async () => {
+    // If startedAt changed (late arrival from poll), clear existing timer
+    // so we recreate it with the correct remaining time
+    if (newStartedAt !== null && newStartedAt !== prevStartedAt) {
+      if (timerMap[order.id]) {
+        clearTimeout(timerMap[order.id]);
         delete timerMap[order.id];
-        toast.info(`Auto-advancing ${order.orderNumber} to Ready`, {
-          description: `Prep time elapsed (${simulationSpeedRef?.current ?? 'normal'} speed).`,
-          duration: 3000,
-        });
-        try { await onStatusChange(order.id, 'ready'); } catch { /* onStatusChange handles errors */ }
-      }, remaining);
+      }
+      startedAtMapRef.current[order.id] = newStartedAt;
     }
-  }, [safeOrders, onStatusChange, simulationSpeedRef]);
 
+    // Skip if timer already running and startedAt hasn't changed
+    if (timerMap[order.id]) continue;
+
+    if (!(order.assignedChefId || order.assignedTo)) continue;
+
+    const prepMs = (order.estimatedPrepTime ?? 0) * 60_000;
+    if (prepMs <= 0) continue;
+
+    if (!order.startedAt) continue;
+
+  const speedMultiplier = COOK_SPEED_MULTIPLIERS[simulationSpeedRef?.current ?? 'normal'];
+    const scaledPrepMs = prepMs / speedMultiplier;
+    const startedAt = order.startedAt.getTime();
+    const remaining = Math.max(0, startedAt + scaledPrepMs - Date.now());
+
+    if (remaining <= 0) continue;
+
+    const orderId = order.id;
+    const orderNumber = order.orderNumber;
+    // Capture speed at timer-creation time so the toast label is accurate
+    // even if simulationSpeedRef changes before the timeout fires.
+    const capturedSpeed = simulationSpeedRef?.current ?? 'normal';
+
+    timerMap[orderId] = setTimeout(async () => {
+      delete timerMap[orderId];
+
+      const liveOrder = ordersRef.current.find(o => o.id === orderId);
+      if (!liveOrder || liveOrder.status !== 'cooking') return;
+
+      if (!(liveOrder.assignedChefId || liveOrder.assignedTo)) {
+        toast.warning(`⚠ Cannot auto-advance ${orderNumber}`, {
+          description: 'Chef was unassigned before prep time elapsed.',
+          duration: 4000,
+        });
+        return;
+      }
+
+      toast.info(`Auto-advancing ${orderNumber} to Ready`, {
+        description: `Prep time elapsed (${capturedSpeed} speed).`,
+        duration: 3000,
+      });
+      try { await onStatusChange(orderId, 'ready'); } catch { /* onStatusChange handles errors */ }
+    }, remaining);
+  }
+
+  // Prune startedAtMap for orders no longer on board
+  for (const id of Object.keys(startedAtMapRef.current)) {
+    if (!safeOrders.find(o => o.id === id)) {
+      delete startedAtMapRef.current[id];
+    }
+  }
+}, [safeOrders, onStatusChange, simulationSpeedRef]);
     // Clean up auto-advance timers on unmount
   useEffect(() => {
     return () => {
@@ -818,23 +906,29 @@ useEffect(() => {
     const delay   = Math.max(0, fireAt - Date.now());
 
     timerMap[order.id] = setTimeout(async () => {
-      delete timerMap[order.id];
-      // Confirm still Ready before auto-completing
-      const stillReady = ordersRef.current.find(
-        o => o.id === order.id
-      )?.status === 'ready';
-      if (!stillReady) return;
+  delete timerMap[order.id];
 
-      toast.warning(`⏰ Uncollected: ${order.orderNumber}`, {
-        description: 'Auto-completing — customer did not collect.',
-        duration: 4000,
-      });
-      try {
-        await onStatusChange(order.id, 'completed');
-      } catch {
-        // onStatusChange handles errors internally
-      }
-    }, delay);
+  const liveOrder = ordersRef.current.find(o => o.id === order.id);
+  if (!liveOrder || liveOrder.status !== 'ready') return;
+// Guard: re-check live status from ordersRef — if 20s auto-complete
+  // (useKitchenBoard) already fired, status will be 'completed' here.
+  // The liveOrder status check above is the real guard between the two
+  // separate timer systems — completingOrderIds only guards within KanbanBoard.
+  if (completingOrderIds.current.has(order.id)) return;
+  completingOrderIds.current.add(order.id);
+
+  toast.warning(`⏰ Uncollected: ${order.orderNumber}`, {
+    description: 'Auto-completing — customer did not collect.',
+    duration: 4000,
+  });
+  try {
+    await onStatusChange(order.id, 'completed');
+  } catch {
+    // onStatusChange handles errors internally
+  } finally {
+    completingOrderIds.current.delete(order.id);
+  }
+}, delay);
   }
 }, [safeOrders, onStatusChange]);
 
@@ -1115,7 +1209,7 @@ useEffect(() => {
                                       {order.orderNumber}
                                     </span>
                                     <OrderTypeBadge orderType={order.orderType ?? 'normal'} />
-                                    {scheduledLocked && <ScheduledLockBadge />}
+                                   {scheduledLocked && <ScheduledLockBadge scheduledCookAt={order.scheduledCookAt} />}
                                   </div>
                                  <div className="order-card__meta">
   {/* Pending queue cards have no active cook timer */}
@@ -1140,9 +1234,12 @@ useEffect(() => {
                                   )}
                                 </div>
 
-                                {scheduledLocked && (
-                                  <ScheduledInfoBanner pickupTime={order.pickupTime} />
-                                )}
+                              {scheduledLocked && (
+  <ScheduledInfoBanner 
+    pickupTime={order.pickupTime} 
+    scheduledCookAt={order.scheduledCookAt}
+  />
+)}
 
                                 <div className="order-card__items">
                                   {order.items.slice(0, 2).map((item) => (
