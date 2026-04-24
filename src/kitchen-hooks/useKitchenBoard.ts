@@ -338,6 +338,11 @@ const isKitchen    = isKitchenRef.current;
 
   // ── end role guard ────────────────────────────────────────────────────────
 
+  // Guard ref — prevents double-completion race between scheduleAutoComplete
+  // (20s timer) and KanbanBoard uncollected timer (15min). Both check this
+  // before firing PATCH /completed — whichever fires second is a no-op.
+  const completingOrderIdsRef = useRef<Set<string>>(new Set());
+
   const [boardData, setBoardData]             = useState<KanbanBoardResponse | null>(null);
   const [orders, setOrders]                   = useState<Order[]>([]);
   const [completedOrders, setCompletedOrders] = useState<Order[]>([]);
@@ -516,6 +521,17 @@ setCompletedOrders(
     return () => clearInterval(id);
   }, [loadBoard, pollingIntervalMs, isKitchen]);
 
+useEffect(() => {
+  return () => {
+    for (const id of Object.keys(autoCompleteRefs.current)) {
+      const e = autoCompleteRefs.current[id];
+      clearTimeout(e.timeout);
+      clearInterval(e.interval);
+    }
+    autoCompleteRefs.current = {};
+    completingOrderIdsRef.current.clear();
+  };
+}, []);
   // ── Auto-complete timers ─────────────────────────────────────────────────
 
   const cancelAutoComplete = useCallback((orderId: string) => {
@@ -548,19 +564,47 @@ const scheduleAutoComplete = useCallback((order: Order) => {
 const timeout = setTimeout(async () => {
   delete autoCompleteRefs.current[order.id];
   clearInterval(interval);
+  // Clear the countdown badge — whether we succeed or fail,
+  // a stuck "0s" badge is always worse than no badge.
   setReadyCountdowns(prev => { const n = { ...prev }; delete n[order.id]; return n; });
 
-  const stillReady = ordersRef.current.find(o => o.id === order.id)?.status === 'ready';
-  if (!stillReady) return;
+  const liveOrder = ordersRef.current.find(o => o.id === order.id);
+
+  // Order already completed by uncollected timer or manual action — skip
+  if (!liveOrder || liveOrder.status !== 'ready') return;
+
+  // Guard against concurrent completion (uncollected timer race)
+  if (completingOrderIdsRef.current.has(order.id)) return;
+  completingOrderIdsRef.current.add(order.id);
 
   try {
     await changeOrderStatus(order.id, 'COMPLETED');
     await loadBoard();
   } catch (err: any) {
     console.warn(`[scheduleAutoComplete] Failed to complete order ${order.id}:`, err?.message ?? err);
-    try { await loadBoard(); } catch (boardErr: any) {
-      console.error(`[scheduleAutoComplete] loadBoard also failed for order ${order.id}:`, boardErr?.message ?? boardErr);
+    // On failure: reschedule a fresh auto-complete attempt after a short
+    // back-off so the order doesn't stay in Ready forever.
+    // Only retry if the order is still in Ready state (not completed by
+    // another path while we were waiting for the backend).
+ const retryOrder = ordersRef.current.find(o => o.id === order.id);
+    const retryCount = (order as any).__retryCount ?? 0;
+    const MAX_RETRIES = 3;
+    if (retryOrder && retryOrder.status === 'ready' && retryCount < MAX_RETRIES) {
+      console.info(`[scheduleAutoComplete] Retrying order ${order.id} in 10s (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+      setTimeout(() => {
+        const stillReady = ordersRef.current.find(o => o.id === order.id);
+        if (stillReady && stillReady.status === 'ready') {
+          scheduleAutoComplete({ ...stillReady, __retryCount: retryCount + 1 } as any);
+        }
+      }, 10_000);
+    } else if (retryCount >= MAX_RETRIES) {
+      console.warn(`[scheduleAutoComplete] Max retries reached for order ${order.id} — giving up`);
     }
+    try { await loadBoard(); } catch (boardErr: any) {
+      console.error(`[scheduleAutoComplete] loadBoard also failed:`, boardErr?.message ?? boardErr);
+    }
+  } finally {
+    completingOrderIdsRef.current.delete(order.id);
   }
 }, AUTO_COMPLETE_DELAY_MS);
 
@@ -574,23 +618,14 @@ const timeout = setTimeout(async () => {
 // Sim off only pauses injection. Existing ready orders must always drain
 // so the kitchen never freezes regardless of simulation state.
 useEffect(() => {
-  for (const order of ordersRef.current) {
+  for (const order of orders) {
     if (order.status === 'ready' && !autoCompleteRefs.current[order.id]) {
       scheduleAutoComplete(order);
     }
   }
 }, [orders, scheduleAutoComplete]);
 
-  useEffect(() => {
-    return () => {
-      for (const id of Object.keys(autoCompleteRefs.current)) {
-        const e = autoCompleteRefs.current[id];
-        clearTimeout(e.timeout);
-        clearInterval(e.interval);
-      }
-      autoCompleteRefs.current = {};
-    };
-  }, []);
+
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -608,8 +643,8 @@ const updateOrderStatus = useCallback(async (
     throw new Error(`Illegal transition: ${fromBackend} → ${toBackend}`);
   }
 
-  if (toBackend === 'COMPLETED') cancelAutoComplete(orderId);
-
+ // Only cancel after successful completion, not before
+// cancelAutoComplete moved to after successful API call below
   // Optimistic update — capture snapshot via functional updater to avoid stale ref
 // Capture snapshot from ref (always current) before optimistic update.
   // Avoid side-effects inside setState updater — React StrictMode
@@ -626,8 +661,9 @@ setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } :
 
 statusUpdateInFlightRef.current = true;
 try {
-  await changeOrderStatus(orderId, toBackend);
-  await loadBoard();
+ await changeOrderStatus(orderId, toBackend);
+if (toBackend === 'COMPLETED') cancelAutoComplete(orderId);
+await loadBoard();
 } catch (err: any) {
     const msg = (err.message ?? '').toLowerCase();
     const alreadyThere =
@@ -663,12 +699,21 @@ const assignChef = useCallback(async (orderId: string, chefId: string) => {
     try {
       await assignChefApi(orderId, chefId);
     } catch (err: any) {
-      if (!statusUpdateInFlightRef.current) await loadBoard();
+      // Always reload on error so the board reflects true server state,
+      // even if a status update is in-flight — the assignment failed and
+      // the operator needs to see the real state immediately.
+      await loadBoard();
       throw err;
     }
-    if (!statusUpdateInFlightRef.current) {
-      await loadBoard();
-    }
+    // Always reload after successful assignment regardless of whether a
+    // status update is in-flight. The previous guard skipped the reload
+    // when statusUpdateInFlightRef was true, meaning chef assignment was
+    // silently not reflected until the next 10s poll cycle.
+    //
+    // loadBoard() is safe to call concurrently — it uses abortRef to cancel
+    // any in-flight request and pendingReloadRef to queue if one is already
+    // running, so double-calling is always a no-op or a clean re-queue.
+    await loadBoard();
   }, [loadBoard]);
 
   const addOrder = useCallback(async (orderRef: string, menuItemIds: string[]): Promise<string> => {
@@ -698,10 +743,12 @@ const assignChef = useCallback(async (orderId: string, chefId: string) => {
     if (tierMsg) setSimulationError(tierMsg);
     else setSimulationError(null);
 
+// AFTER:
     if (tier === 'stopped') {
-      // Kitchen full — skip injection this tick entirely.
-      // Do NOT call setIsSimulating(false) — sim stays alive so timers drain.
-      // Auto-resume: next tick will re-check capacity and inject if space freed.
+      // Kitchen full — skip new injection this tick entirely.
+      // simulateAdvance() still fires so existing COOKING→READY→COMPLETED
+      // transitions drain normally and free up slots for the next tick.
+      // Do NOT call setIsSimulating(false) — sim stays alive for auto-resume.
       try { await simulateAdvance(); } catch { /* best-effort — drain existing orders */ }
       await new Promise(r => setTimeout(r, 300));
       await loadBoard();
@@ -713,13 +760,12 @@ const assignChef = useCallback(async (orderId: string, chefId: string) => {
     if (tier === 'half'    && Math.random() > 0.5) return;
     if (tier === 'quarter' && Math.random() > 0.25) return;
 
-    setIsSimTriggerPending(true);
+setIsSimTriggerPending(true);
     try {
       const slots: SlotCapacityDto[] = boardDataRef.current?.upcomingSlots ?? [];
       const result: SimulationResult = await triggerSimulation(1, currentMenuItems, slots);
       if (result.rejected > 0 && result.reason) {
         setSimulationError(result.reason);
-        // Never stop sim on rejection — just report and continue next tick
       } else if (!tierMsg) {
         setSimulationError(null);
       }

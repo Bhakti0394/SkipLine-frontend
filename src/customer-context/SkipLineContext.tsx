@@ -138,7 +138,7 @@ function dtoToOrder(dto: CustomerOrderDto): Order {
     ? dto.itemSummary.map(s => s.replace(/^\d+x\s*/, '')).join(', ')
     : dto.orderRef;
 
- const statusMap: Record<string, Order['status']> = {
+const statusMap: Record<string, Order['status']> = {
   pending:   'confirmed',
   confirmed: 'confirmed',
   preparing: 'cooking',
@@ -147,7 +147,6 @@ function dtoToOrder(dto: CustomerOrderDto): Order {
   completed: 'completed',
   cancelled: 'cancelled',
 };
-
 
   return {
     id:                   dto.id,
@@ -242,22 +241,22 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
   const sseUnsubscribers = useRef<Map<string, () => void>>(new Map());
   // -- SSE status handler --
 const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string) => {
-   const statusMap: Record<string, Order['status']> = {
+ const statusMap: Record<string, Order['status']> = {
   pending:   'confirmed',
   confirmed: 'confirmed',
-  preparing: 'cooking',    // ← ADD: backend 'preparing' maps to cooking visually
+  preparing: 'cooking',
   cooking:   'cooking',
   ready:     'ready',
   completed: 'completed',
   cancelled: 'cancelled',
 };
-    const mapped = statusMap[rawStatus] ?? 'confirmed';
+    const mappedStatus = statusMap[rawStatus.toLowerCase()] ?? 'confirmed';
 
-    if (TERMINAL_STATUSES.has(rawStatus)) {
+  if (TERMINAL_STATUSES.has(rawStatus.toLowerCase())) {
       sseUnsubscribers.current.get(orderId)?.();
       sseUnsubscribers.current.delete(orderId);
 
-      if (rawStatus === 'completed') {
+if (rawStatus.toLowerCase() === 'completed') {
         setOrders(prev => {
           const order = prev.find(o => o.id === orderId);
           if (order) {
@@ -282,8 +281,8 @@ const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string
     } else {
       setOrders(prev => {
         const order = prev.find(o => o.id === orderId);
-        if (!order || order.status === mapped) return prev;
-        return prev.map(o => o.id === orderId ? { ...o, status: mapped } : o);
+if (!order || order.status === mappedStatus) return prev;
+        return prev.map(o => o.id === orderId ? { ...o, status: mappedStatus } : o);
       });
     }
 
@@ -301,16 +300,19 @@ const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string
       confirmed: 'Your order is confirmed and in the queue.',
       cancelled: 'Your order has been cancelled.',
     };
+const notifType =
+      rawStatus === 'ready'     ? 'order_ready'   :
+      rawStatus === 'cooking'   ? 'order_cooking' :
+      rawStatus === 'cancelled' ? 'warning'       : 'order_confirmed';
+
     window.dispatchEvent(new CustomEvent('order-status-changed', {
       detail: {
         title:   statusTitles[rawStatus]   ?? `Order ${rawStatus}`,
         message: statusMessages[rawStatus] ?? `Status updated to ${rawStatus}.`,
-        type:    rawStatus === 'ready'
-          ? 'order_ready'
-          : rawStatus === 'cooking' ? 'order_cooking' : 'order_confirmed',
+        type:    notifType,
         orderId,
       },
-    }));  }, []);    
+    })); }, []);    
 
   const startPollingFallback = useCallback((orderId: string) => {
     const interval = setInterval(async () => {
@@ -446,7 +448,7 @@ Promise.allSettled([
 
 ]).finally(() => setLoading(false));
 
-}, [user, authLoading]);// ← fires after ALL three settle regardless of outcome  }, [user, authLoading]);
+}, [user, authLoading]);
 
   // -- Persist to localStorage --
   useEffect(() => {

@@ -171,8 +171,7 @@ const abortRef      = useRef<AbortController | null>(null);
   // ── updateStock ───────────────────────────────────────────────────────────
   // Optimistic update — rollback on error
 
-  const updateStock = useCallback(async (itemId: string, newStock: number) => {
-    // Capture snapshot via ref read — never stale regardless of concurrent calls
+const updateStock = useCallback(async (itemId: string, newStock: number) => {
     const prev = inventoryRef.current.find(i => i.id === itemId);
     if (!prev) return;
 
@@ -262,27 +261,39 @@ const deleteInventoryItem = useCallback(async (itemId: string) => {
   }, [generateAlerts]);
 
   // ── consumeForOrder (local best-effort — backend syncs on next poll) ──────
-
-  const consumeForOrder = useCallback((order: Order) => {
+const consumeForOrder = useCallback((order: Order) => {
+    // menuItemId is always '' in toFrontendOrder (backend OrderCardDto has no
+    // per-item menuItemId field — only itemSummary strings like "2× Vada Pav").
+    // Match by normalised item name instead, which IS reliably parsed from
+    // itemSummary in toFrontendOrder and stored in orderItem.name.
+    //
+    // menuIngredients uses menuItemId keys (m1, m2…) which can't be matched
+    // from the kitchen board response. Since the backend already deducts
+    // inventory server-side when cooking starts (OrderService.startCooking),
+    // this client-side deduction is best-effort UI-only — the 30s poll will
+    // sync true stock from the backend regardless.
     setInventory(prev => {
       let updated = [...prev];
       order.items.forEach(orderItem => {
-       const recipe = menuIngredients.find(m => m.menuItemId === orderItem.menuItemId);
-        if (recipe) {
-          recipe.ingredients.forEach(ingredient => {
-            updated = updated.map(inv =>
-              inv.id === ingredient.itemId
-                ? { ...inv, currentStock: Math.max(0, inv.currentStock - ingredient.quantity * orderItem.quantity) }
-                : inv
-            );
-          });
+        const normName = orderItem.name.toLowerCase().trim().replace(/\s+/g, ' ');
+        const invItem = updated.find(inv =>
+          inv.name.toLowerCase().trim().replace(/\s+/g, ' ') === normName
+        );
+        if (invItem) {
+          updated = updated.map(inv =>
+            inv.id === invItem.id
+              ? { ...inv, currentStock: Math.max(0, inv.currentStock - orderItem.quantity) }
+              : inv
+          );
         }
       });
+      // Keep ref in sync so concurrent calls (restockItem, updateStock)
+      // read the correct current stock and don't roll back this deduction
+      inventoryRef.current = updated;
       generateAlerts(updated);
       return updated;
     });
   }, [generateAlerts]);
-
   // ── acknowledgeAlert ──────────────────────────────────────────────────────
 
   const acknowledgeAlert = useCallback((alertId: string) => {

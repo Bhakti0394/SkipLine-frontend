@@ -45,8 +45,8 @@ export function NotificationsDropdown({
   onDelete,
   onClearAll,
 }: NotificationsDropdownProps) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, right: 0 });
+ const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const unreadCount = notifications.filter(n => !n.read).length;
   
@@ -57,10 +57,10 @@ const MOBILE_BREAKPOINT = 600;
 useEffect(() => {
   if (!open || !triggerRef.current) return;
 
-  const recalc = () => {
+const recalc = () => {
     if (!triggerRef.current) return;
     if (window.innerWidth <= MOBILE_BREAKPOINT) {
-      setPos({ top: 0, right: 0 });
+      setPos(null); // Let CSS handle mobile positioning
       return;
     }
     const rect = triggerRef.current.getBoundingClientRect();
@@ -78,9 +78,9 @@ useEffect(() => {
       <div className="notifications-overlay" onClick={() => setOpen(false)} />
 
       {/* Panel — positioned via inline style on desktop, CSS handles mobile */}
-      <div
+    <div
         className="notifications-content"
-       style={(pos.top > 0 || pos.right > 0) ? { top: pos.top, right: pos.right } : undefined}
+       style={pos !== null ? { top: pos.top, right: pos.right } : undefined}
       >
         {/* Header */}
         <div className="notifications-header">

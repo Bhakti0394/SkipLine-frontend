@@ -124,9 +124,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     return true; // info, success, warning always show
   }, [preferences]);
 
-  // Listen for order-status-changed CustomEvent (from SkipLineContext / SSE handler)
-// order-status-changed is handled by MyOrders.tsx (applyStatusUpdate) which
-  // calls addNotification directly — no second listener needed here.
+  // FIX: corrected gate logic.
 
  const addNotification = useCallback((data: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
   if (!shouldShowNotification(data.type)) return;
@@ -152,6 +150,33 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, 0);
 
 }, [preferences.soundEnabled, shouldShowNotification]);
+
+  // Global listener — active on every page, not just MyOrders
+ // Global listener — active on every page, not just MyOrders
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { title, message, type, orderId } = (e as CustomEvent).detail ?? {};
+      if (!title || !type) return;
+      addNotification({ title, message, type, orderId });
+    };
+    window.addEventListener('order-status-changed', handler);
+    return () => window.removeEventListener('order-status-changed', handler);
+  }, [addNotification]);
+
+  // Streak milestone listener
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { streak } = (e as CustomEvent).detail ?? {};
+      if (!streak) return;
+      addNotification({
+        type: 'streak_milestone',
+        title: '🔥 Streak Milestone!',
+        message: `You've reached a ${streak}-day ordering streak!`,
+      });
+    };
+    window.addEventListener('streak-milestone', handler);
+    return () => window.removeEventListener('streak-milestone', handler);
+  }, [addNotification]);
 
   const markAsRead        = useCallback((id: string) =>
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n)), []);

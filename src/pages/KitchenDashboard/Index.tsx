@@ -40,7 +40,7 @@ import { CompletedOrders }    from '../../components/KitchenDashboard/dashboard/
 import { OrderDetailsModal }  from '../../components/KitchenDashboard/dashboard/OrderDetailsModal';
 import { InventoryPanel }     from '../../components/KitchenDashboard/dashboard/InventoryPanel';
 
-import { mockTimeSlots } from '../../kitchen-data/timeSlots';
+// mockTimeSlots import removed — real slot data comes from boardData.upcomingSlots
 import { Order, OrderStatus } from '../../kitchen-types/order';
 
 import { useKitchenBoard }                         from '../../kitchen-hooks/useKitchenBoard';
@@ -86,9 +86,16 @@ const showToast = (
 };
 
 const Index = () => {
-  const [viewMode,           setViewMode]           = useState<ViewMode>('kanban');
+ const [viewMode,           setViewMode]           = useState<ViewMode>('kanban');
   const [selectedOrder,      setSelectedOrder]      = useState<Order | null>(null);
   const [completedPanelOpen, setCompletedPanelOpen] = useState(false);
+  const [searchQuery,        setSearchQuery]        = useState('');
+
+  // Clear search when switching views so stale query doesn't bleed across
+  const handleSetViewMode = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    setSearchQuery('');
+  }, []);
 
   const pendingColumnRef = useRef<HTMLDivElement>(null);
   const cookingColumnRef = useRef<HTMLDivElement>(null);
@@ -117,7 +124,12 @@ const toastedOrderIds      = useRef<Set<string>>(new Set());
   const batchToastTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks last notified status per order — prevents duplicate status notifications
   // when auto-advance and poll both trigger handleStatusChange for the same order.
-  const lastNotifiedStatus   = useRef<Record<string, string>>({});
+ // AFTER:
+  const lastNotifiedStatus = useRef<Record<string, string>>({});
+
+  const clearNotificationCache = useCallback(() => {
+    lastNotifiedStatus.current = {};
+  }, []);
 
   const {
     notifications, markAsRead, markAllAsRead,
@@ -185,6 +197,7 @@ isSimulating, setIsSimulating, stopSimulation,
 
   // Prune toastedOrderIds — remove IDs no longer on the active board so the
   // Set doesn't grow unbounded over a long kitchen session (hundreds of orders).
+// AFTER:
   useEffect(() => {
     const activeIds    = new Set(orders.map(o => o.id));
     const completedIds = new Set(completedOrders.map(o => o.id));
@@ -193,7 +206,9 @@ isSimulating, setIsSimulating, stopSimulation,
         toastedOrderIds.current.delete(id);
       }
     }
-    // Prune lastNotifiedStatus for orders no longer on board
+    // Prune lastNotifiedStatus for orders no longer on board.
+    // Full cache wipe happens on sim restart / chef changes via
+    // clearNotificationCache() — this prune only handles natural order exit.
     for (const id of Object.keys(lastNotifiedStatus.current)) {
       if (!activeIds.has(id) && !completedIds.has(id)) {
         delete lastNotifiedStatus.current[id];
@@ -225,8 +240,9 @@ isSimulating, setIsSimulating, stopSimulation,
     return Math.round(totalDelay / lateList.length);
   })();
 
-  const {
+const {
     inventory, alerts: inventoryAlerts, stats: inventoryStats,
+    loading: inventoryLoading,
     getStockStatus, updateStock, restockItem,
     consumeForOrder, deleteInventoryItem, acknowledgeAlert,
   } = useInventory();
@@ -239,8 +255,16 @@ isSimulating, setIsSimulating, stopSimulation,
   };
 
   // ── handleActivateBackupFromBanner ─────────────────────────────────────────
+// Stable ref so the toast action button always reads the latest backup
+  // staff list at click time — not the stale closure captured when the
+  // toast was first created (which may be several seconds or polls old).
+  const backupStaffRef = useRef(backupStaff);
+  useEffect(() => { backupStaffRef.current = backupStaff; }, [backupStaff]);
+
   const handleActivateBackupFromBanner = useCallback(async () => {
-    const firstBackup = backupStaff[0];
+    // Read from ref — always current even if toast was created 8s ago
+    // and a poll has since changed the backup staff list.
+    const firstBackup = backupStaffRef.current[0];
     if (!firstBackup) { showToast('error', 'No backup staff available', ''); return; }
     try {
       await activateBackupChef(firstBackup.chefId);
@@ -249,7 +273,7 @@ isSimulating, setIsSimulating, stopSimulation,
     } catch (err: any) {
       showToast('error', 'Could not activate chef', err.message ?? 'Please try again.');
     }
-  }, [backupStaff, activateBackupChef]);
+  }, [activateBackupChef]);
 
   // ── Capacity change notifications ──────────────────────────────────────────
   const prevCapacityRef    = useRef<{ isOverloaded: boolean; usedPercent: number } | null>(null);
@@ -273,7 +297,8 @@ isSimulating, setIsSimulating, stopSimulation,
     }
 
     const prev        = prevCapacityRef.current;
-    const firstBackup = backupStaff[0];
+   // Read from ref so the toast label also reflects the latest backup staff
+    const firstBackup = backupStaffRef.current[0];
 
     const prevPct          = prev?.usedPercent ?? 0;
     const crossedFull      =  capacity.isOverloaded && !prev?.isOverloaded;
@@ -380,16 +405,34 @@ isSimulating, setIsSimulating, stopSimulation,
   }, [updateOrderStatus, orders, consumeForOrder, notifyOrderStatus, settings?.orderAlerts]);
 
   // ── Other handlers ─────────────────────────────────────────────────────────
-  const handleAddOrder = useCallback(() => {
-    triggerBurst(1).catch(err =>
-      showToast('error', 'Could not add order', err.message ?? 'Please try again.')
-    );
+// AFTER:
+  const handleChefAdded = useCallback(() => {
+    // Clear notification cache on chef add/activate so any orders that get
+    // auto-assigned in the board reload fire fresh status notifications.
+    clearNotificationCache();
+    refreshBoard();
+  }, [clearNotificationCache, refreshBoard]);
+
+const handleAddOrder = useCallback(async () => {
+    try {
+      return await triggerBurst(1);
+    } catch (err: any) {
+      showToast('error', 'Could not add order', err.message ?? 'Please try again.');
+      return { generated: 0, rejected: 1, reason: err.message };
+    }
   }, [triggerBurst]);
 
+// AFTER:
   const handleToggleSimulation = useCallback(() => {
-    if (isSimulating) stopSimulation();
-    else setIsSimulating(true);
-  }, [isSimulating, stopSimulation, setIsSimulating]);
+    if (isSimulating) {
+      stopSimulation();
+    } else {
+      // Clear notification cache on sim restart so fresh injected orders
+      // always fire notifications even if they reuse previously seen IDs.
+      clearNotificationCache();
+      setIsSimulating(true);
+    }
+  }, [isSimulating, stopSimulation, setIsSimulating, clearNotificationCache]);
 
   // ── Inventory alerts ───────────────────────────────────────────────────────
   // Guard: skip initial load — only fire toasts when stock actually DROPS after mount.
@@ -439,6 +482,7 @@ isSimulating, setIsSimulating, stopSimulation,
 
   // ── Shared render helpers ──────────────────────────────────────────────────
 
+// AFTER:
   const renderCapacityMeter = () => (
     <CapacityMeter
       capacity={capacity}
@@ -453,7 +497,7 @@ isSimulating, setIsSimulating, stopSimulation,
       onCancelRemoval={cancelStaffRemoval}
       onActivateChef={activateBackupChef}
       activatingChefId={activatingChefId}
-      onChefAdded={refreshBoard}
+      onChefAdded={handleChefAdded}
     />
   );
 
@@ -471,6 +515,7 @@ isSimulating, setIsSimulating, stopSimulation,
     />
   );
 
+// AFTER:
   const renderStaffController = () => (
     <StaffController
       allStaff={allStaff}
@@ -488,7 +533,7 @@ isSimulating, setIsSimulating, stopSimulation,
       onExternalActivateHandled={() => {}}
       openAddChef={false}
       onAddChefHandled={() => {}}
-      onChefAdded={refreshBoard}
+      onChefAdded={handleChefAdded}
     />
   );
 
@@ -556,18 +601,18 @@ isSimulating, setIsSimulating, stopSimulation,
 
   // ── Views ──────────────────────────────────────────────────────────────────
 
-  const renderKanbanView = () => (
+const renderKanbanView = () => (
     <div className="kanban-layout">
       <div className="kanban-layout__main">
-     <KanbanBoard
-  orders={orders}
-  staff={staff}
-  readyCountdowns={readyCountdowns}
-  isSimulating={isSimulating}
-  simulationSpeedRef={simulationSpeedRef}
-  onStatusChange={updateOrderStatus}
-  onChefAssign={assignChef}
-/>
+        <KanbanBoard
+          orders={orders}
+          staff={staff}
+          readyCountdowns={readyCountdowns}
+          isSimulating={isSimulating}
+          simulationSpeedRef={simulationSpeedRef}
+          onStatusChange={handleStatusChange}
+          onChefAssign={assignChef}
+        />
       </div>
       <div className="kanban-layout__sidebar">
         {renderSimulationControls()}
@@ -575,17 +620,20 @@ isSimulating, setIsSimulating, stopSimulation,
       </div>
     </div>
   );
-
-  const renderListView = () => (
+const renderListView = () => (
     <div className="list-layout">
       <div className="list-layout__main">
-        <OrderQueue orders={orders} onStatusChange={handleStatusChange} />
+        <OrderQueue
+          orders={orders}
+          onStatusChange={handleStatusChange}
+          searchQuery={searchQuery}
+        />
       </div>
       <div className="list-layout__sidebar space-y-4">
         {renderSimulationControls()}
         {renderCapacityMeter()}
         <div className="hidden-mobile">
-          <TimelineSlots slots={mockTimeSlots} />
+          <TimelineSlots slots={boardData?.upcomingSlots ?? []} />
         </div>
         <CompletedOrders orders={completedOrders} />
       </div>
@@ -600,11 +648,13 @@ isSimulating, setIsSimulating, stopSimulation,
             <h2 className="premium-panel__title">Kitchen Performance</h2>
           </div>
           <div className="premium-panel__content">
-            <AnalyticsPanel
+<AnalyticsPanel
               orders={orders}
               completedOrders={completedOrders}
               efficiencyPercent={efficiencyPercent}
               avgCookTimeMinutes={avgCookTimeMinutes}
+              lateOrdersCount={lateOrders}
+              totalOrdersToday={counts.pending + counts.cooking + counts.ready + counts.completed}
             />
           </div>
         </div>
@@ -616,18 +666,19 @@ isSimulating, setIsSimulating, stopSimulation,
       </div>
     </div>
   );
-
-  const renderInventoryView = () => (
+const renderInventoryView = () => (
     <div className="inventory-layout">
-      <InventoryPanel
+<InventoryPanel
         inventory={inventory}
         alerts={inventoryAlerts}
         stats={inventoryStats}
+        loading={inventoryLoading}
         getStockStatus={getStockStatus}
         onUpdateStock={updateStock}
         onRestockItem={restockItem}
         onDeleteItem={deleteInventoryItem}
         onAcknowledgeAlert={acknowledgeAlert}
+        refresh={refreshBoard}
       />
     </div>
   );
@@ -646,8 +697,10 @@ isSimulating, setIsSimulating, stopSimulation,
     <div className="dashboard">
       <Header
         viewMode={viewMode}
-        setViewMode={setViewMode}
+        setViewMode={handleSetViewMode}
         pendingCount={stats.pending}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
         notifications={notifications}
         onMarkAsRead={markAsRead}
         onMarkAllAsRead={markAllAsRead}
