@@ -717,9 +717,9 @@ export async function triggerSimulation(
     return { orderRef, menuItemIds, customerName, orderType };
   });
 
-  let generated = 0, rejected = 0;
-  let lastRejectionReason: string | undefined;
-  let kitchenFull = false;
+let generated = 0, rejected = 0;
+let firstRejectionReason: string | undefined;
+let kitchenFull = false;
 
 // Sequential processing — slot tracker reads/writes are not concurrent,
   // preventing two orders in the same batch from both seeing remaining = 1
@@ -748,11 +748,11 @@ for (let i = 0; i < payloads.length && !kitchenFull; i++) {
       generated++;
     } catch (err: any) {
       rejected++;
-      lastRejectionReason = err?.message;
-      if (lastRejectionReason?.includes('full capacity')) kitchenFull = true;
-    }
+const reason = err?.message as string | undefined;
+      if (!firstRejectionReason) firstRejectionReason = reason;
+      if (reason?.includes('full capacity')) kitchenFull = true; }
   }
-  return { generated, rejected, ...(lastRejectionReason ? { reason: lastRejectionReason } : {}) };
+ return { generated, rejected, ...(firstRejectionReason ? { reason: firstRejectionReason } : {}) };
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────

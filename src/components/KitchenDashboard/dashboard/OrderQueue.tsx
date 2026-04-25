@@ -82,13 +82,7 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
   const [selected,  setSelected]  = useState('');
   const [assigning, setAssigning] = useState(false);
   const [assignErr, setAssignErr] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
 
-  // Re-render every 30s so urgency badge stays live
-  useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 30_000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     setSelected('');

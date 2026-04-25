@@ -91,9 +91,14 @@ export function StaffController({
   // Open Activate modal from CapacityMeter
 useEffect(() => {
   if (!externalActivateId) return;
-  setActivateTargetId(externalActivateId);
-  setActivateError(null);
-  onExternalActivateHandled?.();
+  let cancelled = false;
+  // Guard: only apply if component is still mounted
+  if (!cancelled) {
+    setActivateTargetId(externalActivateId);
+    setActivateError(null);
+    onExternalActivateHandled?.();
+  }
+  return () => { cancelled = true; };
 }, [externalActivateId, onExternalActivateHandled]);
 
   const activateCandidate = useMemo(

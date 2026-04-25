@@ -29,7 +29,7 @@ interface HeaderProps {
   onClearAllNotifications: () => void;
   settings:                KitchenSettings;
   onSettingsChange:        (settings: KitchenSettings) => void;
-  onLogout?:               () => void;
+  onLogout: () => void;
   onProfileUpdate?:        (user: { name: string; email: string; role: string; initials: string }) => void;
   // Search query — controlled by parent (Index.tsx), applied in list view
   searchQuery?:            string;
@@ -74,7 +74,7 @@ export function Header({
   onClearAllNotifications,
   settings,
   onSettingsChange,
-  onLogout = () => console.log('Logout'),
+ onLogout,
   onProfileUpdate,
   searchQuery,
   onSearchChange,

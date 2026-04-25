@@ -253,8 +253,14 @@ function resolvePickupSlotMs(order: Order): number | null {
       const ms = new Date(display).getTime();
       if (!isNaN(ms)) return ms;
     }
-    const parsed = new Date(`${new Date().toDateString()} ${display}`);
-    if (!isNaN(parsed.getTime())) return parsed.getTime();
+    // Use a stable date anchor — if session crosses midnight, today's date
+// would shift, making pre-midnight orders parse to tomorrow. Instead,
+// anchor to the order's createdAt date so parsing is always consistent.
+const anchor = order.createdAt instanceof Date
+  ? order.createdAt.toDateString()
+  : new Date().toDateString();
+const parsed = new Date(`${anchor} ${display}`);
+if (!isNaN(parsed.getTime())) return parsed.getTime();
   }
 
   // Fallback: pickupSlotMs / pickupSlot for scheduled/normal orders

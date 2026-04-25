@@ -274,13 +274,14 @@ useEffect(() => {
 
   // FIX: fetch real menu items for swap modal
 const loadSwapDishes = useCallback(async () => {
-  if (swapDishes.length > 0) return;
+    if (swapDishes.length > 0 && !swapDishError) return; // skip if already loaded and no error
     setSwapDishLoading(true);
+    setSwapDishError(false);
     try {
       const items = await fetchCustomerMenuItems();
+      if (items.length === 0) { setSwapDishError(true); return; } // guard empty response
       setSwapDishes(items.filter(i => i.available).map(menuItemToSwapDish));
     } catch {
-      // Mark as failed so we don't retry on every modal open
       setSwapDishError(true);
     } finally {
       setSwapDishLoading(false);

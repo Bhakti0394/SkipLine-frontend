@@ -53,23 +53,21 @@ export function NotificationsDropdown({
 
   // Calculate desktop dropdown position relative to trigger button
 const MOBILE_BREAKPOINT = 600;
-
 useEffect(() => {
-  if (!open || !triggerRef.current) return;
-
-const recalc = () => {
+  if (!open) { setPos(null); return; }
+  const recalc = () => {
     if (!triggerRef.current) return;
-    if (window.innerWidth <= MOBILE_BREAKPOINT) {
-      setPos(null); // Let CSS handle mobile positioning
-      return;
-    }
+    if (window.innerWidth <= MOBILE_BREAKPOINT) { setPos(null); return; }
     const rect = triggerRef.current.getBoundingClientRect();
     setPos({ top: rect.bottom + 10, right: window.innerWidth - rect.right });
   };
-
-  recalc();
+  // rAF ensures the DOM has painted and getBoundingClientRect is accurate
+  const id = requestAnimationFrame(recalc);
   window.addEventListener('resize', recalc);
-  return () => window.removeEventListener('resize', recalc);
+  return () => {
+    cancelAnimationFrame(id);
+    window.removeEventListener('resize', recalc);
+  };
 }, [open]);
 
   const dropdown = open && (

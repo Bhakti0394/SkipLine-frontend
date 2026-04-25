@@ -253,12 +253,12 @@ export function AnalyticsPanel({
 }: AnalyticsPanelProps) {
  
 // 1️⃣ All orders combined
+// allOrders MUST stay above hourlyData — hourlyData depends on it
 const allOrders = useMemo(
   () => [...orders, ...completedOrders],
   [orders, completedOrders]
 );
 
-// 2️⃣ Hourly data depends on allOrders and completedOrders
 const hourlyData = useMemo(() => {
   const now = new Date();
   return Array.from({ length: 8 }, (_, i) => {

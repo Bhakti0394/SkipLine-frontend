@@ -11,13 +11,23 @@ import { useNavigate } from 'react-router-dom';
 import { OrderModal } from '../../components/CustomerDashboard/dashboard/OrderModal';
 import '../../components/CustomerDashboard/styles/Favorites.scss';
 
+const FAVORITES_PARTICLES = Array.from({ length: 8 }, (_, i) => ({
+  id: i,
+  x: Math.random() * 100 - 50,
+  y: Math.random() * 100 - 50,
+  duration: 3 + Math.random() * 2,
+  left: Math.random() * 100,
+  top: Math.random() * 100,
+  size: 4 + Math.random() * 8,
+}));
+
 const FloatingParticles = () => (
   <div className="favorites__particles">
-    {[...Array(8)].map((_, i) => (
-      <motion.div key={i} className="favorites__particle" initial={{ opacity: 0 }}
-        animate={{ x: [0, Math.random() * 100 - 50], y: [0, Math.random() * 100 - 50], opacity: [0, 0.6, 0], scale: [0, 1, 0] }}
-        transition={{ duration: 3 + Math.random() * 2, repeat: Infinity, delay: i * 0.3 }}
-        style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%`, width: `${4 + Math.random() * 8}px`, height: `${4 + Math.random() * 8}px` }}
+    {FAVORITES_PARTICLES.map((p) => (
+      <motion.div key={p.id} className="favorites__particle" initial={{ opacity: 0 }}
+        animate={{ x: [0, p.x], y: [0, p.y], opacity: [0, 0.6, 0], scale: [0, 1, 0] }}
+        transition={{ duration: p.duration, repeat: Infinity, delay: p.id * 0.3 }}
+        style={{ left: `${p.left}%`, top: `${p.top}%`, width: `${p.size}px`, height: `${p.size}px` }}
       />
     ))}
   </div>

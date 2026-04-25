@@ -193,29 +193,13 @@ function ChefDropdown({ assignedTo, assignableStaff, assigning, onAssign }: Chef
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-const handlerRef = useRef<((e: MouseEvent) => void) | null>(null);
-
-  useEffect(() => {
-    if (!open) {
-      if (handlerRef.current) {
-        document.removeEventListener('mousedown', handlerRef.current);
-        handlerRef.current = null;
-      }
-      return;
-    }
-    // Store handler in ref so removeEventListener receives the exact same
-    // function reference that addEventListener registered — arrow functions
-    // are not referentially stable across re-renders.
-    handlerRef.current = (e: MouseEvent) => {
+useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', handlerRef.current);
-    return () => {
-      if (handlerRef.current) {
-        document.removeEventListener('mousedown', handlerRef.current);
-        handlerRef.current = null;
-      }
-    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
   return (

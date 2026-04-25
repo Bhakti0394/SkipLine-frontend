@@ -527,9 +527,9 @@ const MAX_PENDING_MS = 30_000;
 function groupBySlot(orders: Order[]): { slotLabel: string; orders: Order[] }[] {
   const map = new Map<string, Order[]>();
   for (const order of orders) {
-    const key = (!order.pickupTime || order.pickupTime === 'TBD' || order.pickupTime === 'ASAP')
-      ? 'No Slot'
-      : order.pickupTime;
+const key = (!order.pickupTime || order.pickupTime === 'TBD' || order.pickupTime === 'ASAP' || order.pickupTime.startsWith('Tomorrow') || order.pickupTime.startsWith('~'))
+  ? 'No Slot'
+  : order.pickupTime;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(order);
   }
@@ -829,12 +829,17 @@ useEffect(() => {
 
     if (!order.startedAt) continue;
 
-  const speedMultiplier = COOK_SPEED_MULTIPLIERS[simulationSpeedRef?.current ?? 'normal'];
-    const scaledPrepMs = prepMs / speedMultiplier;
-    const startedAt = order.startedAt.getTime();
-    const remaining = Math.max(0, startedAt + scaledPrepMs - Date.now());
+  // Always read from ref at timer-fire time, not at timer-creation time.
+// This way speed changes mid-cook are respected on the next tick check.
+const startedAt = order.startedAt.getTime();
 
-    if (remaining <= 0) continue;
+// Sample current speed at schedule time for initial delay only.
+// The timeout callback re-reads simulationSpeedRef at fire time.
+const speedNow = COOK_SPEED_MULTIPLIERS[simulationSpeedRef?.current ?? 'normal'];
+const scaledPrepMs = prepMs / speedNow;
+const remaining = Math.max(0, startedAt + scaledPrepMs - Date.now());
+
+if (remaining <= 0) continue;
 
     const orderId = order.id;
     const orderNumber = order.orderNumber;
@@ -842,11 +847,27 @@ useEffect(() => {
     // even if simulationSpeedRef changes before the timeout fires.
     const capturedSpeed = simulationSpeedRef?.current ?? 'normal';
 
+ timerMap[orderId] = setTimeout(async () => {
+  delete timerMap[orderId];
+
+  // Re-check remaining time with current speed at fire time.
+  // If speed changed (e.g. slow → fast) and timer fired too early, reschedule.
+  const liveOrder = ordersRef.current.find(o => o.id === orderId);
+  if (!liveOrder || liveOrder.status !== 'cooking') return;
+
+  const currentSpeed = COOK_SPEED_MULTIPLIERS[simulationSpeedRef?.current ?? 'normal'];
+  const currentScaledMs = prepMs / currentSpeed;
+  const actualRemaining = Math.max(0, order.startedAt!.getTime() + currentScaledMs - Date.now());
+  if (actualRemaining > 500) {
+    // Speed changed — reschedule with correct remaining time
     timerMap[orderId] = setTimeout(async () => {
       delete timerMap[orderId];
-
-      const liveOrder = ordersRef.current.find(o => o.id === orderId);
-      if (!liveOrder || liveOrder.status !== 'cooking') return;
+      const stillCooking = ordersRef.current.find(o => o.id === orderId);
+      if (!stillCooking || stillCooking.status !== 'cooking') return;
+      try { await onStatusChange(orderId, 'ready'); } catch { /* handled internally */ }
+    }, actualRemaining);
+    return;
+  }
 
       if (!(liveOrder.assignedChefId || liveOrder.assignedTo)) {
         toast.warning(`⚠ Cannot auto-advance ${orderNumber}`, {
@@ -1040,11 +1061,16 @@ useEffect(() => {
                       transition:   'opacity 0.15s',
                     }}
                     onClick={async () => {
-                      for (const o of slotOrders) {
-                        if (pendingOrderIds.has(o.id)) continue;
-                        await handleCardAction(o.id, 'completed');
-                      }
-                    }}
+  const results = await Promise.allSettled(
+    slotOrders
+      .filter(o => !pendingOrderIds.has(o.id))
+      .map(o => handleCardAction(o.id, 'completed'))
+  );
+  const failed = results.filter(r => r.status === 'rejected').length;
+  if (failed > 0) {
+    toast.error(`${failed} order${failed !== 1 ? 's' : ''} could not be completed`);
+  }
+}}
                   >
                     ✓ Complete Slot
                   </button>
