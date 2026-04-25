@@ -13,25 +13,21 @@ import NotFound      from "../pages/CustomerDashboard/NotFound";
 import Overview      from "../pages/CustomerDashboard/Index";
 
 // FIX: was "../../src/customer-context/NotificationContext" (double src/ — broken)
-import { NotificationProvider } from "../customer-context/NotificationContext";
-
 const CustomerApp = () => {
   return (
-    <NotificationProvider>
-      <Routes>
-        <Route index element={<Navigate to="overview" replace />} />
-        <Route path="overview"       element={<Overview />}      />
-        <Route path="browse"         element={<BrowseMenu />}    />
-        <Route path="orders"         element={<MyOrders />}      />
-        <Route path="history"        element={<OrderHistory />}  />
-        <Route path="favorites"      element={<Favorites />}     />
-        <Route path="profile"        element={<Profile />}       />
-        <Route path="settings"       element={<Settings />}      />
-        <Route path="checkout"       element={<Checkout />}      />
-        <Route path="order-success"  element={<OrderSuccess />}  />
-        <Route path="*"              element={<NotFound />}      />
-      </Routes>
-    </NotificationProvider>
+    <Routes>
+      <Route index element={<Navigate to="overview" replace />} />
+      <Route path="overview"       element={<Overview />}      />
+      <Route path="browse"         element={<BrowseMenu />}    />
+      <Route path="orders"         element={<MyOrders />}      />
+      <Route path="history"        element={<OrderHistory />}  />
+      <Route path="favorites"      element={<Favorites />}     />
+      <Route path="profile"        element={<Profile />}       />
+      <Route path="settings"       element={<Settings />}      />
+      <Route path="checkout"       element={<Checkout />}      />
+      <Route path="order-success"  element={<OrderSuccess />}  />
+      <Route path="*"              element={<NotFound />}      />
+    </Routes>
   );
 };
 

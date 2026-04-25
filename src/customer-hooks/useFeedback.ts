@@ -64,7 +64,7 @@ const loadFeedback = (): MealFeedback[] => {
 export function useFeedback() {
   const [feedback, setFeedback] = useState<MealFeedback[]>(loadFeedback);
 
-  useEffect(() => {
+useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY && e.newValue) {
         try {
@@ -73,18 +73,18 @@ export function useFeedback() {
         } catch { /* ignore */ }
       }
     };
-    const handleCustomUpdate = () => setFeedback(loadFeedback());
 
     window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('feedback-updated', handleCustomUpdate);
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('feedback-updated', handleCustomUpdate);
     };
   }, []);
 
-  useEffect(() => {
-    if (feedback.length > 0) localStorage.setItem(STORAGE_KEY, JSON.stringify(feedback));
+ useEffect(() => {
+    if (feedback.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(feedback));
+      window.dispatchEvent(new CustomEvent('feedback-updated'));
+    }
   }, [feedback]);
 
   /**
@@ -94,16 +94,11 @@ export function useFeedback() {
    *   CustomerOrderDto.id from OrderSuccess). Using anything else means the
    *   rating won't appear on the correct meal card.
    */
-  const addFeedback = useCallback((mealId: string, rating: number, comment: string) => {
+const addFeedback = useCallback((mealId: string, rating: number, comment: string) => {
     const newFeedback: MealFeedback = {
       id: `fb-${Date.now()}`, mealId, rating, comment, userName: 'You', createdAt: Date.now(),
     };
-    setFeedback(prev => {
-      const updated = [newFeedback, ...prev];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      window.dispatchEvent(new CustomEvent('feedback-updated'));
-      return updated;
-    });
+    setFeedback(prev => [newFeedback, ...prev]);
   }, []);
 
   /**

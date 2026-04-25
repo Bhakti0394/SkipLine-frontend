@@ -86,7 +86,7 @@ const showToast = (
 };
 
 const Index = () => {
- const [viewMode,           setViewMode]           = useState<ViewMode>('kanban');
+const [viewMode,           setViewMode]           = useState<ViewMode>('kanban');
   const [selectedOrder,      setSelectedOrder]      = useState<Order | null>(null);
   const [completedPanelOpen, setCompletedPanelOpen] = useState(false);
   const [searchQuery,        setSearchQuery]        = useState('');
@@ -365,12 +365,9 @@ const {
       }
 
       // FIX: check both assignedTo (name) and assignedChefId — either confirms chef assigned
-      if (order.status === 'cooking' && status === 'ready'
-          && !order.assignedTo && !order.assignedChefId) {
-        showToast('error', 'Assign a chef first',
-          `Order ${order.orderNumber} needs a chef assigned before it can be marked ready.`);
-        return;
-      }
+     // Chef guard lives in updateOrderStatus (useKitchenBoard) — removing
+// duplicate here prevents two error surfaces for the same condition.
+// The hook throws with a clear message that the catch block surfaces via toast.
     }
 
     try {
@@ -469,7 +466,7 @@ const handleAddOrder = useCallback(async () => {
     inventory.forEach(item => { prevStockRef.current[item.id] = item.currentStock; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
 // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inventory]);
+}, [inventory, getStockStatus, notifyInventoryAlert, settings?.lowInventoryAlerts]);
   useKeyboardShortcuts([
     { key: 'n', description: 'Add new order',     action: handleAddOrder },
     { key: 's', description: 'Toggle simulation', action: handleToggleSimulation },
@@ -695,12 +692,10 @@ const renderInventoryView = () => (
 
   return (
     <div className="dashboard">
-      <Header
+     <Header
         viewMode={viewMode}
-        setViewMode={handleSetViewMode}
+        setViewMode={setViewMode}
         pendingCount={stats.pending}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
         notifications={notifications}
         onMarkAsRead={markAsRead}
         onMarkAllAsRead={markAllAsRead}
@@ -708,6 +703,11 @@ const renderInventoryView = () => (
         onClearAllNotifications={clearAll}
         settings={settings}
         onSettingsChange={updateSettings}
+        searchQuery={searchQuery}
+        onSearchChange={q => {
+          setSearchQuery(q);
+          if (viewMode !== 'list') setViewMode('list');
+        }}
       />
       <div className="dashboard__stats-bar">
         <div className="dashboard__container">

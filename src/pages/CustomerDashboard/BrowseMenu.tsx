@@ -127,21 +127,21 @@ const AnimatedStat = ({ value, label, icon: Icon, color }: {
   const [count, setCount] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
+   let t: ReturnType<typeof setInterval> | null = null;
     const observer = new IntersectionObserver(([entry]) => {
       if (!entry.isIntersecting) return;
       const end = typeof value === 'string' ? parseInt(value) : value;
       if (isNaN(end)) return;
       let start = 0;
       const inc = end / (1500 / 16);
-      const t = setInterval(() => {
+      t = setInterval(() => {
         start += inc;
-        if (start >= end) { setCount(end); clearInterval(t); }
+        if (start >= end) { setCount(end); clearInterval(t!); }
         else setCount(Math.floor(start));
       }, 16);
-      return () => clearInterval(t);
     }, { threshold: 0.5 });
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
+ if (ref.current) observer.observe(ref.current);
+    return () => { observer.disconnect(); if (t) clearInterval(t); };
   }, [value]);
   return (
     <motion.div ref={ref} className="browse__animated-stat" whileHover={{ scale: 1.05, y: -3 }} transition={{ type: 'spring', stiffness: 300 }}>

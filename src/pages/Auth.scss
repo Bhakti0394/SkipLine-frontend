@@ -576,7 +576,7 @@ $breakpoint-xl: 1280px;
   font-size: 0.875rem;
   color: hsl(var(--muted-foreground));
 
-  .switch-link {
+.switch-link {
     color: hsl(var(--primary));
     font-weight: 500;
     background: transparent;
@@ -589,4 +589,30 @@ $breakpoint-xl: 1280px;
       text-decoration: underline;
     }
   }
+}
+
+// ============================================
+// FEEDBACK MESSAGES
+// ============================================
+
+.auth-error {
+  background: rgba(239, 68, 68, 0.10);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.auth-success {
+  background: rgba(16, 185, 129, 0.10);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.5;
 }

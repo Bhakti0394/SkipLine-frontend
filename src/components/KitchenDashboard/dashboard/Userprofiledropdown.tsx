@@ -48,9 +48,13 @@ export function UserProfileDropdown({
   const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [editedUser, setEditedUser] = useState(user);
 
+// Only sync when dialog is closed — prevents mid-edit reset
+  // when parent re-renders with updated user prop
   useEffect(() => {
-    setEditedUser(user);
-  }, [user]);
+    if (!editProfileOpen) {
+      setEditedUser(user);
+    }
+  }, [user, editProfileOpen]);
 
   // Mock activity data
   const activityLog: ActivityLogItem[] = [

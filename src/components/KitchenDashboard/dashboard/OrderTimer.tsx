@@ -379,7 +379,7 @@ if (order.status === 'pending') {
 
     // Use hook-derived values — eta and isOverdue are computed from the
     // reactive nowMs tick inside useOrderTimer, never stale.
-    const secsLeft = isOverdue ? null : (eta > 0 ? eta : 0);
+    const secsLeft = isOverdue ? null : Math.max(0, eta);
     const isLate   = isOverdue;
 
     // Use hook-computed progress directly — avoids calling serverNow() in render
@@ -440,11 +440,13 @@ if (order.status === 'pending') {
             }}
           >
             {isOverdue
-              ? `+${formatCountdown(overdueBySeconds)}`
-              : secsLeft !== null
-                ? (secsLeft === 0 ? 'Done!' : formatCountdown(secsLeft))
-                : (eta > 0 ? formatCountdown(eta) : 'Done!')
-            }
+  ? `+${formatCountdown(overdueBySeconds)}`
+  : secsLeft === null
+    ? 'Done!'
+    : secsLeft === 0
+      ? 'Done!'
+      : formatCountdown(secsLeft)
+}
           </span>
         </div>
 

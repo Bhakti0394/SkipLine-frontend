@@ -20,9 +20,10 @@ export function AuthProvider({ children }) {
 
   if (token && role && email) {
     // Decode exp from JWT payload — no library needed
-    try {
+try {
       const payload = JSON.parse(atob(token.split('.')[1]));
-      const isExpired = payload.exp * 1000 < Date.now();
+      // Guard: if exp is missing treat token as expired — never trust unverifiable tokens
+      const isExpired = !payload.exp || payload.exp * 1000 < Date.now();
 
       if (isExpired) {
         localStorage.removeItem('auth_token');
@@ -89,16 +90,19 @@ export function AuthProvider({ children }) {
   };
 
   // ── Logout ─────────────────────────────────────────────────────────────────
-  const logout = async () => {
-    await fetch(`${BASE_URL}/api/auth/logout`, {
+ const logout = async () => {
+    // Always clear local state regardless of server response —
+    // a failed server-side invalidation is better than a stuck session.
+    // Fire-and-forget: we don't want a network error to block logout.
+    fetch(`${BASE_URL}/api/auth/logout`, {
       method: 'POST', credentials: 'include',
-    }).catch(() => {});
+    }).catch((err) => console.warn('[AuthContext] logout endpoint failed:', err));
 
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_role');
     localStorage.removeItem('auth_email');
     localStorage.removeItem('auth_full_name');
-    setUser(null);  // ← triggers SkipLineContext useEffect([user]) → demo data
+    setUser(null);
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -111,11 +115,14 @@ export function AuthProvider({ children }) {
   // Atomically writes all 4 localStorage keys AND updates React state so
   // context and localStorage never diverge (unlike raw setUser which only
   // updates React state and leaves localStorage out of sync if caller forgets).
-  const syncUser = useCallback((userData) => {
-    localStorage.setItem('auth_token',     userData.token    ?? localStorage.getItem('auth_token') ?? '');
-    localStorage.setItem('auth_role',      userData.role     ?? '');
-    localStorage.setItem('auth_email',     userData.email    ?? '');
-    localStorage.setItem('auth_full_name', userData.fullName ?? userData.email ?? '');
+const syncUser = useCallback((userData) => {
+    if (!userData.token) throw new Error('syncUser: token is required');
+    if (!userData.role)  throw new Error('syncUser: role is required');
+    if (!userData.email) throw new Error('syncUser: email is required');
+    localStorage.setItem('auth_token',     userData.token);
+    localStorage.setItem('auth_role',      userData.role);
+    localStorage.setItem('auth_email',     userData.email);
+    localStorage.setItem('auth_full_name', userData.fullName ?? userData.email);
     setUser({ email: userData.email, fullName: userData.fullName ?? userData.email, role: userData.role });
   }, []);
 

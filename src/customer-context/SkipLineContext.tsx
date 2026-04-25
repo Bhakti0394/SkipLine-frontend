@@ -345,13 +345,15 @@ const notifType =
     sseUnsubscribers.current.clear();
   }, []);
 
-  // Re-subscribe SSE for active (non-terminal) orders whenever orders change
+ // Re-subscribe SSE only when order IDs change, not on every status update.
+  // Status changes come FROM SSE — re-subscribing on every SSE update is a loop.
+  const orderIdsKey = orders.map(o => o.id).join(',');
   useEffect(() => {
     orders.forEach(o => {
       if (!TERMINAL_STATUSES.has(o.status)) subscribeOrder(o.id);
     });
-  }, [orders, subscribeOrder]);
-
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderIdsKey, subscribeOrder]);
   // -- Data loading --
   useEffect(() => {
     // Always restore cart from localStorage regardless of auth state
@@ -455,15 +457,13 @@ Promise.allSettled([
     localStorage.setItem(STORAGE_KEYS.CART, JSON.stringify(cart));
   }, [cart]);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ORDERS,  JSON.stringify(orders));
-    localStorage.setItem(STORAGE_KEYS.KITCHEN, JSON.stringify(kitchenState));
-  }, [orders, kitchenState]);
+// Orders are intentionally NOT restored from localStorage on load (stale statuses).
+  // Writing them serves no purpose and grows storage unboundedly — removed.
+  // kitchenState is derived from orders so also not persisted.
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(orderHistory));
-  }, [orderHistory]);
-
+// orderHistory is fetched from backend for logged-in users and uses
+  // demo data for logged-out users — localStorage copy is never read back,
+  // so persisting it wastes storage. Removed.
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.METRICS, JSON.stringify(metrics));
   }, [metrics]);
@@ -520,22 +520,17 @@ Promise.allSettled([
     const yesterday = new Date(Date.now() - 86400000).toDateString();
     const lastDate  = localStorage.getItem('SkipLine_last_order_date');
 
-    let absoluteStreak: number | null = null;
+let streakDelta: 'increment' | 'reset' | 'keep' = 'keep';
     if (lastDate !== today) {
       localStorage.setItem('SkipLine_last_order_date', today);
-      if (!lastDate || lastDate === yesterday) {
-        absoluteStreak = null;
-      } else {
-        absoluteStreak = 1;
-      }
+      streakDelta = (!lastDate || lastDate === yesterday) ? 'increment' : 'reset';
     }
 
- setMetrics(prev => {
-      const newStreak = absoluteStreak !== null
-        ? absoluteStreak
-        : lastDate !== today
-          ? prev.streak + 1
-          : prev.streak;
+    setMetrics(prev => {
+      const newStreak =
+        streakDelta === 'increment' ? prev.streak + 1 :
+        streakDelta === 'reset'     ? 1               :
+        prev.streak;
 
       if (newStreak > prev.streak && [3, 7, 14, 21, 30].includes(newStreak)) {
         window.dispatchEvent(new CustomEvent('streak-milestone', {
@@ -569,19 +564,16 @@ Promise.allSettled([
 
   // -- updateOrderStatus --
  const updateOrderStatus = useCallback((orderId: string, status: Order['status']) => {
-    // Pure updater — no side effects inside
+    // Single setOrders call — handles both update and completed side effects
+    // in one pass to avoid double-read of prev state under React 18 batching.
     setOrders(prev => {
       const order = prev.find(o => o.id === orderId);
       if (!order || order.status === status) return prev;
-      return prev.map(o => o.id === orderId ? { ...o, status } : o);
-    });
-
-    // Side effects outside updater — safe from React 18 double-invoke
-    if (status === 'completed') {
-      setOrders(prev => {
-        const order = prev.find(o => o.id === orderId);
-        if (order) {
-          const updated = { ...order, status };
+      const updated = { ...order, status };
+      if (status === 'completed') {
+        // Side effects queued as microtasks — outside the updater to comply
+        // with React's rule of no side effects inside setState updaters.
+        Promise.resolve().then(() => {
           setOrderHistory(h => {
             if (h.some(o => o.id === orderId)) return h;
             return [updated, ...h];
@@ -592,12 +584,12 @@ Promise.allSettled([
             const [next, ...rest] = ks.queuedOrders;
             return { activeOrders: next ? [...a, next] : a, queuedOrders: rest };
           });
-        }
-        return prev;
-      });
-      sseUnsubscribers.current.get(orderId)?.();
-      sseUnsubscribers.current.delete(orderId);
-    }
+          sseUnsubscribers.current.get(orderId)?.();
+          sseUnsubscribers.current.delete(orderId);
+        });
+      }
+      return prev.map(o => o.id === orderId ? updated : o);
+    });
   }, []);
 
   // -- simulateKitchenProgress --

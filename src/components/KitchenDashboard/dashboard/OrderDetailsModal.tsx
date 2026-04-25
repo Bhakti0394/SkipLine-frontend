@@ -145,23 +145,39 @@ export function OrderDetailsModal({
             </div>
           </div>
 
-          {/* Actions */}
+         {/* Actions */}
           {nextStatus && (
             <div className="modal-actions">
               <button className="close-btn" onClick={onClose}>
                 Close
               </button>
-              <button
-                className={getActionButtonClass(order.status)}
-               onClick={async () => {
-              await onStatusChange(order.id, nextStatus);
-              onClose();
-}}
-              >
-                {order.status === 'pending' && '🍳 Start Cooking'}
-                {order.status === 'cooking' && '✅ Mark Ready'}
-                {order.status === 'ready'   && '🎉 Complete'}
-              </button>
+              {(() => {
+                const hasChef = !!(order.assignedTo || order.assignedChefId);
+                const needsChef =
+                  (order.status === 'pending' && !hasChef) ||
+                  (order.status === 'cooking' && !hasChef);
+                return (
+                  <button
+                    className={getActionButtonClass(order.status)}
+                    style={needsChef ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                    disabled={needsChef}
+                    title={needsChef ? 'Assign a chef before changing status' : undefined}
+                    onClick={async () => {
+                      if (needsChef) return;
+                      await onStatusChange(order.id, nextStatus);
+                      onClose();
+                    }}
+                  >
+                    {needsChef
+                      ? '⚠ Assign chef first'
+                      : order.status === 'pending' ? '🍳 Start Cooking'
+                      : order.status === 'cooking' ? '✅ Mark Ready'
+                      : order.status === 'ready'   ? '🎉 Complete'
+                      : null
+                    }
+                  </button>
+                );
+              })()}
             </div>
           )}
         </div>

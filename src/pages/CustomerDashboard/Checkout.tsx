@@ -165,12 +165,13 @@ export default function Checkout() {
         return;
       }
 
-      if (failedItems.length > 0) {
+if (failedItems.length > 0) {
         const succeededMealNames = new Set(createdOrders.map(o => o.meal));
         cart
           .filter(item => succeededMealNames.has(item.meal.name))
           .forEach(item => removeFromCart(item.id));
-
+        // Failed items intentionally left in cart so user can retry them.
+        // partialFailure list is shown on OrderSuccess so user knows what failed.
         navigate('/customer-dashboard/order-success', {
           state: {
             orders: createdOrders,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -6,7 +6,8 @@ import { AuthProvider }    from "@/context/AuthContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster }         from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { SkipLineProvider } from "./customer-context/SkipLineContext";
+import { SkipLineProvider }      from "./customer-context/SkipLineContext";
+import { NotificationProvider }  from "./customer-context/NotificationContext";
 
 import Index    from "./pages/Index";
 import Auth     from "./pages/Auth";
@@ -23,7 +24,7 @@ const queryClient = new QueryClient();
 
 const AppRoutes = () => {
   const { loading } = useAuth();
-  const [showLoader, setShowLoader] = useState(true);
+ const [showLoader, setShowLoader] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadingRef  = useRef(loading);
   const mountedRef  = useRef(true);
@@ -39,37 +40,47 @@ const AppRoutes = () => {
     };
   }, []);
 
-  const handleLoaderComplete = () => {
+const handleLoaderComplete = useCallback(() => {
     if (!loadingRef.current) {
-      setShowLoader(false);
+      if (mountedRef.current) {
+        sessionStorage.setItem('app_loaded', '1');
+        setShowLoader(false);
+      }
       return;
     }
     if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => {
+      if (!mountedRef.current) {
+        clearInterval(intervalRef.current!);
+        intervalRef.current = null;
+        return;
+      }
       if (!loadingRef.current) {
         clearInterval(intervalRef.current!);
         intervalRef.current = null;
-        if (mountedRef.current) setShowLoader(false);
+        sessionStorage.setItem('app_loaded', '1');
+        setShowLoader(false);
       }
     }, 100);
-  };
-
+  }, []);
   return (
     <>
       {showLoader && (
-        <PageLoader onComplete={handleLoaderComplete} minDuration={3200} />
+       <PageLoader onComplete={handleLoaderComplete} minDuration={1500} />
       )}
-      <div style={{ visibility: showLoader ? 'hidden' : 'visible' }}>
+<div style={{ display: showLoader ? 'none' : 'block' }}>
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
 
-          <Route
+         <Route
             path="/customer-dashboard/*"
             element={
               <ProtectedRoute allowedRole="CUSTOMER">
                 <SkipLineProvider>
-                  <CustomerApp />
+                  <NotificationProvider>
+                    <CustomerApp />
+                  </NotificationProvider>
                 </SkipLineProvider>
               </ProtectedRoute>
             }

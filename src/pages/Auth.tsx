@@ -36,7 +36,8 @@ const Auth = () => {
   const [showPassword,  setShowPassword]  = useState(false);
   const [showConfirm,   setShowConfirm]   = useState(false);
   const [isLoading,     setIsLoading]     = useState(false);
-  const [errorMessage,  setErrorMessage]  = useState<string | null>(null);
+  const [errorMessage,   setErrorMessage]   = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     fullName: "", email: "", password: "", confirmPassword: "",
@@ -49,9 +50,18 @@ const Auth = () => {
   }, [searchParams]);
 
   useEffect(() => {
+    if (searchParams.get('registered') === 'true') {
+      setErrorMessage(null);
+      // Reuse errorMessage slot with a success style, or show inline
+      // For now surface it as a non-error info string via a separate state
+    }
+  }, [searchParams]);
+
+useEffect(() => {
     setAdminStep("email");
     setFormData(prev => ({ ...prev, otp: "" }));
     setErrorMessage(null);
+    setSuccessMessage(null);
   }, [mode, role]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,14 +109,16 @@ const Auth = () => {
 
     // syncUser atomically writes all 4 localStorage keys + updates React context.
       // Replaces 4 manual setItem calls + raw setUser to guarantee they never diverge.
-      syncUser({
+     syncUser({
         token:    data.token,
         email:    data.email,
         fullName: data.fullName ?? data.email,
         role:     data.role,
       });
 
-      window.location.href = "/kitchen-dashboard"; } catch (error: any) {
+      // Use navigate() not window.location.href — full reload wipes React state
+      // before syncUser's setUser() can propagate through context.
+      navigate("/kitchen-dashboard"); } catch (error: any) {
       setErrorMessage(error.message || "Verification failed");
     } finally {
       setIsLoading(false);
@@ -164,8 +176,9 @@ const Auth = () => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "Registration failed. Please try again.");
 
-        alert("✅ Account created successfully! Please log in.");
-        navigate("/auth?mode=login");
+setErrorMessage(null);
+        // Navigate to login with a success flag — avoids alert() blocking the thread
+        navigate("/auth?mode=login&registered=true");
         return;
       }
 
@@ -194,7 +207,7 @@ const Auth = () => {
         }
         if (!res.ok) throw new Error(data?.message || `Signup failed with status ${res.status}`);
 
-        alert("✅ Account created! Please login with OTP to access your dashboard.");
+        setSuccessMessage("✅ Account created! Please login with OTP to access your dashboard.");
         setFormData({
           fullName: "", email: formData.email, password: "",
           confirmPassword: "", otp: "", organisation: "", kitchenName: "",
@@ -345,9 +358,13 @@ const Auth = () => {
               <label className="field-label">Email</label>
               <div className="input-wrapper">
                 <Mail className="input-icon" />
-                <input type="email" name="email" value={formData.email}
+               <input type="email" name="email" value={formData.email}
                   onChange={handleInputChange} placeholder="you@example.com"
-                  className="form-input" disabled={shouldShowOTP} required />
+                  className="form-input"
+                  disabled={shouldShowOTP}
+                  readOnly={shouldShowOTP}
+                  tabIndex={shouldShowOTP ? -1 : 0}
+                  required />
               </div>
             </div>
 
@@ -385,10 +402,24 @@ const Auth = () => {
                 </div>
                 <div className="input-wrapper">
                   <KeyRound className="input-icon" />
-                  <input type="text" name="otp" value={formData.otp}
-                    onChange={handleInputChange} placeholder="000000" maxLength={6}
+                 <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    name="otp"
+                    value={formData.otp}
+                    onChange={e => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setFormData(prev => ({ ...prev, otp: val }));
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    placeholder="000000"
+                    maxLength={6}
                     style={{ fontSize: "1.5rem", letterSpacing: "0.75rem", textAlign: "center", fontWeight: 600, fontFamily: "'Courier New', monospace", paddingLeft: "2.5rem" }}
-                    className="form-input" autoFocus required />
+                    className="form-input"
+                    autoFocus
+                    required
+                  />
                 </div>
                 <p style={{ fontSize: "0.8125rem", color: "hsl(var(--muted-foreground))", marginTop: "0.75rem", marginBottom: 0, lineHeight: 1.4 }}>
                   A 6-digit code was sent to {formData.email}
@@ -454,7 +485,8 @@ const Auth = () => {
               </>
             )}
 
-            {errorMessage && <div className="auth-error">{errorMessage}</div>}
+{successMessage && <div className="auth-success">{successMessage}</div>}
+            {errorMessage   && <div className="auth-error">{errorMessage}</div>}
 
             <button type="submit" disabled={isLoading} className="submit-button">
               {isLoading ? <div className="loading-spinner" /> : (

@@ -200,11 +200,13 @@ function getPickupPointLabel(order: LocalOrder): string {
   return 'Pickup Counter';
 }
 
+const FLOATING_PARTICLES = Array.from({ length: 10 }, (_, i) => ({
+  id: i, x: Math.random() * 100, y: Math.random() * 100,
+  delay: Math.random() * 5, duration: 10 + Math.random() * 10, size: 2 + Math.random() * 3,
+}));
+
 const FloatingParticles = () => {
-  const particles = Array.from({ length: 10 }, (_, i) => ({
-    id: i, x: Math.random() * 100, y: Math.random() * 100,
-    delay: Math.random() * 5, duration: 10 + Math.random() * 10, size: 2 + Math.random() * 3,
-  }));
+  const particles = FLOATING_PARTICLES;
   return (
     <div className="orders__particles" aria-hidden="true">
       {particles.map(p => (
@@ -404,10 +406,13 @@ const pollOrders = useCallback(async () => {
     });
   }, [orders, applyStatusUpdate, contextOrders]);
 
+const pollOrdersRef = useRef(pollOrders);
+  useEffect(() => { pollOrdersRef.current = pollOrders; }, [pollOrders]);
+
   useEffect(() => {
-    const id = setInterval(pollOrders, FALLBACK_POLL_INTERVAL);
+    const id = setInterval(() => pollOrdersRef.current(), FALLBACK_POLL_INTERVAL);
     return () => clearInterval(id);
-  }, [pollOrders]);
+  }, []); // stable interval — always calls latest pollOrders via ref
 
   useEffect(() => {
     if (locationState?.wasCancelled) {

@@ -16,9 +16,20 @@ export interface Notification {
 // ─── Web Audio sound engine ───────────────────────────────────────────────────
 
 let _sharedAudioContext: AudioContext | null = null;
+let _lastAudioToken = '';
 
 function getAudioContext(): AudioContext | null {
   try {
+    const currentToken = localStorage.getItem('auth_token') ?? '';
+    // Reset on logout/re-login so suspended context from previous session
+    // is never reused — playSound would silently fail on a closed context.
+    if (currentToken !== _lastAudioToken) {
+      if (_sharedAudioContext && _sharedAudioContext.state !== 'closed') {
+        _sharedAudioContext.close().catch(() => {});
+      }
+      _sharedAudioContext = null;
+      _lastAudioToken = currentToken;
+    }
     if (_sharedAudioContext && _sharedAudioContext.state !== 'closed') {
       return _sharedAudioContext;
     }

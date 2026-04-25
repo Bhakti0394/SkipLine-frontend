@@ -10,9 +10,23 @@ export interface Notification {
   orderId?: string;
 }
 
-const playNotificationSound = (type: Notification['type']) => {
+let _notifAudioCtx: AudioContext | null = null;
+
+function getNotifAudioContext(): AudioContext | null {
   try {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (_notifAudioCtx && _notifAudioCtx.state !== 'closed') return _notifAudioCtx;
+    _notifAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    return _notifAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
+const playNotificationSound = (type: Notification['type']) => {
+  const audioContext = getNotifAudioContext();
+  if (!audioContext) return;
+
+  try {
     const oscillator   = audioContext.createOscillator();
     const gainNode     = audioContext.createGain();
     oscillator.connect(gainNode);

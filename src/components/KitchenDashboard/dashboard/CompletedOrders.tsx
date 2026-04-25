@@ -174,22 +174,10 @@ const { types, list, m } = useMemo(() => {
     return { types, list, m: calcMetrics(list) };
   }, [orders, filter, debouncedSearch, sort]);
 
-const listRef = useRef(list);
-useEffect(() => { listRef.current = list; }, [list]);
-
-const prevLengthRef = useRef(orders.length);
 useEffect(() => {
-  const prevLen = prevLengthRef.current;
-  prevLengthRef.current = orders.length;
-  // Check both order removal AND filter changes (list may shrink without orders changing)
-  setOpenId(prev => {
-    if (prev === null) return null;
-    const stillInOrders = orders.some(o => o.id === prev);
-    if (!stillInOrders) return null;
-    const stillInList = listRef.current.some(o => o.id === prev);
-    return stillInList ? prev : null;
-  });
-}, [orders, list]); // list dep catches filter/search/sort changes
+  if (openId === null) return;
+  if (!list.some(o => o.id === openId)) setOpenId(null);
+}, [list, openId]);
    return (
     <div className="co-panel">
 
