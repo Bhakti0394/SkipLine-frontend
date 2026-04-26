@@ -66,12 +66,13 @@ export default function Profile() {
   // FIX: all stats come from SkipLineContext (which fetches from backend on load)
   const { metrics, orderHistory } = useSkipLine();
 
-  const [isEditing, setIsEditing] = useState(false);
+const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [profile, setProfile] = useState({
     name:     user?.fullName ?? 'Your Name',
     email:    user?.email    ?? 'your@email.com',
-    phone:    '',
-    location: '',
+    phone:    localStorage.getItem('profile_phone')    ?? '',
+    location: localStorage.getItem('profile_location') ?? '',
   });
 
   // Keep profile name/email in sync if auth user changes (e.g. after login)
@@ -83,15 +84,44 @@ export default function Profile() {
     }));
   }, [user]);
 
-  const handleSave = () => {
-    setIsEditing(false);
-    if (profile.name) localStorage.setItem('auth_full_name', profile.name);
-    toast({ title: 'Profile Updated! ✓', description: 'Your changes have been saved' });
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL ?? ''}/api/auth/profile`,
+        {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            fullName:       profile.name,
+            phone:          profile.phone,
+            pickupLocation: profile.location,
+          }),
+        }
+      );
+      if (!res.ok) throw new Error('Save failed');
+      // keep localStorage in sync for name (used by AuthContext header)
+      if (profile.name) localStorage.setItem('auth_full_name', profile.name);
+      localStorage.setItem('profile_phone',    profile.phone);
+      localStorage.setItem('profile_location', profile.location);
+      setIsEditing(false);
+      toast({ title: 'Profile Updated! ✓', description: 'Your changes have been saved' });
+    } catch {
+      toast({ title: 'Save failed', description: 'Could not reach the server. Try again.', variant: 'destructive' });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // FIX: stats derived from real metrics fetched by SkipLineContext
-  const totalOrders = (metrics.ordersThisMonth ?? 0) + (orderHistory?.length ?? 0);
-
+ const totalOrders = orderHistory?.length > 0
+    ? orderHistory.length
+    : (metrics.ordersThisMonth ?? 0);
   const stats = [
     { label: 'Total Orders',  value: totalOrders > 0 ? String(totalOrders) : '—',                     icon: Calendar,   color: '#ff6b35' },
     { label: 'Time Saved',    value: metrics.timeSaved > 0 ? formatTimeSaved(metrics.timeSaved) : '—', icon: TrendingUp, color: '#f7931e' },
@@ -192,9 +222,11 @@ export default function Profile() {
                   </div>
                 </div>
               ))}
-              {isEditing && (
-                <Button onClick={handleSave} className="profile__save-btn">
-                  <Save className="profile__save-icon" />Save Changes
+            {isEditing && (
+                <Button onClick={handleSave} disabled={isSaving} className="profile__save-btn">
+                  {isSaving
+                    ? <><Loader2 className="profile__save-icon animate-spin" />Saving…</>
+                    : <><Save className="profile__save-icon" />Save Changes</>}
                 </Button>
               )}
             </div>

@@ -18,32 +18,57 @@ export function AuthProvider({ children }) {
   const email    = localStorage.getItem('auth_email');
   const fullName = localStorage.getItem('auth_full_name');
 
-  if (token && role && email) {
-    // Decode exp from JWT payload — no library needed
-try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      // Guard: if exp is missing treat token as expired — never trust unverifiable tokens
-      const isExpired = !payload.exp || payload.exp * 1000 < Date.now();
+  const clearStorage = () => {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_role');
+    localStorage.removeItem('auth_email');
+    localStorage.removeItem('auth_full_name');
+  };
 
-      if (isExpired) {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('auth_role');
-        localStorage.removeItem('auth_email');
-        localStorage.removeItem('auth_full_name');
-        // user stays null — ProtectedRoute redirects to /auth?mode=login
-      } else {
-        setUser({ email, fullName: fullName ?? email, role });
-      }
-    } catch {
-      // Malformed token — treat as expired, clear storage
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('auth_role');
-      localStorage.removeItem('auth_email');
-      localStorage.removeItem('auth_full_name');
-    }
+  if (!token || !role || !email) {
+    setLoading(false);
+    return;
   }
 
-  setLoading(false);
+  // Step 1: check expiry locally — avoids a network round-trip for obviously
+  // expired tokens and gives instant feedback on first render.
+  try {
+    const payload   = JSON.parse(atob(token.split('.')[1]));
+    const isExpired = !payload.exp || payload.exp * 1000 < Date.now();
+    if (isExpired) { clearStorage(); setLoading(false); return; }
+  } catch {
+    clearStorage(); setLoading(false); return;
+  }
+
+  // Step 2: verify the token is still valid server-side.
+  // This catches tokens that were invalidated early (password change,
+  // admin revocation, etc.) — localStorage alone can't detect these.
+  fetch(`${BASE_URL}/api/auth/me`, {
+    method:      'GET',
+    credentials: 'include',
+    headers:     { Authorization: `Bearer ${token}` },
+  })
+    .then(res => {
+      if (!res.ok) throw new Error('Token rejected by server');
+      return res.json();
+    })
+    .then(data => {
+      // Server confirmed — use server role as source of truth,
+      // keep fullName from localStorage (not returned by /me).
+      setUser({ email: data.email, fullName: fullName ?? data.email, role: data.role });
+    })
+    .catch(() => {
+      // Server rejected or unreachable.
+      // If unreachable (network offline), fall back to localStorage so the
+      // app still works offline — we already checked expiry above.
+      const isOffline = !navigator.onLine;
+      if (isOffline) {
+        setUser({ email, fullName: fullName ?? email, role });
+      } else {
+        clearStorage();
+      }
+    })
+    .finally(() => setLoading(false));
 }, []);
   // ── Customer login ─────────────────────────────────────────────────────────
   const login = async (email, password) => {
