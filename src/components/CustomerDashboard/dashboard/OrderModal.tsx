@@ -67,6 +67,17 @@ function queueLevel(remaining: number, max: number): 'low' | 'medium' | 'high' {
   return pct > 0.5 ? 'low' : pct > 0.2 ? 'medium' : 'high';
 }
 
+// ── Smart Slot preference reader ──────────────────────────────────────────────
+// Reads the value written by Settings.tsx toggleSmartSlot().
+// Returns true (show slot picker) by default — opt-out, not opt-in.
+function readSmartSlotPref(): boolean {
+  try {
+    const saved = localStorage.getItem('SkipLine_smart_slot');
+    if (saved !== null) return saved === 'true';
+  } catch { /* ignore */ }
+  return true;
+}
+
 // ── Add-ons fetch ─────────────────────────────────────────────────────────────
 let addonsCache: { token: string; data: AddOn[] } | null = null;
 
@@ -89,7 +100,7 @@ async function fetchAddons(): Promise<AddOn[]> {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
 export function OrderModal({
   meal,
   isOpen,
@@ -99,6 +110,17 @@ export function OrderModal({
 }: OrderModalProps) {
   const { addToCart, cartItemsCount } = useSkipLine();
   const navigate = useNavigate();
+
+  // ── Smart Slot: read on every open so changes in Settings take effect ──
+  // We read inside the component (not as module-level constant) so a user
+  // who toggles the setting and opens the modal in the same session gets
+  // the updated value without a full page reload.
+  const [smartSlotEnabled, setSmartSlotEnabled] = useState(readSmartSlotPref);
+
+  // Re-read the pref each time the modal opens
+  useEffect(() => {
+    if (isOpen) setSmartSlotEnabled(readSmartSlotPref());
+  }, [isOpen]);
 
   // ── Local state ──────────────────────────────────────────────────────────
   const [quantity,              setQuantity]              = useState(1);
@@ -114,11 +136,11 @@ export function OrderModal({
   const [tomorrowSlots,         setTomorrowSlots]         = useState<CustomerSlotDto[]>([]);
   const [slotsLoading,          setSlotsLoading]          = useState(false);
 
-  // ── Derived values ────────────────────────────────────────────────────────
+  // ── Derived values ───────────────────────────────────────────────────────
   const isScheduleMode = orderMode === 'schedule';
   const isExpressMode  = !isScheduleMode && !!meal && (meal.isExpress || forceExpressMode);
 
-  // ── resetForm defined before useEffect that uses it ──────────────────────
+  // ── resetForm ────────────────────────────────────────────────────────────
   const resetForm = () => {
     setQuantity(1);
     setSelectedSlot(null);
@@ -131,7 +153,7 @@ export function OrderModal({
     setTomorrowSlots([]);
   };
 
-  // ── useEffect #1: fetch add-ons ───────────────────────────────────────────
+  // ── useEffect #1: fetch add-ons ──────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !meal || addonsLoaded) return;
     fetchAddons().then(data => {
@@ -140,9 +162,12 @@ export function OrderModal({
     });
   }, [isOpen, meal, addonsLoaded]);
 
-  // ── useEffect #2: fetch slots ─────────────────────────────────────────────
+  // ── useEffect #2: fetch slots (only when Smart Slot is ON) ───────────────
+  // When smartSlotEnabled is false we skip the fetch entirely — no slots
+  // are shown and the user places the order with a default ASAP pickup time.
   useEffect(() => {
     if (!isOpen || !meal) return;
+    if (!smartSlotEnabled) return;           // ← Smart Slot OFF: skip slot fetch
     if (isExpressMode && meal.prepTime <= 15) return;
 
     let cancelled = false;
@@ -154,24 +179,22 @@ export function OrderModal({
         .catch(() => { if (!cancelled) setSlotsLoading(false); });
     } else {
       fetchCustomerSlots(meal.prepTime)
-  .then(slots => { if (!cancelled) { setTodaySlots(slots); setSlotsLoading(false); } })
+        .then(slots => { if (!cancelled) { setTodaySlots(slots); setSlotsLoading(false); } })
         .catch(() => { if (!cancelled) setSlotsLoading(false); });
     }
 
     return () => { cancelled = true; };
-  }, [isOpen, meal, isScheduleMode, isExpressMode]);
+  }, [isOpen, meal, isScheduleMode, isExpressMode, smartSlotEnabled]);
 
   // ── useEffect #3: reset on close ─────────────────────────────────────────
-  // ✅ FIXED: moved above the early return so hook count never changes
   useEffect(() => {
     if (!isOpen) resetForm();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  // ── Early return AFTER all hooks ──────────────────────────────────────────
+  // ── Early return AFTER all hooks ─────────────────────────────────────────
   if (!meal) return null;
 
-  // ── Everything below is safe — meal is guaranteed non-null ───────────────
   const orderType: OrderType = isScheduleMode ? 'scheduled' : isExpressMode ? 'express' : 'normal';
   const tomorrowDate = getTomorrowDate();
 
@@ -196,9 +219,14 @@ export function OrderModal({
     p => tomorrowSlotsByPeriod[p]?.length > 0
   );
 
-  const canSubmit = isExpressMode
-    ? (noExpressOptions ? !!selectedSlot : !!selectedExpressOption)
-    : !!selectedSlot;
+  // When Smart Slot is OFF:
+  // - Express mode: still require arrival time selection (that's not a slot, it's cook-start)
+  // - Normal/Scheduled: skip slot requirement, submit with ASAP pickup
+  const canSubmit = !smartSlotEnabled
+    ? (isExpressMode ? !!selectedExpressOption : true)
+    : isExpressMode
+      ? (noExpressOptions ? !!selectedSlot : !!selectedExpressOption)
+      : !!selectedSlot;
 
   const noSpiceCategories = ['Desserts', 'Dessert', 'Beverages', 'Beverage', 'Drinks', 'Drink', 'Sweet', 'Sweets', 'Chai', 'Tea', 'Coffee'];
   const shouldShowSpiceLevel = !noSpiceCategories.some(cat =>
@@ -217,6 +245,39 @@ export function OrderModal({
   const handleAddToCart = () => {
     if (!canSubmit) return;
 
+    // ── Smart Slot OFF: add to cart with ASAP / express arrival time, no slot ──
+    if (!smartSlotEnabled) {
+      if (isExpressMode && selectedExpressArrival) {
+        addToCart({
+          meal, menuItemId: meal.id, quantity,
+          addOns:              selectedAddOnObjects,
+          spiceLevel:          shouldShowSpiceLevel ? spiceLevel : 'none',
+          specialInstructions,
+          pickupSlotId:        '',
+          pickupTime:          expressPickupTime!,
+          isScheduled:         false,
+          scheduledDate:       undefined,
+          orderType,
+        });
+      } else {
+        // Normal or scheduled with Smart Slot OFF → ASAP, no slot ID
+        addToCart({
+          meal, menuItemId: meal.id, quantity,
+          addOns:              selectedAddOnObjects,
+          spiceLevel:          shouldShowSpiceLevel ? spiceLevel : 'none',
+          specialInstructions,
+          pickupSlotId:        '',
+          pickupTime:          'ASAP',
+          isScheduled:         isScheduleMode,
+          scheduledDate:       isScheduleMode ? tomorrowDate : undefined,
+          orderType,
+        });
+      }
+      setShowSuccess(true);
+      return;
+    }
+
+    // ── Smart Slot ON: original slot-aware logic ──────────────────────────
     if (isExpressMode && noExpressOptions) {
       const slot = todaySlots.find(s => s.slotId === selectedSlot);
       addToCart({
@@ -236,14 +297,12 @@ export function OrderModal({
       return;
     }
 
-if (isExpressMode && selectedExpressArrival) {
+    if (isExpressMode && selectedExpressArrival) {
       addToCart({
         meal, menuItemId: meal.id, quantity,
         addOns:              selectedAddOnObjects,
         spiceLevel:          shouldShowSpiceLevel ? spiceLevel : 'none',
         specialInstructions,
-        // Express orders have no real backend slot — pass empty string so
-        // Checkout's toValidUUID() correctly strips it from the API request.
         pickupSlotId:        '',
         pickupTime:          expressPickupTime!,
         isScheduled:         false,
@@ -307,7 +366,7 @@ if (isExpressMode && selectedExpressArrival) {
                   </motion.h2>
                   <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.35 }} className="modal__success-text">
-                    {quantity}x {meal.name} • ₹{totalPrice}
+                    {quantity}x {meal.name} · ₹{totalPrice}
                   </motion.p>
                   {isExpressMode && selectedExpressArrival && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -320,7 +379,12 @@ if (isExpressMode && selectedExpressArrival) {
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.4 }} className="modal__success-schedule-info">
                       <Calendar className="modal__success-schedule-icon" />
-                      <span>{tomorrowDate} at {tomorrowSlots.find(s => s.slotId === selectedSlot)?.displayTime}</span>
+                      <span>
+                        {tomorrowDate}
+                        {smartSlotEnabled && selectedSlot
+                          ? ` at ${tomorrowSlots.find(s => s.slotId === selectedSlot)?.displayTime}`
+                          : ' · ASAP pickup'}
+                      </span>
                     </motion.div>
                   )}
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -502,145 +566,173 @@ if (isExpressMode && selectedExpressArrival) {
                         <h3 className="modal__section-title">
                           {isExpressMode ? 'When will you arrive?' : isScheduleMode ? 'Pickup Time Tomorrow' : 'Pickup Time'}
                         </h3>
-                        <span className="modal__required">*Required</span>
+                        {/* Only show *Required when slot selection is actually needed */}
+                        {(smartSlotEnabled || isExpressMode) && (
+                          <span className="modal__required">*Required</span>
+                        )}
                       </div>
 
-                      {/* EXPRESS */}
-                      {isExpressMode ? (
-                        noExpressOptions ? (
-                          
-                          slotsLoading ? (
-                            <div className="modal__slots-loading">
-                              <Loader2 className="modal__slots-loading-icon" />
-                              <span>Loading available slots...</span>
-                            </div>
-                          ) : todaySlots.length === 0 ? (
-                            <p className="modal__slots-empty">No slots available right now. Try again soon.</p>
-                          ) : (
-                            <div className="modal__slots-grid">
-                              {todaySlots.map((slot) => {
-  const level  = queueLevel(slot.remaining, slot.maxCapacity);
-  const isFull = slot.remaining === 0;
-  const slotMs = new Date(slot.slotTime).getTime();
-  const minPickupMs = Date.now() + (meal.prepTime + 5) * 60 * 1000;
-  const tooSoon = slotMs < minPickupMs;
-  return (
-    <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
-      onClick={() => !tooSoon && setSelectedSlot(slot.slotId)}
-      disabled={isFull || tooSoon} className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
-                                  >
-                                    <p className="modal__slot-time">{slot.displayTime}</p>
-                                    <div className="modal__slot-queue">
-                                      <span className={`modal__slot-dot modal__slot-dot--${level}`} />
-                                      <span className="modal__slot-wait">
-  {isFull ? 'Full' : tooSoon ? 'Too soon' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
-</span>
-                                    </div>
-                                  </motion.button>
-                                );
-                              })}
-                            </div>
-                          )
-                        ) : (
-                          <div className="modal__express-arrival-grid">
-                            {expressArrivalOptions.map((option) => {
-                              const isSelected = selectedExpressOption === option.id;
-                              const pickupAt   = getPickupTimeFromMinutes(option.minutes);
-                              return (
-                                <motion.button key={option.id}
-                                  whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.02 }}
-                                  onClick={() => setSelectedExpressOption(option.id)}
-                                  className={`modal__express-arrival ${isSelected ? 'modal__express-arrival--active' : ''}`}
-                                >
-                                  <span className="modal__express-arrival-emoji">{option.emoji}</span>
-                                  <span className="modal__express-arrival-label">{option.label}</span>
-                                  <span className="modal__express-arrival-sublabel">{option.sublabel}</span>
-                                  <span className="modal__express-arrival-time">Ready ~{pickupAt}</span>
-                                  {isSelected && (
-                                    <motion.div className="modal__express-arrival-check"
-                                      initial={{ scale: 0 }} animate={{ scale: 1 }}
-                                      transition={{ type: 'spring', damping: 15 }}>
-                                      <Check />
-                                    </motion.div>
-                                  )}
-                                </motion.button>
-                              );
-                            })}
+                      {/* ── Smart Slot OFF: no slot picker ── */}
+                      {!smartSlotEnabled && !isExpressMode && (
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: '0.75rem',
+                          padding: '1rem', borderRadius: '1rem',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                        }}>
+                          <Clock size={18} style={{ color: 'rgba(255,255,255,0.5)', flexShrink: 0 }} />
+                          <div>
+                            <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.2rem' }}>
+                              ASAP Pickup
+                            </p>
+                            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>
+                              Your order will be ready as soon as possible. Enable Smart Slot Suggestions in Settings to choose a specific time.
+                            </p>
                           </div>
-                        )
+                        </div>
+                      )}
 
-                      ) : isScheduleMode ? (
-                        /* SCHEDULED */
-                        slotsLoading ? (
-                          <div className="modal__slots-loading">
-                            <Loader2 className="modal__slots-loading-icon" />
-                            <span>Loading available slots...</span>
-                          </div>
-                        ) : tomorrowSlots.length === 0 ? (
-                          <p className="modal__slots-empty">No slots available for tomorrow yet. Check back later.</p>
-                        ) : (
-                          <div className="modal__schedule-slots">
-                            {periods.map((period) => (
-                              <div key={period} className="modal__schedule-period">
-                                <p className="modal__schedule-period-title">{period}</p>
-                                <div className="modal__schedule-period-slots">
-                                  {tomorrowSlotsByPeriod[period].map((slot) => {
+                      {/* ── Smart Slot ON or Express (express always shows arrival picker) ── */}
+                      {(smartSlotEnabled || isExpressMode) && (
+                        <>
+                          {/* EXPRESS */}
+                          {isExpressMode ? (
+                            noExpressOptions ? (
+                              slotsLoading ? (
+                                <div className="modal__slots-loading">
+                                  <Loader2 className="modal__slots-loading-icon" />
+                                  <span>Loading available slots...</span>
+                                </div>
+                              ) : todaySlots.length === 0 ? (
+                                <p className="modal__slots-empty">No slots available right now. Try again soon.</p>
+                              ) : (
+                                <div className="modal__slots-grid">
+                                  {todaySlots.map((slot) => {
+                                    const level  = queueLevel(slot.remaining, slot.maxCapacity);
+                                    const isFull = slot.remaining === 0;
+                                    const slotMs = new Date(slot.slotTime).getTime();
+                                    const minPickupMs = Date.now() + (meal.prepTime + 5) * 60 * 1000;
+                                    const tooSoon = slotMs < minPickupMs;
+                                    return (
+                                      <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
+                                        onClick={() => !tooSoon && setSelectedSlot(slot.slotId)}
+                                        disabled={isFull || tooSoon}
+                                        className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
+                                      >
+                                        <p className="modal__slot-time">{slot.displayTime}</p>
+                                        <div className="modal__slot-queue">
+                                          <span className={`modal__slot-dot modal__slot-dot--${level}`} />
+                                          <span className="modal__slot-wait">
+                                            {isFull ? 'Full' : tooSoon ? 'Too soon' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
+                                          </span>
+                                        </div>
+                                      </motion.button>
+                                    );
+                                  })}
+                                </div>
+                              )
+                            ) : (
+                              <div className="modal__express-arrival-grid">
+                                {expressArrivalOptions.map((option) => {
+                                  const isSelected = selectedExpressOption === option.id;
+                                  const pickupAt   = getPickupTimeFromMinutes(option.minutes);
+                                  return (
+                                    <motion.button key={option.id}
+                                      whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.02 }}
+                                      onClick={() => setSelectedExpressOption(option.id)}
+                                      className={`modal__express-arrival ${isSelected ? 'modal__express-arrival--active' : ''}`}
+                                    >
+                                      <span className="modal__express-arrival-emoji">{option.emoji}</span>
+                                      <span className="modal__express-arrival-label">{option.label}</span>
+                                      <span className="modal__express-arrival-sublabel">{option.sublabel}</span>
+                                      <span className="modal__express-arrival-time">Ready ~{pickupAt}</span>
+                                      {isSelected && (
+                                        <motion.div className="modal__express-arrival-check"
+                                          initial={{ scale: 0 }} animate={{ scale: 1 }}
+                                          transition={{ type: 'spring', damping: 15 }}>
+                                          <Check />
+                                        </motion.div>
+                                      )}
+                                    </motion.button>
+                                  );
+                                })}
+                              </div>
+                            )
+
+                          ) : isScheduleMode ? (
+                            /* SCHEDULED */
+                            slotsLoading ? (
+                              <div className="modal__slots-loading">
+                                <Loader2 className="modal__slots-loading-icon" />
+                                <span>Loading available slots...</span>
+                              </div>
+                            ) : tomorrowSlots.length === 0 ? (
+                              <p className="modal__slots-empty">No slots available for tomorrow yet. Check back later.</p>
+                            ) : (
+                              <div className="modal__schedule-slots">
+                                {periods.map((period) => (
+                                  <div key={period} className="modal__schedule-period">
+                                    <p className="modal__schedule-period-title">{period}</p>
+                                    <div className="modal__schedule-period-slots">
+                                      {tomorrowSlotsByPeriod[period].map((slot) => {
+                                        const isFull = slot.remaining === 0;
+                                        return (
+                                          <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
+                                            onClick={() => !isFull && setSelectedSlot(slot.slotId)}
+                                            disabled={isFull}
+                                            className={`modal__schedule-slot ${selectedSlot === slot.slotId ? 'modal__schedule-slot--active' : ''} ${isFull ? 'modal__schedule-slot--full' : ''}`}>
+                                            <Clock className="modal__schedule-slot-icon" />
+                                            <span className="modal__schedule-slot-time">{slot.displayTime}</span>
+                                            {isFull && <span className="modal__schedule-slot-full-badge">Full</span>}
+                                          </motion.button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )
+
+                          ) : (
+                            /* NORMAL with Smart Slot ON */
+                            slotsLoading ? (
+                              <div className="modal__slots-loading">
+                                <Loader2 className="modal__slots-loading-icon" />
+                                <span>Loading available slots...</span>
+                              </div>
+                            ) : todaySlots.length === 0 ? (
+                              <p className="modal__slots-empty">No slots available right now. Try again soon.</p>
+                            ) : (
+                              <div className="modal__slots-grid">
+                                {todaySlots
+                                  .filter((slot) => {
+                                    const slotMs      = new Date(slot.slotTime).getTime();
+                                    const minPickupMs = Date.now() + (meal.prepTime + 5) * 60 * 1000;
+                                    return slotMs >= minPickupMs;
+                                  })
+                                  .map((slot) => {
+                                    const level  = queueLevel(slot.remaining, slot.maxCapacity);
                                     const isFull = slot.remaining === 0;
                                     return (
                                       <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
                                         onClick={() => !isFull && setSelectedSlot(slot.slotId)}
                                         disabled={isFull}
-                                        className={`modal__schedule-slot ${selectedSlot === slot.slotId ? 'modal__schedule-slot--active' : ''} ${isFull ? 'modal__schedule-slot--full' : ''}`}>
-                                        <Clock className="modal__schedule-slot-icon" />
-                                        <span className="modal__schedule-slot-time">{slot.displayTime}</span>
-                                        {isFull && <span className="modal__schedule-slot-full-badge">Full</span>}
+                                        className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
+                                      >
+                                        <p className="modal__slot-time">{slot.displayTime}</p>
+                                        <div className="modal__slot-queue">
+                                          <span className={`modal__slot-dot modal__slot-dot--${level}`} />
+                                          <span className="modal__slot-wait">
+                                            {isFull ? 'Full' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
+                                          </span>
+                                        </div>
                                       </motion.button>
                                     );
                                   })}
-                                </div>
                               </div>
-                            ))}
-                          </div>
-                        )
-
-                      ) : (
-                        /* NORMAL */
-                        slotsLoading ? (
-                          <div className="modal__slots-loading">
-                            <Loader2 className="modal__slots-loading-icon" />
-                            <span>Loading available slots...</span>
-                          </div>
-                        ) : todaySlots.length === 0 ? (
-                          <p className="modal__slots-empty">No slots available right now. Try again soon.</p>
-                        ) : (
-                         <div className="modal__slots-grid">
-                           {todaySlots
-  .filter((slot) => {
-    const slotMs      = new Date(slot.slotTime).getTime();
-    const minPickupMs = Date.now() + (meal.prepTime + 5) * 60 * 1000;
-    return slotMs >= minPickupMs;
-  })
-  .map((slot) => {
-    const level  = queueLevel(slot.remaining, slot.maxCapacity);
-    const isFull = slot.remaining === 0;
-    return (
-      <motion.button key={slot.slotId} whileTap={{ scale: 0.95 }}
-        onClick={() => !isFull && setSelectedSlot(slot.slotId)}
-        disabled={isFull}
-        className={`modal__slot ${selectedSlot === slot.slotId ? 'modal__slot--active' : ''} ${isFull ? 'modal__slot--full' : ''}`}
-      >
-        <p className="modal__slot-time">{slot.displayTime}</p>
-        <div className="modal__slot-queue">
-          <span className={`modal__slot-dot modal__slot-dot--${level}`} />
-          <span className="modal__slot-wait">
-            {isFull ? 'Full' : level === 'low' ? 'No wait' : `${slot.remaining} left`}
-          </span>
-        </div>
-      </motion.button>
-    );
-  })}
-                          </div>
-                        )
+                            )
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

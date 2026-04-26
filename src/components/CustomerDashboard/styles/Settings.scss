@@ -1,5 +1,5 @@
 // ============================================
-// PREMIUM SETTINGS - HACKATHON EDITION
+// PREMIUM SETTINGS — WITH TOGGLE FEEDBACK
 // ============================================
 
 .settings {
@@ -8,9 +8,9 @@
   overflow: hidden;
 
   // ============================================
-  // PARTICLES EFFECT
+  // PARTICLES
   // ============================================
-  
+
   &__particles {
     position: fixed;
     inset: 0;
@@ -27,9 +27,9 @@
   }
 
   // ============================================
-  // HERO SECTION
+  // HERO
   // ============================================
-  
+
   &__hero {
     position: relative;
     padding: 3rem 0 2rem;
@@ -52,22 +52,22 @@
     width: 600px;
     height: 600px;
     border-radius: 50%;
-    
+
     &--1 {
       top: -20%;
       left: -10%;
       background: radial-gradient(circle, rgba(255, 107, 53, 0.6) 0%, transparent 70%);
     }
-    
+
     &--2 {
       top: 10%;
       right: -15%;
       background: radial-gradient(circle, rgba(247, 147, 30, 0.5) 0%, transparent 70%);
     }
 
-    @media (max-width: 768px) { 
-      width: 400px; 
-      height: 400px; 
+    @media (max-width: 768px) {
+      width: 400px;
+      height: 400px;
     }
   }
 
@@ -91,9 +91,9 @@
     backdrop-filter: blur(20px);
     box-shadow: 0 8px 32px rgba(255, 107, 53, 0.2);
 
-    @media (max-width: 768px) { 
-      font-size: 0.8125rem; 
-      padding: 0.5rem 1rem; 
+    @media (max-width: 768px) {
+      font-size: 0.8125rem;
+      padding: 0.5rem 1rem;
     }
   }
 
@@ -120,7 +120,7 @@
     background-clip: text;
     position: relative;
     display: inline-block;
-    
+
     &::after {
       content: '';
       position: absolute;
@@ -141,7 +141,7 @@
   }
 
   // ============================================
-  // SETTINGS GRID
+  // GRID
   // ============================================
 
   &__grid {
@@ -156,7 +156,7 @@
   }
 
   // ============================================
-  // CARD STYLES
+  // CARDS
   // ============================================
 
   &__card {
@@ -224,11 +224,6 @@
       border: 1px solid rgba(251, 191, 36, 0.3);
     }
 
-    &--user {
-      background: linear-gradient(135deg, rgba(247, 147, 30, 0.2), rgba(255, 107, 53, 0.1));
-      border: 1px solid rgba(247, 147, 30, 0.3);
-    }
-
     &--danger {
       background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.1));
       border: 1px solid rgba(239, 68, 68, 0.3);
@@ -242,7 +237,6 @@
 
     .settings__icon-wrapper--primary & { color: #ff6b35; }
     .settings__icon-wrapper--accent & { color: #fbbf24; }
-    .settings__icon-wrapper--user & { color: #f7931e; }
     .settings__icon-wrapper--danger & { color: #ef4444; }
   }
 
@@ -253,13 +247,11 @@
     color: rgba(255, 255, 255, 0.98);
     flex: 1;
 
-    &--danger {
-      color: #ef4444;
-    }
+    &--danger { color: #ef4444; }
   }
 
   // ============================================
-  // SETTINGS LIST
+  // SETTINGS LIST & ITEMS
   // ============================================
 
   &__list {
@@ -269,22 +261,26 @@
   }
 
   &__item {
+    border-radius: 1.25rem;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px);
+    overflow: hidden;
+    transition: border-color 0.3s, background 0.3s;
+
+    &:hover {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+  }
+
+  // The toggle row inside each item
+  &__item-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
     padding: clamp(0.875rem, 2vw, 1.25rem);
-    border-radius: 1.25rem;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(20px);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-    &:hover {
-      background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
-      border-color: rgba(255, 255, 255, 0.15);
-      transform: translateX(4px);
-    }
   }
 
   &__item-content {
@@ -330,6 +326,131 @@
     color: rgba(255, 255, 255, 0.6);
   }
 
+  &__switch-wrap {
+    flex-shrink: 0;
+  }
+
+  // ============================================
+  // TOGGLE FEEDBACK BLOCKS  ← THE NEW MAGIC
+  // ============================================
+
+  &__feedback {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.875rem;
+    padding: 0.875rem 1.25rem 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+
+    // Colour themes — ON states
+    &--green {
+      background: linear-gradient(135deg, rgba(52, 211, 153, 0.12), rgba(16, 185, 129, 0.06));
+      .settings__feedback-icon-wrap { background: rgba(52, 211, 153, 0.15); border-color: rgba(52, 211, 153, 0.3); }
+      .settings__feedback-icon { color: #34d399; }
+      .settings__feedback-headline { color: #6ee7b7; }
+      .settings__feedback-body { color: rgba(167, 243, 208, 0.75); }
+    }
+
+    &--orange {
+      background: linear-gradient(135deg, rgba(255, 107, 53, 0.12), rgba(247, 147, 30, 0.06));
+      .settings__feedback-icon-wrap { background: rgba(255, 107, 53, 0.15); border-color: rgba(255, 107, 53, 0.3); }
+      .settings__feedback-icon { color: #ff6b35; }
+      .settings__feedback-headline { color: #fdba74; }
+      .settings__feedback-body { color: rgba(253, 186, 116, 0.75); }
+    }
+
+    &--blue {
+      background: linear-gradient(135deg, rgba(96, 165, 250, 0.12), rgba(59, 130, 246, 0.06));
+      .settings__feedback-icon-wrap { background: rgba(96, 165, 250, 0.15); border-color: rgba(96, 165, 250, 0.3); }
+      .settings__feedback-icon { color: #60a5fa; }
+      .settings__feedback-headline { color: #93c5fd; }
+      .settings__feedback-body { color: rgba(147, 197, 253, 0.75); }
+    }
+
+    &--purple {
+      background: linear-gradient(135deg, rgba(167, 139, 250, 0.12), rgba(139, 92, 246, 0.06));
+      .settings__feedback-icon-wrap { background: rgba(167, 139, 250, 0.15); border-color: rgba(167, 139, 250, 0.3); }
+      .settings__feedback-icon { color: #a78bfa; }
+      .settings__feedback-headline { color: #c4b5fd; }
+      .settings__feedback-body { color: rgba(196, 181, 253, 0.75); }
+    }
+
+    &--amber {
+      background: linear-gradient(135deg, rgba(251, 191, 36, 0.12), rgba(245, 158, 11, 0.06));
+      .settings__feedback-icon-wrap { background: rgba(251, 191, 36, 0.15); border-color: rgba(251, 191, 36, 0.3); }
+      .settings__feedback-icon { color: #fbbf24; }
+      .settings__feedback-headline { color: #fde68a; }
+      .settings__feedback-body { color: rgba(253, 230, 138, 0.75); }
+    }
+
+    // OFF / muted state
+    &--muted {
+      background: rgba(255, 255, 255, 0.02);
+      .settings__feedback-icon-wrap { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.08); }
+      .settings__feedback-icon { color: rgba(255, 255, 255, 0.3); }
+      .settings__feedback-headline { color: rgba(255, 255, 255, 0.4); }
+      .settings__feedback-body { color: rgba(255, 255, 255, 0.28); }
+    }
+  }
+
+  &__feedback-icon-wrap {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.625rem;
+    border: 1px solid;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+    transition: background 0.3s, border-color 0.3s;
+  }
+
+  &__feedback-icon {
+    width: 1rem;
+    height: 1rem;
+    transition: color 0.3s;
+  }
+
+  &__feedback-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__feedback-headline {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    margin-bottom: 0.2rem;
+    transition: color 0.3s;
+  }
+
+  &__feedback-body {
+    font-size: 0.78rem;
+    line-height: 1.5;
+    transition: color 0.3s;
+  }
+
+  // ── Confetti burst dots ──────────────────────────────────────────────────
+  &__confetti-wrap {
+    position: absolute;
+    top: 50%;
+    left: 2rem;
+    pointer-events: none;
+    z-index: 10;
+    transform: translateY(-50%);
+  }
+
+  &__confetti-dot {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    top: 0;
+    left: 0;
+  }
+
   // ============================================
   // INFO BANNER
   // ============================================
@@ -363,107 +484,6 @@
       color: rgba(255, 255, 255, 0.95);
       font-weight: 600;
     }
-  }
-
-  // ============================================
-  // ACCOUNT SETTINGS
-  // ============================================
-
-  &__account-grid {
-    display: grid;
-    gap: 1rem;
-
-    @media (min-width: 640px) {
-      grid-template-columns: repeat(2, 1fr);
-    }
-
-    @media (min-width: 1280px) {
-      grid-template-columns: repeat(4, 1fr);
-    }
-  }
-
-  &__account-item {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: clamp(1rem, 2vw, 1.25rem);
-    border-radius: 1.25rem;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(20px);
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    cursor: pointer;
-    overflow: hidden;
-
-    &:hover {
-      border-color: rgba(255, 255, 255, 0.2);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-    }
-  }
-
-  &__account-glow {
-    position: absolute;
-    inset: -50%;
-    filter: blur(40px);
-    pointer-events: none;
-    opacity: 0.5;
-  }
-
-  &__account-left {
-    display: flex;
-    align-items: center;
-    gap: 0.875rem;
-    flex: 1;
-    min-width: 0;
-  }
-
-  &__account-icon-wrapper {
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 1rem;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  &__account-icon {
-    width: 1.25rem;
-    height: 1.25rem;
-    filter: drop-shadow(0 2px 8px currentColor);
-  }
-
-  &__account-label {
-    font-size: clamp(0.875rem, 2vw, 0.9375rem);
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.95);
-  }
-
-  &__account-right {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-  }
-
-  &__account-badge {
-    font-size: clamp(0.75rem, 1.5vw, 0.8125rem);
-    color: rgba(255, 255, 255, 0.6);
-    padding: 0.25rem 0.625rem;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    white-space: nowrap;
-  }
-
-  &__account-chevron {
-    width: 1rem;
-    height: 1rem;
-    color: rgba(255, 255, 255, 0.5);
-    flex-shrink: 0;
   }
 
   // ============================================
@@ -531,7 +551,7 @@
 }
 
 // ============================================
-// ANIMATIONS
+// REDUCED MOTION
 // ============================================
 
 @media (prefers-reduced-motion: reduce) {
