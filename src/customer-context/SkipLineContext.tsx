@@ -148,12 +148,14 @@ const statusMap: Record<string, Order['status']> = {
   cancelled: 'cancelled',
 };
 
-  return {
+return {
     id:                   dto.id,
     meal:                 mealName,
     restaurant:           '',
     image,
     status:               statusMap[dto.status] ?? 'confirmed',
+    wasSwapped:           false,   // backend has no swap flag — only set locally in OrderSuccess
+    originalMeal:         undefined,
    pickupTime: formatPickupTime(dto.pickupSlotTime),
     pickupSlotId:         dto.pickupSlotId ?? '',
     estimatedReady:       `${dto.totalPrepMinutes} min`,
@@ -526,17 +528,14 @@ let streakDelta: 'increment' | 'reset' | 'keep' = 'keep';
       streakDelta = (!lastDate || lastDate === yesterday) ? 'increment' : 'reset';
     }
 
-    setMetrics(prev => {
+setMetrics(prev => {
       const newStreak =
         streakDelta === 'increment' ? prev.streak + 1 :
         streakDelta === 'reset'     ? 1               :
         prev.streak;
 
-      if (newStreak > prev.streak && [3, 7, 14, 21, 30].includes(newStreak)) {
-        window.dispatchEvent(new CustomEvent('streak-milestone', {
-          detail: { streak: newStreak },
-        }));
-      }
+      // No milestone dispatch here — wait for server confirmation below
+      // to avoid firing on a stale/wrong optimistic value.
       return {
         ...prev,
         activeOrders:     prev.activeOrders + 1,
@@ -549,15 +548,33 @@ let streakDelta: 'increment' | 'reset' | 'keep' = 'keep';
       };
     });
 
-    // Re-sync streak from backend after order placement.
-    // The optimistic increment above handles instant UI feedback,
-    // but the server is the source of truth (handles multi-device,
-    // session gaps, and orders placed through other clients).
+    // Re-sync streak from backend — server is source of truth.
+    // Fire milestone celebration only here, using the confirmed server value,
+    // so it never triggers on a wrong optimistic count (e.g. reset days).
     fetchCustomerStreak()
       .then(serverStreak => {
-        setMetrics(prev => ({ ...prev, streak: serverStreak }));
+        setMetrics(prev => {
+          const milestones = [3, 7, 14, 21, 30];
+          if (serverStreak > prev.streak && milestones.includes(serverStreak)) {
+            window.dispatchEvent(new CustomEvent('streak-milestone', {
+              detail: { streak: serverStreak },
+            }));
+          }
+          return { ...prev, streak: serverStreak };
+        });
       })
-      .catch(() => { /* keep optimistic value on network failure */ });
+      .catch(() => {
+        // Server unreachable — fire milestone on optimistic value as fallback
+        setMetrics(prev => {
+          const milestones = [3, 7, 14, 21, 30];
+          if (milestones.includes(prev.streak)) {
+            window.dispatchEvent(new CustomEvent('streak-milestone', {
+              detail: { streak: prev.streak },
+            }));
+          }
+          return prev;
+        });
+      });
 
    return newOrder;
   }, [orders, subscribeOrder]);
