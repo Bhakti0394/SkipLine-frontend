@@ -75,7 +75,7 @@ const statusMapReverse: Record<OrderStatus, BackendStatus> = {
   pending: 'PENDING', cooking: 'COOKING', ready: 'READY', completed: 'COMPLETED',
 };
 
-const AUTO_COMPLETE_DELAY_MS = 20_000;
+const AUTO_COMPLETE_DELAY_MS = 300_000;
 
 const SPEED_INTERVALS: Record<'slow' | 'normal' | 'fast', number> = {
   slow: 25_000, normal: 12_000, fast: 5_000,

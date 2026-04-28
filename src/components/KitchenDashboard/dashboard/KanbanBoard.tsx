@@ -837,9 +837,31 @@ const startedAt = order.startedAt.getTime();
 // The timeout callback re-reads simulationSpeedRef at fire time.
 const speedNow = COOK_SPEED_MULTIPLIERS[simulationSpeedRef?.current ?? 'normal'];
 const scaledPrepMs = prepMs / speedNow;
-const remaining = Math.max(0, startedAt + scaledPrepMs - Date.now());
+// AFTER:
+const remaining = startedAt + scaledPrepMs - Date.now();
 
-if (remaining <= 0) continue;
+if (remaining <= 0) {
+  // Order is already overdue — fire immediately
+  const orderId = order.id;
+  const orderNumber = order.orderNumber;
+  timerMap[orderId] = setTimeout(async () => {
+    delete timerMap[orderId];
+    const liveOrder = ordersRef.current.find(o => o.id === orderId);
+    if (!liveOrder || liveOrder.status !== 'cooking') return;
+    if (!(liveOrder.assignedChefId || liveOrder.assignedTo)) {
+      toast.warning(`⚠ Cannot auto-advance ${orderNumber}`, {
+        description: 'Chef was unassigned.',
+        duration: 4000,
+      });
+      return;
+    }
+    toast.info(`Auto-advancing overdue order ${orderNumber} to Ready`, {
+      duration: 3000,
+    });
+    try { await onStatusChange(orderId, 'ready'); } catch { /* handled internally */ }
+  }, 0); // fire on next tick
+  continue;
+}
 
     const orderId = order.id;
     const orderNumber = order.orderNumber;
