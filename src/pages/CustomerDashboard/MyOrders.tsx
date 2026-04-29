@@ -142,18 +142,9 @@ function imageForDtoSummary(summary: string[]): string {
 
   return found ? found[1] : '/customer-assets/butter-chicken.jpg';
 }
-
-function dtoToLocal(dto: CustomerOrderDto): LocalOrder {
-  const mealName = dto.itemSummary?.length > 0
-    ? dto.itemSummary.map(s => s.replace(/^\d+x\s*/, '')).join(', ')
-    : dto.orderRef;
-
-  const statusMap: Record<string, string> = {
-    pending: 'confirmed', cooking: 'cooking', ready: 'ready',
-    completed: 'completed', cancelled: 'cancelled',
-  };
-
-  function formatPickupTime(pickupSlotTime?: string | null): string {
+// contextOrder is passed when we already have swap/delay state in memory
+// that the backend DTO will never carry — we merge it in here.
+function formatPickupTime(pickupSlotTime?: string | null): string {
   if (!pickupSlotTime) return 'ASAP';
   try {
     const slotDate = new Date(pickupSlotTime);
@@ -168,7 +159,17 @@ function dtoToLocal(dto: CustomerOrderDto): LocalOrder {
   }
 }
 
-  return {
+function dtoToLocal(dto: CustomerOrderDto, contextOrder?: { wasSwapped?: boolean; originalMeal?: string; pickupTime?: string }): LocalOrder {
+  const mealName = dto.itemSummary?.length > 0
+    ? dto.itemSummary.map(s => s.replace(/^\d+x\s*/, '')).join(', ')
+    : dto.orderRef;
+
+  const statusMap: Record<string, string> = {
+    pending: 'confirmed', cooking: 'cooking', ready: 'ready',
+    completed: 'completed', cancelled: 'cancelled',
+  };
+
+return {
     id: dto.id,
     orderRef: dto.orderRef,
     meal: mealName,
@@ -179,13 +180,20 @@ function dtoToLocal(dto: CustomerOrderDto): LocalOrder {
       const m = s.match(/^(\d+)[x×]\s*/);
       return sum + (m ? parseInt(m[1], 10) : 1);
     }, 0) : 1,
-  pickupTime: formatPickupTime(dto.pickupSlotTime),
-    image: imageForDtoSummary(dto.itemSummary), // ✅ FIXED
+    // If the context already has a formatted pickup time (e.g. after extendCustomerOrderSlot
+    // was called locally), prefer it — the DTO's pickupSlotTime will also be updated
+    // but formatPickupTime produces the same result, so this is just a safety merge.
+    pickupTime: contextOrder?.pickupTime ?? formatPickupTime(dto.pickupSlotTime),
+    image: imageForDtoSummary(dto.itemSummary),
     kitchenQueuePosition: 0,
     status: statusMap[dto.status] ?? 'confirmed',
     paymentStatus: 'paid',
- pickupPoint: undefined,
-   createdAt:        dto.placedAt          ? new Date(dto.placedAt).getTime()          : Date.now(),
+    pickupPoint: undefined,
+    // Swap state is set locally via swapOrder() — backend DTO never carries it.
+    // Merge from contextOrder so polling doesn't wipe out the swapped label.
+    wasSwapped:   contextOrder?.wasSwapped   ?? false,
+    originalMeal: contextOrder?.originalMeal ?? undefined,
+    createdAt:        dto.placedAt          ? new Date(dto.placedAt).getTime()          : Date.now(),
     totalPrepMinutes: dto.totalPrepMinutes  ?? 0,
     pickupSlotTime:   dto.pickupSlotTime    ?? undefined,
     cookingStartedAt: dto.cookingStartedAt  ? new Date(dto.cookingStartedAt).getTime()  : undefined,
@@ -301,12 +309,22 @@ useEffect(() => {
         pickupPoint: (o as any).pickupPoint,
       }));
 
-    const updated = prev.map(p => {
+const updated = prev.map(p => {
       const ctx = contextOrders.find(o => o.id === p.id);
       if (!ctx) return p;
 
       const mappedStatus = localStatusMap[ctx.status] ?? ctx.status;
-      return p.status === mappedStatus ? p : { ...p, status: mappedStatus };
+
+      // Always sync swap/pickup state from context — these are set locally
+      // via swapOrder()/extendCustomerOrderSlot() and never come from the DTO.
+      // Without this merge, every context update wipes out wasSwapped/originalMeal.
+      return {
+        ...p,
+        status:       mappedStatus,
+        wasSwapped:   ctx.wasSwapped   ?? p.wasSwapped,
+        originalMeal: ctx.originalMeal ?? p.originalMeal,
+        pickupTime:   ctx.pickupTime   ?? p.pickupTime,
+      };
     });
 
     return newOrders.length > 0 ? [...updated, ...newOrders] : updated;
@@ -362,13 +380,20 @@ fetchCustomerOrders()
   .then(dtos => {
     const relevant = dtos.filter(d => d.status !== 'completed');
     if (relevant.length > 0) {
-      const local = relevant.map(dtoToLocal);
+      // Pass matching context order so wasSwapped/originalMeal survive the DTO mapping
+      const local = relevant.map(dto => {
+        const ctx = contextOrders.find(o => o.id === dto.id);
+        return dtoToLocal(dto, ctx ? {
+          wasSwapped:   ctx.wasSwapped,
+          originalMeal: ctx.originalMeal,
+          pickupTime:   ctx.pickupTime,
+        } : undefined);
+      });
 
       local.forEach(o => {
         prevStatusRef.current[o.id] = o.status;
       });
 
-      // Prevent overwrite if context already populated orders
       setOrders(prev => {
         if (prev.length > 0) return prev;
         return local;
@@ -392,7 +417,7 @@ const pollOrders = useCallback(async () => {
     );
     if (!uncovered.length) return;
 
-    const results = await Promise.allSettled(
+const results = await Promise.allSettled(
       uncovered.map(o => import('../../kitchen-api/kitchenApi').then(api => api.fetchCustomerOrder(o.id)))
     );
     results.forEach(r => {
@@ -401,7 +426,21 @@ const pollOrders = useCallback(async () => {
           pending: 'confirmed', cooking: 'cooking', ready: 'ready',
           completed: 'completed', cancelled: 'cancelled',
         };
-        applyStatusUpdate(r.value.id, statusMap[r.value.status] ?? r.value.status);
+        const newStatus = statusMap[r.value.status] ?? r.value.status;
+        applyStatusUpdate(r.value.id, newStatus);
+
+        // Also sync pickupTime if the slot was extended — backend returns updated
+        // pickupSlotTime in the DTO but applyStatusUpdate only touches status.
+        const updatedPickup = formatPickupTime(r.value.pickupSlotTime);
+        setOrders(prev => prev.map(o => {
+          if (o.id !== r.value.id) return o;
+          // Preserve local swap state — never overwrite with DTO defaults
+          return {
+            ...o,
+            pickupTime:   updatedPickup,
+            // wasSwapped and originalMeal are local-only — keep whatever is already on the order
+          };
+        }));
       }
     });
   }, [orders, applyStatusUpdate, contextOrders]);
@@ -614,7 +653,15 @@ const updateOrderStatus = useCallback((orderId: string, newStatus: string) => {
                       <div className="orders__info">
                         <div className="orders__title-row">
                           <div className="orders__details">
-                            <h3 className="orders__name">{order.meal}</h3>
+<h3 className="orders__name" style={{ textDecoration: isCancelled ? 'line-through' : 'none' }}>
+                              {order.meal}
+                              {order.wasSwapped && !isCancelled && (
+                                <span style={{ fontSize: '0.65rem', marginLeft: '0.4rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontWeight: 600, verticalAlign: 'middle' }}
+                                  title={order.originalMeal ? `Originally: ${order.originalMeal}` : 'Dish was swapped'}>
+                                  ⇄ Swapped from {order.originalMeal ?? 'original'}
+                                </span>
+                              )}
+                            </h3>
                           </div>
                           <motion.span className="orders__price" initial={{ scale: 0 }} animate={{ scale: 1 }}
                             transition={{ type: 'spring', delay: 0.2 }}>
@@ -661,10 +708,10 @@ const updateOrderStatus = useCallback((orderId: string, newStatus: string) => {
                       </motion.div>
                     )}
 
-                    {!isCancelled && (
+{!isCancelled && (
                       <div className="orders__details-grid">
                         {[
-                         {
+{
   icon: Clock,
   value: order.pickupTime === 'ASAP' ? '⚡ ASAP' : order.pickupTime,
   label: order.pickupTime === 'ASAP' ? 'Express Pickup' : 'Pickup Time',

@@ -11,6 +11,7 @@ const statusSteps = [
   { key: 'confirmed', label: 'Order Confirmed', icon: Clock,        color: 'blue'   },
   { key: 'cooking',   label: 'Cooking',         icon: Flame,        color: 'orange' },
   { key: 'ready',     label: 'Ready! 🎉',       icon: CheckCircle2, color: 'green'  },
+  { key: 'cancelled', label: 'Cancelled',       icon: XCircle,      color: 'red'    },
 ];
 
 const orderPerks = [
@@ -29,27 +30,27 @@ export function OrderFlowMini() {
     setSelectedStatus(null);
   }, [orders.length]);
 
-  const activeOrders    = orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled');
-// AFTER
 const cancelledOrders = orders.filter(o => o.status === 'cancelled');
-const hasActiveOrders = activeOrders.length > 0;
 
-const statusCounts = statusSteps.reduce((acc, step) => {
-  acc[step.key] = activeOrders.filter(o => o.status === step.key).length;
-  return acc;
-}, {} as Record<string, number>);
+  // All non-completed orders including cancelled — so cancelled tile gets a count
+  const trackableOrders = orders.filter(o => o.status !== 'completed');
+  const hasActiveOrders = trackableOrders.length > 0;
+
+  const statusCounts = statusSteps.reduce((acc, step) => {
+    acc[step.key] = trackableOrders.filter(o => o.status === step.key).length;
+    return acc;
+  }, {} as Record<string, number>);
 
   const readyCount   = statusCounts['ready'] || 0;
   const swappedCount = orders.filter(
-    o => o.wasSwapped && o.status !== 'cancelled' && o.status !== 'completed'
+    o => o.wasSwapped && o.status !== 'completed'
   ).length;
 
-  // AFTER
-const displayOrders = selectedStatus
-  ? activeOrders
-      .filter(o => o.status === selectedStatus)
-      .slice(0, 3)
-  : activeOrders.slice(0, 3);
+  // For the activity list: when a filter is selected show those orders,
+  // otherwise show non-completed orders (including cancelled) up to 3
+  const displayOrders = selectedStatus
+    ? trackableOrders.filter(o => o.status === selectedStatus).slice(0, 3)
+    : trackableOrders.slice(0, 3);
   // Loading skeleton
   if (loading) {
     return (
@@ -111,14 +112,14 @@ const displayOrders = selectedStatus
                 <span className="flow-enhanced__badge-text">{readyCount} Ready for pickup!</span>
               </motion.div>
             )}
-            {swappedCount > 0 && (
+{swappedCount > 0 && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="flow-enhanced__badge flow-enhanced__badge--swapped"
               >
                 <RefreshCw className="flow-enhanced__badge-icon" />
-                <span className="flow-enhanced__badge-text">{swappedCount} Updated</span>
+                <span className="flow-enhanced__badge-text">{swappedCount} Swapped</span>
               </motion.div>
             )}
             {cancelledOrders.length > 0 && (
@@ -225,26 +226,36 @@ const step = statusSteps.find(s => s.key === order.status) ?? statusSteps[0];
                       whileHover={{ scale: 1.02, x: 4 }}
                       className="flow-enhanced__order"
                     >
-                      <div className="flow-enhanced__order-info">
+<div className="flow-enhanced__order-info">
                         <motion.img
                           src={order.image}
                           alt={order.meal}
                           className="flow-enhanced__order-img"
+                          style={{ opacity: order.status === 'cancelled' ? 0.45 : 1 }}
                           whileHover={{ scale: 1.1, rotate: 3 }}
                           transition={{ type: 'spring', stiffness: 300 }}
                         />
                         <div className="flow-enhanced__order-details">
                           <div className="flow-enhanced__order-name-row">
-                            <p className="flow-enhanced__order-name">{order.meal}</p>
-                            {order.wasSwapped && (
-                              <span className="flow-enhanced__swap-badge" title={`Updated from ${order.originalMeal}`}>
+                            <p className="flow-enhanced__order-name"
+                              style={{ textDecoration: order.status === 'cancelled' ? 'line-through' : 'none', opacity: order.status === 'cancelled' ? 0.6 : 1 }}>
+                              {order.meal}
+                            </p>
+                            {order.wasSwapped && order.status !== 'cancelled' && (
+                              <span
+                                className="flow-enhanced__swap-badge"
+                                title={order.originalMeal ? `Swapped from: ${order.originalMeal}` : 'Dish was swapped'}
+                              >
                                 <RefreshCw className="flow-enhanced__swap-icon" />
                               </span>
                             )}
                           </div>
-                          {/* Show pickup time under meal name */}
                           <p className="flow-enhanced__order-id">
-                            {order.pickupTime && order.pickupTime !== 'ASAP'
+                            {order.status === 'cancelled'
+                              ? 'Cancelled'
+                              : order.wasSwapped && order.originalMeal
+                              ? `Was: ${order.originalMeal}`
+                              : order.pickupTime && order.pickupTime !== 'ASAP'
                               ? `Pickup: ${order.pickupTime}`
                               : (order as any).orderRef || order.id}
                           </p>
@@ -262,9 +273,9 @@ const step = statusSteps.find(s => s.key === order.status) ?? statusSteps[0];
                 })}
               </AnimatePresence>
 
-              {selectedStatus && displayOrders.length === 0 && (
+             {selectedStatus && displayOrders.length === 0 && (
                 <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flow-enhanced__empty-text">
-                  No orders in {statusSteps.find(s => s.key === selectedStatus)?.label} stage
+                  No {statusSteps.find(s => s.key === selectedStatus)?.label} orders
                 </motion.p>
               )}
             </motion.div>
@@ -326,7 +337,7 @@ const step = statusSteps.find(s => s.key === order.status) ?? statusSteps[0];
           )}
         </AnimatePresence>
 
-        {hasActiveOrders && (
+{trackableOrders.length > 0 && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
