@@ -87,7 +87,8 @@ interface SkipLineContextType {
   cartItemsCount:          number;
   orders:                  Order[];
   addOrder:                (order: Omit<Order, 'id' | 'createdAt' | 'kitchenQueuePosition'> & { id?: string }) => Order;
-  updateOrderStatus:       (orderId: string, status: Order['status']) => void;
+updateOrderStatus:       (orderId: string, status: Order['status']) => void;
+  swapOrder:               (orderId: string, newMeal: string, newImage: string, newPrice: number) => void;
   orderHistory:            Order[];
   kitchenState:            KitchenState;
   getQueuePosition:        (orderId: string) => number;
@@ -97,6 +98,7 @@ interface SkipLineContextType {
  simulateKitchenProgress: () => void;
   loading: boolean;
   error:   string | null;
+
 }
 
 
@@ -580,7 +582,15 @@ setMetrics(prev => {
   }, [orders, subscribeOrder]);
 
   // -- updateOrderStatus --
- const updateOrderStatus = useCallback((orderId: string, status: Order['status']) => {
+const swapOrder = useCallback((orderId: string, newMeal: string, newImage: string, newPrice: number) => {
+    setOrders(prev => prev.map(o =>
+      o.id === orderId
+        ? { ...o, meal: newMeal, image: newImage, price: newPrice, wasSwapped: true, originalMeal: o.wasSwapped ? o.originalMeal : o.meal }
+        : o
+    ));
+  }, []);
+
+  const updateOrderStatus = useCallback((orderId: string, status: Order['status']) => {
     // Single setOrders call — handles both update and completed side effects
     // in one pass to avoid double-read of prev state under React 18 batching.
     setOrders(prev => {
@@ -643,9 +653,9 @@ setMetrics(prev => {
     setMetrics(prev => ({ ...prev, ...updates })), []);
 
   return (
-    <SkipLineContext.Provider value={{
+<SkipLineContext.Provider value={{
       cart, addToCart, removeFromCart, updateCartItem, clearCart, cartTotal, cartItemsCount,
-      orders, addOrder, updateOrderStatus, orderHistory, kitchenState, getQueuePosition,
+      orders, addOrder, updateOrderStatus, swapOrder, orderHistory, kitchenState, getQueuePosition,
        metrics, updateMetrics, resetDemo, simulateKitchenProgress,
       loading, error,
     }}>

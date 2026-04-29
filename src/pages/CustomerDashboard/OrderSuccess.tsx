@@ -37,6 +37,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { toast } from '../../customer-hooks/use-toast';
 import { useNotifications } from '../../customer-context/NotificationContext';
+import { useSkipLine } from '../../customer-context/SkipLineContext';
 import { CustomerSlotDto } from '../../kitchen-api/kitchenApi';
 import {
   cancelCustomerOrder,
@@ -185,6 +186,8 @@ export default function OrderSuccess() {
   const location      = useLocation();
   const locationState = location.state as LocationState | null;
 const { addNotification } = useNotifications();
+  const { updateOrderStatus: ctxUpdateStatus, swapOrder: ctxSwapOrder } = useSkipLine();
+
 
   // Unified helper — persists to bell (via context) AND fires popup immediately
   // via CustomEvent so it doesn't depend on component being mounted.
@@ -352,8 +355,8 @@ setOrders(prev =>
       : o
   )
 );
-
-  setTotal(prev => prev + diff);
+setTotal(prev => prev + diff);
+  ctxSwapOrder(cur.id, dish.meal, dish.image, swappedDto?.totalPrice ?? dish.price);
   setShowSwapOptions(false);
 
   const msg =
@@ -413,7 +416,7 @@ const confirmRunningLate = async (slot: CustomerSlotDto) => {
     toast({ title: 'Extend failed', description: err.message, variant: 'destructive' });
     return;
   }
-  setIsRunningLate(true);
+setIsRunningLate(true);
   setOrders(prev =>
     prev.map(o => ({
       ...o,
@@ -422,6 +425,7 @@ const confirmRunningLate = async (slot: CustomerSlotDto) => {
       status:       'delayed' as any,
     }))
   );
+  ctxUpdateStatus(orders[0].id, 'delayed');
   setShowLatePickupOptions(false);
   toast({ title: 'Pickup Extended!', description: `New time: ${confirmedDisplayTime}` });
   notify('warning', 'Pickup Extended', `New pickup: ${confirmedDisplayTime}`);
@@ -448,8 +452,9 @@ const confirmCancelOrder = async () => {
 
   toast({ title: 'Order Cancelled', description: msg });
 
-  // notify() persists to bell AND fires popup immediately before unmount
+// notify() persists to bell AND fires popup immediately before unmount
   notify('info', 'Order Cancelled', msg);
+  ctxUpdateStatus(orders[0].id, 'cancelled');
 
   setTimeout(() => {
     navigate('/customer-dashboard/orders', {

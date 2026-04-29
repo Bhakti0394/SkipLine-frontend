@@ -70,7 +70,8 @@ export type OrderStatus =
   | 'cooking'
   | 'ready'
   | 'completed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'delayed';
 
 export interface Order {
   id:                   string;
