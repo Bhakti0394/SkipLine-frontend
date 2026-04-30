@@ -227,6 +227,26 @@ export interface CustomerPlatformStatsDto {
 
 // ── OrderRef helpers ──────────────────────────────────────────────────────────
 
+// ── Cart DTOs ─────────────────────────────────────────────────────────────────
+
+/** One item as returned by GET/POST/PATCH /api/customer/cart */
+export interface BackendCartItem {
+  menuItemId:          string;
+  name:                string;
+  price:               number;
+  quantity:            number;
+  spiceLevel:          string;
+  specialInstructions: string;
+  orderType:           string;
+}
+
+export interface BackendCartResponse {
+  items: BackendCartItem[];
+  total: number;
+}
+
+// ── OrderRef helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
 export function generateOrderRef(customerName: string): string {
   const uid       = crypto.randomUUID().slice(0, 8).toUpperCase();
   const firstName = customerName.split(' ')[0];
@@ -537,6 +557,71 @@ export async function fetchCustomerOrder(orderId: string): Promise<CustomerOrder
 }
 
 // ── Customer Metrics ──────────────────────────────────────────────────────────
+
+// ── Customer Cart API ─────────────────────────────────────────────────────────
+// Cart is stored as JSON on the Customer DB row — no extra tables.
+// Only called when user is logged in. Logged-out users get a local-only cart.
+
+export async function fetchCustomerCart(): Promise<BackendCartResponse> {
+  const res = await fetch(`${CUSTOMER_URL}/cart`, {
+    headers: customerAuthHeaders(),
+  });
+  handle401(res);
+  if (!res.ok) throw new Error(`Failed to fetch cart: ${res.status}`);
+  return res.json();
+}
+
+export async function addCartItemToBackend(params: {
+  menuItemId:          string;
+  quantity:            number;
+  spiceLevel:          string;
+  specialInstructions: string;
+  orderType:           string;
+}): Promise<BackendCartResponse> {
+  const res = await fetch(`${CUSTOMER_URL}/cart/items`, {
+    method:  'POST',
+    headers: { ...customerAuthHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(params),
+  });
+  handle401(res);
+  if (!res.ok) throw new Error((await res.text()) || `Add to cart failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateCartItemOnBackend(
+  menuItemId: string,
+  updates: Partial<{ quantity: number; spiceLevel: string; specialInstructions: string }>,
+): Promise<BackendCartResponse> {
+  const res = await fetch(`${CUSTOMER_URL}/cart/items/${menuItemId}`, {
+    method:  'PATCH',
+    headers: { ...customerAuthHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(updates),
+  });
+  handle401(res);
+  if (!res.ok) throw new Error((await res.text()) || `Update cart failed: ${res.status}`);
+  return res.json();
+}
+
+export async function removeCartItemFromBackend(menuItemId: string): Promise<BackendCartResponse> {
+  const res = await fetch(`${CUSTOMER_URL}/cart/items/${menuItemId}`, {
+    method:  'DELETE',
+    headers: customerAuthHeaders(),
+  });
+  handle401(res);
+  if (!res.ok) throw new Error((await res.text()) || `Remove cart item failed: ${res.status}`);
+  return res.json();
+}
+
+export async function clearCartOnBackend(): Promise<void> {
+  const res = await fetch(`${CUSTOMER_URL}/cart`, {
+    method:  'DELETE',
+    headers: customerAuthHeaders(),
+  });
+  handle401(res);
+  if (!res.ok) throw new Error((await res.text()) || `Clear cart failed: ${res.status}`);
+}
+
+// ── Customer Metrics ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export async function fetchCustomerMetrics(): Promise<CustomerMetricsDto> {
   const res = await fetch(`${CUSTOMER_URL}/metrics`, {

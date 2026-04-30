@@ -40,6 +40,11 @@ export function AuthProvider({ children }) {
     clearStorage(); setLoading(false); return;
   }
 
+  // FIX: set user synchronously from localStorage BEFORE the network call.
+  // This means SkipLineContext sees a real user immediately on page load
+  // instead of null → demo data → real data (two resets).
+  setUser({ email, fullName: fullName ?? email, role });
+
   // Step 2: verify the token is still valid server-side.
   // This catches tokens that were invalidated early (password change,
   // admin revocation, etc.) — localStorage alone can't detect these.
@@ -52,10 +57,25 @@ export function AuthProvider({ children }) {
       if (!res.ok) throw new Error('Token rejected by server');
       return res.json();
     })
-    .then(data => {
+.then(data => {
       // Server confirmed — use server role as source of truth,
       // keep fullName from localStorage (not returned by /me).
-      setUser({ email: data.email, fullName: fullName ?? data.email, role: data.role });
+      // IMPORTANT: setUser only if data actually changed — creating a new object
+      // every time triggers SkipLineContext's useEffect([user]) which resets metrics.
+      setUser(prev => {
+        const newEmail    = data.email;
+        const newFullName = fullName ?? data.email;
+        const newRole     = data.role;
+        if (
+          prev &&
+          prev.email    === newEmail &&
+          prev.fullName === newFullName &&
+          prev.role     === newRole
+        ) {
+          return prev; // same reference — no re-render, no SkipLineContext re-fetch
+        }
+        return { email: newEmail, fullName: newFullName, role: newRole };
+      });
     })
     .catch(() => {
       // Server rejected or unreachable.
