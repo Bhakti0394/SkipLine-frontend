@@ -77,16 +77,11 @@ export function AuthProvider({ children }) {
         return { email: newEmail, fullName: newFullName, role: newRole };
       });
     })
-    .catch(() => {
-      // Server rejected or unreachable.
-      // If unreachable (network offline), fall back to localStorage so the
-      // app still works offline — we already checked expiry above.
-      const isOffline = !navigator.onLine;
-      if (isOffline) {
-        setUser({ email, fullName: fullName ?? email, role });
-      } else {
-        clearStorage();
-      }
+.catch(() => {
+      // Keep user logged in on any error (5xx, network failure, etc).
+      // Token was already verified locally above — don't clear session
+      // just because the server had a hiccup on /me.
+      setUser({ email, fullName: fullName ?? email, role });
     })
     .finally(() => setLoading(false));
 }, []);

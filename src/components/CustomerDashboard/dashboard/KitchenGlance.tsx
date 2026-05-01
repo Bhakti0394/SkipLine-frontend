@@ -26,7 +26,7 @@ export function KitchenGlance({
   const activeCount    = kitchenState.activeOrders.length;
   const queuedCount    = kitchenState.queuedOrders.length;
   // FIX: use real capacity from backend, not hardcoded 3
-const isOverCapacity = activeCount >= kitchenCapacity || queuedCount > 0;
+const isOverCapacity = !!bottleneck;
 
   return (
     <motion.div
@@ -142,31 +142,28 @@ const isOverCapacity = activeCount >= kitchenCapacity || queuedCount > 0;
         </motion.div>
       </div>
 
-      {/* Capacity indicator */}
+{/* Capacity indicator — shows bottleneck status from backend only */}
       <div className="kitchen-glance__capacity">
         <div className="kitchen-glance__capacity-header">
           <span className="kitchen-glance__capacity-label">
             Current Kitchen Load
           </span>
           <span className={`kitchen-glance__capacity-value ${
-            isOverCapacity
+            bottleneck
               ? 'kitchen-glance__capacity-value--danger'
               : 'kitchen-glance__capacity-value--success'
           }`}>
-            {/* FIX: show real capacity denominator */}
-            {activeCount}/{kitchenCapacity} being prepared &bull; {queuedCount} waiting
+            {bottleneck ? 'Running Behind' : 'On Schedule'}
           </span>
         </div>
         <div className="kitchen-glance__capacity-bar">
           <motion.div
             initial={{ width: 0 }}
-          animate={{ width: `${kitchenCapacity > 0 ? Math.min((activeCount / kitchenCapacity) * 100, 100) : 0}%` }}
+            animate={{ width: bottleneck ? '85%' : '40%' }}
             transition={{ duration: 0.8, delay: 0.5 }}
             className={`kitchen-glance__capacity-fill ${
-              activeCount >= kitchenCapacity
+              bottleneck
                 ? 'kitchen-glance__capacity-fill--danger'
-                : activeCount >= kitchenCapacity * 0.67
-                ? 'kitchen-glance__capacity-fill--warning'
                 : 'kitchen-glance__capacity-fill--success'
             }`}
           />

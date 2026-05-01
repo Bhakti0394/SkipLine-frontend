@@ -172,7 +172,7 @@ const Index = () => {
         <OrderFlowMini />
       </div>
 
-      <div className="kitchen-section">
+  <div className="kitchen-section">
         <KitchenGlance
           topDish={kitchenData.topDish}
           busiestHour={kitchenData.busiestHour}
@@ -181,6 +181,11 @@ const Index = () => {
             kitchenData.bottleneck ??
             (kitchenState.queuedOrders.length > 2 ? 'High queue volume' : undefined)
           }
+         kitchenCapacity={
+  kitchenState.activeOrders.length > 3
+    ? kitchenState.activeOrders.length + 2
+    : 5
+}
         />
       </div>
 

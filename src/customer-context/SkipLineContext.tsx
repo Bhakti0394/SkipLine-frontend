@@ -3,7 +3,9 @@ import { CartItem, Order, UserMetrics, KitchenState } from '../customer-types/da
 import {
   fetchCustomerOrders,
   fetchCustomerMetrics,
+  fetchCustomerPerks,
   fetchCustomerStreak,
+  CustomerPerkDto,
   fetchCustomerOrder,
   fetchCustomerCart,
   addCartItemToBackend,
@@ -75,10 +77,24 @@ function imageForMealName(name: string): string {
   const found = Object.entries(MEAL_IMAGE_MAP).find(([k]) => k.toLowerCase() === lower);
   return found ? found[1] : butterChicken;
 }
-
 function imageForSummary(summary: string[]): string {
   const first = summary?.[0]?.replace(/^\d+x\s*/, '') ?? '';
   return imageForMealName(first);
+}
+
+function mapPerks(
+  dtos: CustomerPerkDto[],
+  streak: number
+): import('../customer-types/dashboard').CustomerPerk[] {
+  return dtos.map(p => ({
+    id:         p.id,
+    icon:       p.icon,
+    name:       p.name,
+    desc:       p.desc,
+    unlockAt:   p.unlockAt,
+    active:     streak >= p.unlockAt,
+    usualOrder: p.usualOrder,
+  }));
 }
 
 // -- Context type --
@@ -120,6 +136,7 @@ const STORAGE_KEYS = {
 const defaultMetrics: UserMetrics = {
   timeSaved: 0, loyaltyPoints: 0, activeOrders: 0,
   ordersThisMonth: 0, streak: 0, foodWasteReduced: 0, queueTimesSaved: 0,
+  perks: [],
 };
 
 // ADD THIS
@@ -295,19 +312,23 @@ if (!order || order.status === mappedStatus) return prev;
       });
     }
 
-   const statusTitles: Record<string, string> = {
-      ready:     'Ready for Pickup!',
-      cooking:   'Now Cooking!',
+ // Look up meal name for this order — gives personalised notification text
+    const orderForNotif = orders.find(o => o.id === orderId);
+    const mealName = orderForNotif?.meal ?? 'Your order';
+
+    const statusTitles: Record<string, string> = {
+      ready:     'Ready for Pickup! 🎉',
+      cooking:   'Now Cooking! 👨‍🍳',
       pending:   'Order Confirmed',
       confirmed: 'Order Confirmed',
       cancelled: 'Order Cancelled',
     };
     const statusMessages: Record<string, string> = {
-      ready:     'Your order is ready — head to the Pickup Counter!',
-      cooking:   'Your order has started cooking.',
-      pending:   'Your order is confirmed and in the queue.',
-      confirmed: 'Your order is confirmed and in the queue.',
-      cancelled: 'Your order has been cancelled.',
+      ready:     `${mealName} is ready — head to the Pickup Counter!`,
+      cooking:   `${mealName} has started cooking.`,
+      pending:   `${mealName} is confirmed and in the queue.`,
+      confirmed: `${mealName} is confirmed and in the queue.`,
+      cancelled: `${mealName} has been cancelled.`,
     };
 const notifType =
       rawStatus === 'ready'     ? 'order_ready'   :
@@ -365,44 +386,53 @@ const notifType =
   }, [orderIdsKey, subscribeOrder]);
   // -- Data loading --
   useEffect(() => {
-// Cart loading strategy:
-    // - Logged in  → fetch from DB (source of truth), ignore localStorage
-    // - Logged out → start with empty local cart (no DB, no localStorage)
-    // We defer the DB fetch to after we know auth state, handled below.
+// Cart loaded from DB below after auth confirmed.
 
-    // Wait for AuthContext to finish reading localStorage
+   // Wait for AuthContext to finish reading localStorage
     if (authLoading) return;
 
-    const token = localStorage.getItem('auth_token');
+const token = localStorage.getItem('auth_token');
 // -- Not logged in -> demo data, zero API calls --
     if (!token || !user) {
-      setOrders(demoActiveOrders);
-      setOrderHistory(demoOrderHistory);
-      setKitchenState({
-        activeOrders: demoActiveOrders.map(o => o.id),
-        queuedOrders: [],
-      });
-      // Show demo metrics matching demo orders — not stale localStorage values
-      // from a previous logged-in session which would be confusing and wrong.
-      setMetrics({
-        timeSaved:        40,
-        loyaltyPoints:    548,
-        activeOrders:     2,
-        ordersThisMonth:  3,
-        streak:           0,
-        foodWasteReduced: 0.30,
-        queueTimesSaved:  40,
-      });
+      // Only show demo data if we're sure there's no token at all.
+      // If token exists but user is still null, authLoading will
+      // resolve shortly — don't flash demo metrics.
+      if (!token) {
+        setOrders(demoActiveOrders);
+        setOrderHistory(demoOrderHistory);
+        setKitchenState({
+          activeOrders: demoActiveOrders.map(o => o.id),
+          queuedOrders: [],
+        });
+setMetrics({
+  timeSaved:        40,
+  loyaltyPoints:    548,
+  activeOrders:     2,
+  ordersThisMonth:  3,
+  streak:           0,
+  foodWasteReduced: 0.30,
+  queueTimesSaved:  40,
+  perks:            [],   // ← add this
+});
+      }
       return;
     }
 
-    // -- Logged in -> fetch real data --
-   setLoading(true);
+// -- Logged in -> fetch real data --
+    // Double-check token is present before firing any API calls.
+    // authLoading=false + user!=null is not enough — the token must
+    // actually be in localStorage or JwtAuthFilter will see no auth.
+    const confirmedToken = localStorage.getItem('auth_token');
+    if (!confirmedToken) return;
+
+    setLoading(true);
     setError(null);
   // AFTER — use Promise.allSettled so loading clears only after ALL three settle
 Promise.allSettled([
-  fetchCustomerCart()
+fetchCustomerCart()
     .then(({ items }) => {
+      // Guard: if user logged out while fetch was in-flight, discard result
+      if (!localStorage.getItem('auth_token')) return;
       // Backend cart items are minimal (menuItemId, name, price, qty, spice, instructions, orderType).
       // We need full CartItem shape for the frontend. We reconstruct it here —
       // image and meal metadata come from the menu item name lookup.
@@ -444,12 +474,20 @@ Promise.allSettled([
       const completed = dtos
         .filter(d => d.status === 'completed')
         .map(dtoToOrder);
-      setOrders(active);
-      setOrderHistory(completed);
-      setKitchenState({
-        activeOrders: active.filter(o => o.status !== 'cancelled').map(o => o.id),
-        queuedOrders: [],
-      });
+     setOrders(active);
+setOrderHistory(completed);
+setKitchenState({
+  activeOrders: active.filter(o => o.status !== 'cancelled').map(o => o.id),
+  queuedOrders: [],
+});
+// Patch ordersThisMonth from actual order count if backend metric is 0
+const totalOrders = dtos.filter(d => d.status !== 'cancelled').length;
+if (totalOrders > 0) {
+  setMetrics(prev => ({
+    ...prev,
+    ordersThisMonth: prev.ordersThisMonth > 0 ? prev.ordersThisMonth : totalOrders,
+  }));
+}
     })
    .catch(err => {
   console.warn('[SkipLineContext] Orders fetch failed:', err.message);
@@ -459,31 +497,29 @@ Promise.allSettled([
   // Showing stale localStorage orders would display wrong stages in OrderFlowMini.
 }),
 
- fetchCustomerMetrics()
+fetchCustomerMetrics()
     .then(m => {
       const updated = {
         ordersThisMonth:  m.ordersThisMonth,
         timeSaved:        m.timeSaved,
         loyaltyPoints:    m.loyaltyPoints,
         foodWasteReduced: m.foodWasteReduced,
+        activeOrders:     m.ordersThisMonth, // keep activeOrders in sync
       };
       setMetrics(prev => ({ ...prev, ...updated }));
-      // DB is source of truth — no localStorage write needed.
-      // Writing to localStorage here caused stale values to survive
-      // across sessions and overwrite fresh DB data on next load.
     })
     .catch(err => {
       // Backend unreachable — show zeros, do not fall back to stale
       // localStorage values which may be from a different session/month.
       console.warn('[SkipLineContext] Metrics fetch failed:', err.message);
     }),
-fetchCustomerStreak()
-    .then(streak => {
-      setMetrics(prev => ({ ...prev, streak }));
-      // Streak is stored in DB (Customer.currentStreak) — no localStorage write needed.
+fetchCustomerPerks()
+    .then(({ streak, perks }) => {
+      const mapped = mapPerks(perks, streak);
+      setMetrics(prev => ({ ...prev, streak, perks: mapped }));
     })
     .catch(err =>
-      console.warn('[SkipLineContext] Streak fetch failed — keeping optimistic value:', err.message)
+      console.warn('[SkipLineContext] Perks fetch failed — keeping optimistic value:', err.message)
     ),
 
 ]).finally(() => setLoading(false));

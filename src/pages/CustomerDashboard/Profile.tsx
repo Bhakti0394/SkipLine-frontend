@@ -64,7 +64,7 @@ function formatStreak(streak: number): string {
 export default function Profile() {
   const { user } = useAuth();
   // FIX: all stats come from SkipLineContext (which fetches from backend on load)
-  const { metrics, orderHistory } = useSkipLine();
+const { metrics, orderHistory, orders } = useSkipLine();
 
 const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -119,9 +119,11 @@ const [isEditing, setIsEditing] = useState(false);
   };
 
   // FIX: stats derived from real metrics fetched by SkipLineContext
- const totalOrders = orderHistory?.length > 0
-    ? orderHistory.length
-    : (metrics.ordersThisMonth ?? 0);
+// orderHistory = completed orders from backend
+// orders = active orders from backend
+// ordersThisMonth = metric from backend
+const totalOrders = (orderHistory?.length ?? 0) + (orders?.length ?? 0) 
+  || (metrics.ordersThisMonth ?? 0);
   const stats = [
     { label: 'Total Orders',  value: totalOrders > 0 ? String(totalOrders) : '—',                     icon: Calendar,   color: '#ff6b35' },
     { label: 'Time Saved',    value: metrics.timeSaved > 0 ? formatTimeSaved(metrics.timeSaved) : '—', icon: TrendingUp, color: '#f7931e' },

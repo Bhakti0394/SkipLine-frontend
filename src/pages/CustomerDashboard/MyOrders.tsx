@@ -235,26 +235,35 @@ export default function MyOrders() {
   const { addNotification }   = useNotifications();
   const { orders: contextOrders, updateOrderStatus: ctxUpdateStatus } = useSkipLine();
 
-  const [orders, setOrders] = useState<LocalOrder[]>(() => {
-    if (locationState?.fromOrderSuccess && locationState?.orders?.length) {
-      return locationState.orders.map(o => ({
-        ...o,
-        status:        o.wasCancelled ? 'cancelled' : (o.status || 'confirmed'),
-        paymentStatus: o.paymentStatus || 'paid',
-      }));
-    }
-    const seeded = contextOrders.filter(o => o.status !== 'completed');
-    if (seeded.length > 0) {
-      return seeded.map(o => ({
+const [orders, setOrders] = useState<LocalOrder[]>(() => {
+    const newOrders: LocalOrder[] = locationState?.fromOrderSuccess && locationState?.orders?.length
+      ? locationState.orders.map(o => ({
+          ...o,
+          status:        o.wasCancelled ? 'cancelled' : (o.status || 'confirmed'),
+          paymentStatus: o.paymentStatus || 'paid',
+        }))
+      : [];
+
+    // Merge ALL active context orders (previous + current session)
+    // so navigating from OrderSuccess doesn't hide orders placed earlier
+    const newOrderIds = new Set(newOrders.map(o => o.id));
+    const previousOrders = contextOrders
+      .filter(o => o.status !== 'completed' && !newOrderIds.has(o.id))
+      .map(o => ({
         id: o.id, orderRef: (o as any).orderRef || o.id, meal: o.meal,
         restaurant: o.restaurant, price: o.price, image: o.image,
         timeSaved: o.timeSaved, quantity: o.quantity, pickupTime: o.pickupTime,
         kitchenQueuePosition: o.kitchenQueuePosition, status: o.status,
         paymentStatus: o.paymentStatus as 'paid' | 'pending' | 'cash',
         pickupPoint: (o as any).pickupPoint,
+        wasSwapped:   o.wasSwapped,
+        originalMeal: o.originalMeal,
+        createdAt:        (o as any).createdAt,
+        totalPrepMinutes: (o as any).totalPrepMinutes,
+        pickupSlotTime:   (o as any).pickupSlotTime,
       }));
-    }
-    return [];
+
+    return [...newOrders, ...previousOrders];
   });
 
   const [,forceUpdate] = useState(0);
@@ -268,20 +277,41 @@ useEffect(() => {
   if (!contextOrders.length) return;
 
   setOrders(prev => {
-    // If coming from OrderSuccess, don't overwrite local edits
+ // If coming from OrderSuccess, sync status updates but also add
+    // any previous orders from context that aren't already in the list
     if (locationState?.fromOrderSuccess && prev.length > 0) {
-      return prev.map(p => {
+      const localStatusMap: Record<string, string> = {
+        confirmed: 'confirmed', cooking: 'cooking', ready: 'ready',
+        completed: 'completed', cancelled: 'cancelled',
+      };
+      const existingIds = new Set(prev.map(p => p.id));
+
+      // Merge in any context orders not yet in the list (placed before this session)
+      const missing = contextOrders
+        .filter(o => o.status !== 'completed' && !existingIds.has(o.id))
+        .map(o => ({
+          id: o.id, orderRef: (o as any).orderRef || o.id, meal: o.meal,
+          restaurant: o.restaurant, price: o.price, image: o.image,
+          timeSaved: o.timeSaved, quantity: o.quantity, pickupTime: o.pickupTime,
+          kitchenQueuePosition: o.kitchenQueuePosition,
+          status: localStatusMap[o.status] ?? o.status,
+          paymentStatus: o.paymentStatus as 'paid' | 'pending' | 'cash',
+          pickupPoint: (o as any).pickupPoint,
+          wasSwapped:   o.wasSwapped,
+          originalMeal: o.originalMeal,
+          createdAt:        (o as any).createdAt,
+          totalPrepMinutes: (o as any).totalPrepMinutes,
+          pickupSlotTime:   (o as any).pickupSlotTime,
+        }));
+
+      const updated = prev.map(p => {
         const ctx = contextOrders.find(o => o.id === p.id);
         if (!ctx) return p;
-
-        const localStatusMap: Record<string, string> = {
-          confirmed: 'confirmed', cooking: 'cooking', ready: 'ready',
-          completed: 'completed', cancelled: 'cancelled',
-        };
-
         const mappedStatus = localStatusMap[ctx.status] ?? ctx.status;
         return p.status === mappedStatus ? p : { ...p, status: mappedStatus };
       });
+
+      return missing.length > 0 ? [...updated, ...missing] : updated;
     }
 
     const localStatusMap: Record<string, string> = {

@@ -563,6 +563,8 @@ export async function fetchCustomerOrder(orderId: string): Promise<CustomerOrder
 // Only called when user is logged in. Logged-out users get a local-only cart.
 
 export async function fetchCustomerCart(): Promise<BackendCartResponse> {
+  const token = localStorage.getItem('auth_token');
+  if (!token) return { items: [], total: 0 }; // not logged in — skip the call entirely
   const res = await fetch(`${CUSTOMER_URL}/cart`, {
     headers: customerAuthHeaders(),
   });
@@ -644,6 +646,31 @@ export async function fetchCustomerStreak(): Promise<number> {
   return typeof data.streak === 'number' ? data.streak : 0;
 }
 
+// ── Customer Perks ────────────────────────────────────────────────────────────
+
+export interface CustomerPerkDto {
+  id:          string;
+  icon:        string;
+  name:        string;
+  desc:        string;
+  unlockAt:    number;
+  active:      boolean;
+  usualOrder?: string;
+}
+
+export interface CustomerPerksResponseDto {
+  streak: number;
+  perks:  CustomerPerkDto[];
+}
+
+export async function fetchCustomerPerks(): Promise<CustomerPerksResponseDto> {
+  const res = await fetch(`${CUSTOMER_URL}/perks`, {
+    headers: customerAuthHeaders(),
+  });
+  handle401(res);
+  if (!res.ok) throw new Error(`Failed to fetch perks: ${res.status}`);
+  return res.json();
+}
 // ── Customer Kitchen Summary ──────────────────────────────────────────────────
 
 const KITCHEN_SUMMARY_FALLBACK: CustomerKitchenSummaryDto = {
