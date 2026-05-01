@@ -113,6 +113,15 @@ export interface TimeSlot {
   estimatedWait:  number;
 }
 
+export interface CustomerPerk {
+  id:          string;
+  icon:        string;
+  name:        string;
+  desc:        string;
+  unlockAt:    number;
+  active:      boolean;
+  usualOrder?: string;
+}
 export interface UserMetrics {
   timeSaved:        number;
   loyaltyPoints:    number;
@@ -121,6 +130,7 @@ export interface UserMetrics {
   streak:           number;
   foodWasteReduced: number;
   queueTimesSaved:  number;
+  perks:            CustomerPerk[];   // ← add this
 }
 
 export interface KitchenState {

@@ -3,8 +3,15 @@ import { CartItem, Order, UserMetrics, KitchenState } from '../customer-types/da
 import {
   fetchCustomerOrders,
   fetchCustomerMetrics,
+  fetchCustomerPerks,
   fetchCustomerStreak,
+  CustomerPerkDto,
   fetchCustomerOrder,
+  fetchCustomerCart,
+  addCartItemToBackend,
+  updateCartItemOnBackend,
+  removeCartItemFromBackend,
+  clearCartOnBackend,
   subscribeToOrderStatus,
   CustomerOrderDto,
 } from '../kitchen-api/kitchenApi';
@@ -70,10 +77,24 @@ function imageForMealName(name: string): string {
   const found = Object.entries(MEAL_IMAGE_MAP).find(([k]) => k.toLowerCase() === lower);
   return found ? found[1] : butterChicken;
 }
-
 function imageForSummary(summary: string[]): string {
   const first = summary?.[0]?.replace(/^\d+x\s*/, '') ?? '';
   return imageForMealName(first);
+}
+
+function mapPerks(
+  dtos: CustomerPerkDto[],
+  streak: number
+): import('../customer-types/dashboard').CustomerPerk[] {
+  return dtos.map(p => ({
+    id:         p.id,
+    icon:       p.icon,
+    name:       p.name,
+    desc:       p.desc,
+    unlockAt:   p.unlockAt,
+    active:     streak >= p.unlockAt,
+    usualOrder: p.usualOrder,
+  }));
 }
 
 // -- Context type --
@@ -115,6 +136,7 @@ const STORAGE_KEYS = {
 const defaultMetrics: UserMetrics = {
   timeSaved: 0, loyaltyPoints: 0, activeOrders: 0,
   ordersThisMonth: 0, streak: 0, foodWasteReduced: 0, queueTimesSaved: 0,
+  perks: [],
 };
 
 // ADD THIS
@@ -236,7 +258,7 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
   const [cart,         setCart]         = useState<CartItem[]>([]);
   const [orders,       setOrders]       = useState<Order[]>([]);
   const [orderHistory, setOrderHistory] = useState<Order[]>([]);
-  const [metrics,      setMetrics]      = useState<UserMetrics>(defaultMetrics);
+const [metrics, setMetrics] = useState<UserMetrics>(defaultMetrics);
   const [kitchenState, setKitchenState] = useState<KitchenState>({
     activeOrders: [], queuedOrders: [],
   });
@@ -290,19 +312,23 @@ if (!order || order.status === mappedStatus) return prev;
       });
     }
 
-   const statusTitles: Record<string, string> = {
-      ready:     'Ready for Pickup!',
-      cooking:   'Now Cooking!',
+ // Look up meal name for this order — gives personalised notification text
+    const orderForNotif = orders.find(o => o.id === orderId);
+    const mealName = orderForNotif?.meal ?? 'Your order';
+
+    const statusTitles: Record<string, string> = {
+      ready:     'Ready for Pickup! 🎉',
+      cooking:   'Now Cooking! 👨‍🍳',
       pending:   'Order Confirmed',
       confirmed: 'Order Confirmed',
       cancelled: 'Order Cancelled',
     };
     const statusMessages: Record<string, string> = {
-      ready:     'Your order is ready — head to the Pickup Counter!',
-      cooking:   'Your order has started cooking.',
-      pending:   'Your order is confirmed and in the queue.',
-      confirmed: 'Your order is confirmed and in the queue.',
-      cancelled: 'Your order has been cancelled.',
+      ready:     `${mealName} is ready — head to the Pickup Counter!`,
+      cooking:   `${mealName} has started cooking.`,
+      pending:   `${mealName} is confirmed and in the queue.`,
+      confirmed: `${mealName} is confirmed and in the queue.`,
+      cancelled: `${mealName} has been cancelled.`,
     };
 const notifType =
       rawStatus === 'ready'     ? 'order_ready'   :
@@ -360,37 +386,86 @@ const notifType =
   }, [orderIdsKey, subscribeOrder]);
   // -- Data loading --
   useEffect(() => {
-    // Always restore cart from localStorage regardless of auth state
-    try {
-      const savedCart = localStorage.getItem(STORAGE_KEYS.CART);
-      if (savedCart) setCart(JSON.parse(savedCart));
-    } catch { /* ignore */ }
+// Cart loaded from DB below after auth confirmed.
 
-    // Wait for AuthContext to finish reading localStorage
+   // Wait for AuthContext to finish reading localStorage
     if (authLoading) return;
 
-    const token = localStorage.getItem('auth_token');
-
-    // -- Not logged in -> demo data, zero API calls --
+const token = localStorage.getItem('auth_token');
+// -- Not logged in -> demo data, zero API calls --
     if (!token || !user) {
-      setOrders(demoActiveOrders);
-      setOrderHistory(demoOrderHistory);
-      setKitchenState({
-        activeOrders: demoActiveOrders.map(o => o.id),
-        queuedOrders: [],
-      });
-      try {
-        const saved = localStorage.getItem(STORAGE_KEYS.METRICS);
-        if (saved) setMetrics(prev => ({ ...prev, ...JSON.parse(saved) }));
-      } catch { /* ignore */ }
+      // Only show demo data if we're sure there's no token at all.
+      // If token exists but user is still null, authLoading will
+      // resolve shortly — don't flash demo metrics.
+      if (!token) {
+        setOrders(demoActiveOrders);
+        setOrderHistory(demoOrderHistory);
+        setKitchenState({
+          activeOrders: demoActiveOrders.map(o => o.id),
+          queuedOrders: [],
+        });
+setMetrics({
+  timeSaved:        40,
+  loyaltyPoints:    548,
+  activeOrders:     2,
+  ordersThisMonth:  3,
+  streak:           0,
+  foodWasteReduced: 0.30,
+  queueTimesSaved:  40,
+  perks:            [],   // ← add this
+});
+      }
       return;
     }
 
-    // -- Logged in -> fetch real data --
-   setLoading(true);
+// -- Logged in -> fetch real data --
+    // Double-check token is present before firing any API calls.
+    // authLoading=false + user!=null is not enough — the token must
+    // actually be in localStorage or JwtAuthFilter will see no auth.
+    const confirmedToken = localStorage.getItem('auth_token');
+    if (!confirmedToken) return;
+
+    setLoading(true);
     setError(null);
   // AFTER — use Promise.allSettled so loading clears only after ALL three settle
 Promise.allSettled([
+fetchCustomerCart()
+    .then(({ items }) => {
+      // Guard: if user logged out while fetch was in-flight, discard result
+      if (!localStorage.getItem('auth_token')) return;
+      // Backend cart items are minimal (menuItemId, name, price, qty, spice, instructions, orderType).
+      // We need full CartItem shape for the frontend. We reconstruct it here —
+      // image and meal metadata come from the menu item name lookup.
+      // This is only used to restore a cart the user left mid-session on another device.
+      // In normal flow the cart is built locally via addToCart() and cleared after checkout.
+      if (items.length === 0) return;
+      const restored: CartItem[] = items.map(b => ({
+        id:                  `cart-restored-${b.menuItemId}`,
+        menuItemId:          b.menuItemId,
+        meal: {
+          id:         b.menuItemId,
+          name:       b.name,
+          restaurant: '',
+          image:      imageForMealName(b.name),
+          price:      b.price,
+          prepTime:   15,
+          rating:     4.7,
+          category:   'Other',
+          isExpress:  false,
+        },
+        quantity:            b.quantity,
+        addOns:              [],
+        spiceLevel:          b.spiceLevel,
+        specialInstructions: b.specialInstructions,
+        pickupSlotId:        '',
+        pickupTime:          'ASAP',
+        isScheduled:         false,
+        orderType:           (b.orderType as CartItem['orderType']) ?? 'normal',
+      }));
+      setCart(restored);
+    })
+    .catch(err => console.warn('[SkipLineContext] Cart fetch failed:', err.message)),
+
   fetchCustomerOrders()
     .then((dtos: CustomerOrderDto[]) => {
       const active = dtos
@@ -399,12 +474,20 @@ Promise.allSettled([
       const completed = dtos
         .filter(d => d.status === 'completed')
         .map(dtoToOrder);
-      setOrders(active);
-      setOrderHistory(completed);
-      setKitchenState({
-        activeOrders: active.filter(o => o.status !== 'cancelled').map(o => o.id),
-        queuedOrders: [],
-      });
+     setOrders(active);
+setOrderHistory(completed);
+setKitchenState({
+  activeOrders: active.filter(o => o.status !== 'cancelled').map(o => o.id),
+  queuedOrders: [],
+});
+// Patch ordersThisMonth from actual order count if backend metric is 0
+const totalOrders = dtos.filter(d => d.status !== 'cancelled').length;
+if (totalOrders > 0) {
+  setMetrics(prev => ({
+    ...prev,
+    ordersThisMonth: prev.ordersThisMonth > 0 ? prev.ordersThisMonth : totalOrders,
+  }));
+}
     })
    .catch(err => {
   console.warn('[SkipLineContext] Orders fetch failed:', err.message);
@@ -414,52 +497,37 @@ Promise.allSettled([
   // Showing stale localStorage orders would display wrong stages in OrderFlowMini.
 }),
 
-  fetchCustomerMetrics()
+fetchCustomerMetrics()
     .then(m => {
       const updated = {
         ordersThisMonth:  m.ordersThisMonth,
         timeSaved:        m.timeSaved,
         loyaltyPoints:    m.loyaltyPoints,
         foodWasteReduced: m.foodWasteReduced,
+        activeOrders:     m.ordersThisMonth, // keep activeOrders in sync
       };
       setMetrics(prev => ({ ...prev, ...updated }));
-      try {
-        const existing = localStorage.getItem(STORAGE_KEYS.METRICS);
-        localStorage.setItem(
-          STORAGE_KEYS.METRICS,
-          JSON.stringify({ ...(existing ? JSON.parse(existing) : {}), ...updated }),
-        );
-      } catch { /* ignore */ }
     })
     .catch(err => {
+      // Backend unreachable — show zeros, do not fall back to stale
+      // localStorage values which may be from a different session/month.
       console.warn('[SkipLineContext] Metrics fetch failed:', err.message);
-      try {
-        const s = localStorage.getItem(STORAGE_KEYS.METRICS);
-        if (s) setMetrics(prev => ({ ...prev, ...JSON.parse(s) }));
-      } catch { /* ignore */ }
     }),
-
-  fetchCustomerStreak()
-    .then(streak => {
-      setMetrics(prev => ({ ...prev, streak }));
-      try {
-        const existing = localStorage.getItem(STORAGE_KEYS.METRICS);
-        const parsed = existing ? JSON.parse(existing) : {};
-        localStorage.setItem(STORAGE_KEYS.METRICS, JSON.stringify({ ...parsed, streak }));
-      } catch { /* ignore */ }
+fetchCustomerPerks()
+    .then(({ streak, perks }) => {
+      const mapped = mapPerks(perks, streak);
+      setMetrics(prev => ({ ...prev, streak, perks: mapped }));
     })
     .catch(err =>
-      console.warn('[SkipLineContext] Streak fetch failed — keeping local value:', err.message)
+      console.warn('[SkipLineContext] Perks fetch failed — keeping optimistic value:', err.message)
     ),
 
 ]).finally(() => setLoading(false));
 
 }, [user, authLoading]);
 
-  // -- Persist to localStorage --
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CART, JSON.stringify(cart));
-  }, [cart]);
+// Cart is now DB-backed for logged-in users — no localStorage persistence needed.
+  // Logged-out cart lives in React state only for the duration of the session.
 
 // Orders are intentionally NOT restored from localStorage on load (stale statuses).
   // Writing them serves no purpose and grows storage unboundedly — removed.
@@ -468,24 +536,77 @@ Promise.allSettled([
 // orderHistory is fetched from backend for logged-in users and uses
   // demo data for logged-out users — localStorage copy is never read back,
   // so persisting it wastes storage. Removed.
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.METRICS, JSON.stringify(metrics));
-  }, [metrics]);
+ // Metrics are persisted in the DB (Customer table) — no localStorage needed.
+  // Removed: localStorage.setItem(STORAGE_KEYS.METRICS, ...) was causing
+  // stale values from previous sessions to flash before DB fetch completed.
 
-  // -- Cart helpers --
-  const addToCart = useCallback((item: Omit<CartItem, 'id'>) =>
-    setCart(prev => [
-      ...prev,
-      { ...item, id: `cart-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` },
-    ]), []);
+// -- Cart helpers --
+  // Logged-in: all mutations sync to backend DB (Customer.cartJson).
+  // Logged-out: mutations are local-only (no DB, no localStorage).
+  // Local state is always updated optimistically so the UI never waits on network.
 
-  const removeFromCart = useCallback((itemId: string) =>
-    setCart(prev => prev.filter(i => i.id !== itemId)), []);
+  const addToCart = useCallback((item: Omit<CartItem, 'id'>) => {
+    const id = `cart-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const newItem: CartItem = { ...item, id };
+    setCart(prev => [...prev, newItem]);
 
-  const updateCartItem = useCallback((itemId: string, updates: Partial<CartItem>) =>
-    setCart(prev => prev.map(i => i.id === itemId ? { ...i, ...updates } : i)), []);
+    const token = localStorage.getItem('auth_token');
+    if (!token) return; // logged-out: local-only
 
-  const clearCart      = useCallback(() => setCart([]), []);
+    addCartItemToBackend({
+      menuItemId:          item.menuItemId,
+      quantity:            item.quantity,
+      spiceLevel:          item.spiceLevel,
+      specialInstructions: item.specialInstructions,
+      orderType:           item.orderType,
+    }).catch(err => console.warn('[Cart] addCartItemToBackend failed:', err.message));
+  }, []);
+
+  const removeFromCart = useCallback((itemId: string) => {
+    setCart(prev => {
+      const item = prev.find(i => i.id === itemId);
+      if (!item) return prev;
+
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        removeCartItemFromBackend(item.menuItemId)
+          .catch(err => console.warn('[Cart] removeCartItemFromBackend failed:', err.message));
+      }
+
+      return prev.filter(i => i.id !== itemId);
+    });
+  }, []);
+
+  const updateCartItem = useCallback((itemId: string, updates: Partial<CartItem>) => {
+    setCart(prev => {
+      const item = prev.find(i => i.id === itemId);
+      if (!item) return prev;
+
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        const backendUpdates: Partial<{ quantity: number; spiceLevel: string; specialInstructions: string }> = {};
+        if (updates.quantity            !== undefined) backendUpdates.quantity            = updates.quantity;
+        if (updates.spiceLevel          !== undefined) backendUpdates.spiceLevel          = updates.spiceLevel;
+        if (updates.specialInstructions !== undefined) backendUpdates.specialInstructions = updates.specialInstructions;
+
+        if (Object.keys(backendUpdates).length > 0) {
+          updateCartItemOnBackend(item.menuItemId, backendUpdates)
+            .catch(err => console.warn('[Cart] updateCartItemOnBackend failed:', err.message));
+        }
+      }
+
+      return prev.map(i => i.id === itemId ? { ...i, ...updates } : i);
+    });
+  }, []);
+
+  const clearCart = useCallback(() => {
+    setCart([]);
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      clearCartOnBackend()
+        .catch(err => console.warn('[Cart] clearCartOnBackend failed:', err.message));
+    }
+  }, []);
 
   const cartTotal = cart.reduce(
     (t, i) => t + (i.meal.price + i.addOns.reduce((s, a) => s + a.price, 0)) * i.quantity,
@@ -519,13 +640,19 @@ Promise.allSettled([
         : { ...prev, queuedOrders: [...prev.queuedOrders, newOrder.id] },
     );
     subscribeOrder(orderId);
-
+// Streak is managed entirely by the backend (Customer.currentStreak).
+    // fetchCustomerStreak() below will sync the real value from DB.
+    // We still compute a local optimistic delta so the UI updates instantly
+    // before the server responds — but we no longer write to localStorage
+    // since the DB is the source of truth.
     const today     = new Date().toDateString();
     const yesterday = new Date(Date.now() - 86400000).toDateString();
     const lastDate  = localStorage.getItem('SkipLine_last_order_date');
 
-let streakDelta: 'increment' | 'reset' | 'keep' = 'keep';
+    let streakDelta: 'increment' | 'reset' | 'keep' = 'keep';
     if (lastDate !== today) {
+      // Only write the date key — NOT metrics. Date is needed for optimistic
+      // delta only. Real streak value always comes from DB via fetchCustomerStreak().
       localStorage.setItem('SkipLine_last_order_date', today);
       streakDelta = (!lastDate || lastDate === yesterday) ? 'increment' : 'reset';
     }

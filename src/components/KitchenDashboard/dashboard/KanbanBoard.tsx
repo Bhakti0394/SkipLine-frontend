@@ -225,9 +225,8 @@ function CookingCardInner({
   const chefStyle = COOKING_CHEF_STYLE[state];
 
   const hasChef = !!(order.assignedChefId || order.assignedTo);
-
-const isEarlyOverride = hasChef && eta > 0 && !isOverdue; // chef override: timer running but staff wants to mark ready
-const isButtonBlocked = isPending || !hasChef;            // only hard-block: pending API or no chef
+  const isCookingDone   = eta <= 0 || isOverdue;
+const isButtonBlocked = isPending || !hasChef || !isCookingDone;
 
 const btnStyle: React.CSSProperties = (() => {
     if (isPending) return {
@@ -242,18 +241,26 @@ const btnStyle: React.CSSProperties = (() => {
       border:     '1px solid rgba(239,68,68,0.20)',
       fontWeight: 600, cursor: 'not-allowed',
     };
-    if (isEarlyOverride) return {
-      background: 'rgba(245,158,11,0.15)',
-      color:      '#fbbf24',
-      border:     '1px solid rgba(245,158,11,0.40)',
-      fontWeight: 600, cursor: 'pointer',
+    if (!isCookingDone) return {
+      background: 'rgba(100,116,139,0.12)',
+      color:      'rgba(148,163,184,0.50)',
+      border:     '1px solid rgba(100,116,139,0.20)',
+      fontWeight: 600, cursor: 'not-allowed',
     };
-    return {
+    if (isOverdue) return {
       background: '#dc2626',
       color:      '#ffffff',
       border:     'none',
       fontWeight: 700,
       boxShadow:  '0 2px 8px rgba(220,38,38,0.30)',
+      cursor:     'pointer',
+    };
+    return {
+      background: '#10b981',
+      color:      '#ffffff',
+      border:     'none',
+      fontWeight: 700,
+      boxShadow:  '0 2px 8px rgba(16,185,129,0.30)',
       cursor:     'pointer',
     };
   })();
@@ -262,9 +269,11 @@ const btnLabel = isPending
     ? 'Updating…'
     : !hasChef
     ? '⚠  Assign a chef first'
-    : isEarlyOverride
-    ? `⚡ Override Ready (${Math.ceil(eta / 60)}m left)`
-    : '⚠  Mark Ready Now';
+    : !isCookingDone
+    ? `⏳ Cooking… ${Math.ceil(eta / 60)}m left`
+    : isOverdue
+    ? '🔴 Mark Ready — Overdue!'
+    : '✅ Mark Ready';
 
   return (
     <div
@@ -415,11 +424,11 @@ const btnLabel = isPending
 
       {/* Row 6: Mark Ready button */}
     <button
-        title={
+title={
           !hasChef
             ? 'Assign a chef before marking ready'
-            : isEarlyOverride
-            ? `Chef override — mark ready before timer ends (${Math.ceil(eta / 60)}m remaining)`
+            : eta > 0 && !isOverdue
+            ? `Wait for timer — ${Math.ceil(eta / 60)}m remaining`
             : undefined
         }
         style={{
@@ -568,11 +577,7 @@ export function KanbanBoard({
   const ordersRef              = useRef(safeOrders);
   const cookingStateRef        = useRef<Record<string, CookingState>>({});
   const autoAdvanceTimersRef   = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const uncollectedTimersRef   = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  // Race guard — prevents double-completion between uncollected timer (15min)
-  // and useKitchenBoard scheduleAutoComplete (20s). Whichever fires second
-  // sees the id already in this set and exits without calling onStatusChange.
-  const completingOrderIds     = useRef<Set<string>>(new Set());
+
   // Tracks startedAt per cooking order — when startedAt arrives late from
   // backend poll, the stale-startedAt useEffect clears the existing timer
   // so the auto-advance useEffect recreates it with the correct remaining time.
@@ -633,8 +638,7 @@ useEffect(() => {
     setPendingOrderIds(new Set(pendingIdsRef.current));
   }, []);
 
-  // Clean up pending state for orders that have left the board
-// Clean up pending state and completingOrderIds for orders that have left the board
+
   useEffect(() => {
     const orderIdSet = new Set(safeOrders.map(o => o.id));
     let changed = false;
@@ -650,10 +654,7 @@ useEffect(() => {
     }
     if (changed) setPendingOrderIds(new Set(pendingIdsRef.current));
 
-    // Prune completingOrderIds for orders no longer on board
-    for (const id of completingOrderIds.current) {
-      if (!orderIdSet.has(id)) completingOrderIds.current.delete(id);
-    }
+  
   }, [safeOrders]);
 
   // Clean up all pending timers on unmount
@@ -916,6 +917,8 @@ if (remaining <= 0) {
 }, [safeOrders, onStatusChange, simulationSpeedRef]);
     // Clean up auto-advance timers on unmount
   useEffect(() => {
+
+
     return () => {
       for (const id of Object.keys(autoAdvanceTimersRef.current)) {
         clearTimeout(autoAdvanceTimersRef.current[id]);
@@ -923,67 +926,7 @@ if (remaining <= 0) {
       autoAdvanceTimersRef.current = {};
     };
   }, []);
-  // ── Auto-uncollected: Ready orders not completed 15min after slot time ──
-const UNCOLLECTED_DELAY_MS = 15 * 60 * 1000;
 
-useEffect(() => {
-  const timerMap = uncollectedTimersRef.current;
-  const readyOrders = safeOrders.filter(o => o.status === 'ready');
-  const currentIds  = new Set(readyOrders.map(o => o.id));
-
-  // Clear timers for orders no longer in Ready
-  for (const id of Object.keys(timerMap)) {
-    if (!currentIds.has(id)) {
-      clearTimeout(timerMap[id]);
-      delete timerMap[id];
-    }
-  }
-
-  for (const order of readyOrders) {
-    if (timerMap[order.id]) continue;
-
-    // Calculate delay from slot time + 15min
-    const slotMs = (order as any).pickupSlotMs as number | undefined;
-    const anchorMs = slotMs ?? Date.now();
-    const fireAt  = anchorMs + UNCOLLECTED_DELAY_MS;
-    const delay   = Math.max(0, fireAt - Date.now());
-
-    timerMap[order.id] = setTimeout(async () => {
-  delete timerMap[order.id];
-
-  const liveOrder = ordersRef.current.find(o => o.id === order.id);
-  if (!liveOrder || liveOrder.status !== 'ready') return;
-// Guard: re-check live status from ordersRef — if 20s auto-complete
-  // (useKitchenBoard) already fired, status will be 'completed' here.
-  // The liveOrder status check above is the real guard between the two
-  // separate timer systems — completingOrderIds only guards within KanbanBoard.
-  if (completingOrderIds.current.has(order.id)) return;
-  completingOrderIds.current.add(order.id);
-
-  toast.warning(`⏰ Uncollected: ${order.orderNumber}`, {
-    description: 'Auto-completing — customer did not collect.',
-    duration: 4000,
-  });
-  try {
-    await onStatusChange(order.id, 'completed');
-  } catch {
-    // onStatusChange handles errors internally
-  } finally {
-    completingOrderIds.current.delete(order.id);
-  }
-}, delay);
-  }
-}, [safeOrders, onStatusChange]);
-
-// Cleanup uncollected timers on unmount
-useEffect(() => {
-  return () => {
-    for (const id of Object.keys(uncollectedTimersRef.current)) {
-      clearTimeout(uncollectedTimersRef.current[id]);
-    }
-    uncollectedTimersRef.current = {};
-  };
-}, []);
 
   // FIX: moved makeCookingChefHandler after handleChefAssign (correct dependency order)
 
