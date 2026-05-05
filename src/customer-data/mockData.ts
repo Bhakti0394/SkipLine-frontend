@@ -41,7 +41,7 @@ export const mockOrders: Order[] = [
     spiceLevel: 'medium',
     specialInstructions: '',
     createdAt: Date.now() - 600000,
-    timeSaved: 18,
+   timeSaved: 12,
   },
   {
     id: 'ORD-DEMO2',
@@ -61,7 +61,7 @@ export const mockOrders: Order[] = [
     spiceLevel: 'spicy',
     specialInstructions: 'Less oil please',
     createdAt: Date.now() - 300000,
-    timeSaved: 22,
+   timeSaved: 16,
   },
 ];
 
@@ -258,15 +258,16 @@ export const mockMeals: Meal[] = [
     rating: 4.7,
     category: 'North Indian',
   },
-  {
+{
     id: '19',
     name: 'Butter Garlic Naan',
     restaurant: 'Punjab Grill',
     image: butterGarlicNaan,
-    price: 59,
+    price: 49,
     prepTime: 8,
     rating: 4.8,
     category: 'Bread',
+    isExpress: true,
   },
   {
     id: '20',
@@ -300,11 +301,18 @@ export const mockTimeSlots: TimeSlot[] = [
 ];
 
 export const mockUserMetrics: UserMetrics = {
-  timeSaved: 47,
-  loyaltyPoints: 2450,
-  activeOrders: 2,
-  ordersThisMonth: 18,
-  streak: 7,
+  timeSaved:        216,
+  loyaltyPoints:    2450,
+  activeOrders:     2,
+  ordersThisMonth:  18,
+  streak:           7,
   foodWasteReduced: 2.7,
-  queueTimesSaved: 340,
+  queueTimesSaved:  340,
+  lastOrderDate:    new Date().toISOString().slice(0, 10),
+  perks: [
+    { id: 'priority_pickup',  icon: '⚡',   name: 'Priority pickup',         desc: 'Your order moves to the front. Skip the wait, grab and go.',               unlockAt: 1,  active: true  },
+    { id: 'chef_knows_order', icon: '👨‍🍳', name: 'Chef knows your order',   desc: 'Your usual is prepped before you even open the app.',                      unlockAt: 7,  active: true  },
+    { id: 'community_badge',  icon: '🏅',   name: 'Community regular badge', desc: 'Visible on your profile. Other customers see you\'re a committed regular.', unlockAt: 14, active: false },
+    { id: 'first_to_know',    icon: '🔔',   name: 'First to know',           desc: 'New menu items, limited drops, and pop-ups — regulars hear first.',         unlockAt: 21, active: false },
+  ],
 };

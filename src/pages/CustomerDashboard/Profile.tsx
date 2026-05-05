@@ -234,6 +234,47 @@ const totalOrders = (orderHistory?.length ?? 0) + (orders?.length ?? 0)
             </div>
           </motion.div>
 
+{/* Community regular badge — shown when streak >= 14 */}
+          {(metrics.streak ?? 0) >= 14 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.22 }}
+              style={{
+                display:        'flex',
+                alignItems:     'center',
+                gap:            '0.75rem',
+                padding:        '0.875rem 1.125rem',
+                borderRadius:   '0.875rem',
+                background:     'rgba(251,191,36,0.08)',
+                border:         '1.5px solid rgba(251,191,36,0.30)',
+                marginBottom:   '1rem',
+              }}
+            >
+              <span style={{ fontSize: '1.5rem' }}>🏅</span>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: '0.875rem', fontWeight: 700, margin: 0, color: '#fbbf24' }}>
+                  Community Regular
+                </p>
+                <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', margin: 0 }}>
+                  {metrics.streak} day streak — other customers can see you're a committed regular
+                </p>
+              </div>
+              <span style={{
+                fontSize:     '0.65rem',
+                fontWeight:   700,
+                padding:      '0.25rem 0.625rem',
+                borderRadius: '999px',
+                background:   'rgba(251,191,36,0.15)',
+                color:        '#fbbf24',
+                border:       '1px solid rgba(251,191,36,0.30)',
+                whiteSpace:   'nowrap',
+              }}>
+                Active
+              </span>
+            </motion.div>
+          )}
+
           {/* Achievements — FIX: earned status driven by real metrics */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="profile__achievements">
             <div className="profile__card-glow" />

@@ -478,6 +478,9 @@ export async function placeCustomerOrder(req: PlaceOrderRequest): Promise<Custom
 }
 
 export async function fetchCustomerOrders(): Promise<CustomerOrderDto[]> {
+  const token = localStorage.getItem('auth_token');
+  if (!token) throw new Error('Not authenticated – skipping orders fetch');
+
   const res = await fetch(`${CUSTOMER_URL}/orders`, {
     headers: customerAuthHeaders(),
   });
@@ -626,25 +629,20 @@ export async function clearCartOnBackend(): Promise<void> {
 // ── Customer Metrics ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export async function fetchCustomerMetrics(): Promise<CustomerMetricsDto> {
+  const token = localStorage.getItem('auth_token');
+  if (!token) throw new Error('Not authenticated – skipping metrics fetch');
+
   const res = await fetch(`${CUSTOMER_URL}/metrics`, {
     headers: customerAuthHeaders(),
   });
- handle401(res);
+  handle401(res);
   if (!res.ok) throw new Error(`Failed to fetch customer metrics: ${res.status}`);
   return res.json();
 }
 
 // ── Customer Streak ───────────────────────────────────────────────────────────
 
-export async function fetchCustomerStreak(): Promise<number> {
-  const res = await fetch(`${CUSTOMER_URL}/streak`, {
-    headers: customerAuthHeaders(),
-  });
- handle401(res);
-  if (!res.ok) return 0;
-  const data = await res.json();
-  return typeof data.streak === 'number' ? data.streak : 0;
-}
+
 
 // ── Customer Perks ────────────────────────────────────────────────────────────
 
@@ -659,11 +657,15 @@ export interface CustomerPerkDto {
 }
 
 export interface CustomerPerksResponseDto {
-  streak: number;
-  perks:  CustomerPerkDto[];
+  streak:        number;
+  lastOrderDate: string | null;  // ISO-8601 date "YYYY-MM-DD", null for new customers
+  perks:         CustomerPerkDto[];
 }
 
 export async function fetchCustomerPerks(): Promise<CustomerPerksResponseDto> {
+  const token = localStorage.getItem('auth_token');
+  if (!token) throw new Error('Not authenticated – skipping perks fetch');
+
   const res = await fetch(`${CUSTOMER_URL}/perks`, {
     headers: customerAuthHeaders(),
   });
@@ -732,9 +734,9 @@ const STATS_FALLBACK: CustomerPlatformStatsDto = {
 export async function fetchCustomerPlatformStats(): Promise<CustomerPlatformStatsDto> {
   try {
     const res = await fetch(`${CUSTOMER_URL}/stats`, {
-      headers: authHeadersNoBody(),
+      headers: customerAuthHeaders(),
     });
-     handle401(res);
+    handle401(res);
     if (!res.ok) return STATS_FALLBACK;
     return res.json();
   } catch {

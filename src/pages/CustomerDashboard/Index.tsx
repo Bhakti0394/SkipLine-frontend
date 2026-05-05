@@ -167,9 +167,13 @@ const Index = () => {
         />
       </motion.div>
 
-      <div className="main-grid">
-        <StreakCard />
-        <OrderFlowMini />
+<div className="main-grid">
+        <div className="main-grid__streak">
+          <StreakCard />
+        </div>
+        <div className="main-grid__orders">
+          <OrderFlowMini />
+        </div>
       </div>
 
   <div className="kitchen-section">

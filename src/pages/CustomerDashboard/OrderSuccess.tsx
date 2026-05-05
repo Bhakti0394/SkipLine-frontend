@@ -103,7 +103,7 @@ function menuItemToSwapDish(item: MenuItemDto): SwapDish {
     meal:      item.name,
     price:     item.price ?? 0,
     image,
-    timeSaved: item.prepTimeMinutes > 0 ? Math.floor(item.prepTimeMinutes * 0.8) : 5,
+
     category:  item.category ?? 'Other',
     isExpress: item.isExpress ?? item.prepTimeMinutes <= 15,
   };
@@ -186,7 +186,7 @@ export default function OrderSuccess() {
   const location      = useLocation();
   const locationState = location.state as LocationState | null;
 const { addNotification } = useNotifications();
-  const { updateOrderStatus: ctxUpdateStatus, swapOrder: ctxSwapOrder } = useSkipLine();
+const { updateOrderStatus: ctxUpdateStatus, swapOrder: ctxSwapOrder, metrics } = useSkipLine();
 
 
   // Unified helper — persists to bell (via context) AND fires popup immediately
@@ -666,8 +666,8 @@ const navigateToOrders = () => navigate('/customer-dashboard/orders', {
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.4 }} className="order-success__metrics">
           {[
             { icon: <Zap />,     mod: 'primary', val: `${totalTimeSaved} min`,               label: 'Time Saved'     },
-            { icon: <Leaf />,    mod: 'success', val: '0.15 kg',                             label: 'Waste Reduced'  },
-            { icon: <ChefHat />, mod: 'accent',  val: `#${firstOrder.kitchenQueuePosition}`, label: 'Queue Position' },
+           { icon: <Leaf />,    mod: 'success', val: `${metrics.foodWasteReduced.toFixed(2)} kg`, label: 'Waste Reduced' },
+           
           ].map(({ icon, mod, val, label }) => (
             <div key={label} className="order-success__metric-card">
               <div className={`order-success__metric-icon order-success__metric-icon--${mod}`}>{icon}</div>
@@ -750,7 +750,7 @@ const navigateToOrders = () => navigate('/customer-dashboard/orders', {
                         <p className="order-success__swap-dish-meal">{dish.meal}{isCurrent && <span style={{ fontSize: '0.7rem', marginLeft: 6, color: 'hsl(var(--muted-foreground))' }}>(current)</span>}</p>
                         <p className="order-success__swap-dish-restaurant">{dish.category}</p>
                         <div className="order-success__swap-dish-meta">
-                          <span className="order-success__swap-dish-time"><Zap size={11} />{dish.timeSaved} min saved</span>
+                         
                           {dish.isExpress && <span className="order-success__swap-dish-express">Express</span>}
                         </div>
                       </div>

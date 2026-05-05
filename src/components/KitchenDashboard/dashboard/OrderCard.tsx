@@ -484,8 +484,27 @@ const handleAssign = useCallback(async (chefId: string) => {
         </span>
       </div>
 
+  {/* ── Usual order chip — shown to chef when customer streak >= 7 ── */}
+      {order.status === 'pending' && order.usualOrder && (
+        <div style={{
+          display:      'inline-flex',
+          alignItems:   'center',
+          gap:          '0.3rem',
+          padding:      '0.2rem 0.55rem',
+          borderRadius: '0.375rem',
+          fontSize:     '0.68rem',
+          fontWeight:   600,
+          background:   'rgba(99,102,241,0.10)',
+          border:       '1px solid rgba(99,102,241,0.25)',
+          color:        '#a5b4fc',
+        }}>
+          <ChefHat style={{ width: '0.65rem', height: '0.65rem', flexShrink: 0 }} />
+          Usual: {order.usualOrder}
+        </div>
+      )}
+
       {/* ── Assign Chef dropdown — pending only ── */}
-   {showAssignChef && (
+      {showAssignChef && (
         <>
           <ChefDropdown
             assignedTo={order.assignedTo}

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Flame, Zap } from 'lucide-react';
 import { useSkipLine } from '../../../customer-context/SkipLineContext';
@@ -16,27 +15,57 @@ function getEncouragement(streak: number): string {
   return 'Legendary — 30 day streak!';
 }
 
-function buildWeekGrid(streak: number): boolean[] {
-  return Array.from({ length: 7 }, (_, i) => {
-    const daysAgo = 6 - i;
-    return daysAgo < streak;
-  });
+function buildWeekGrid(streak: number, lastOrderDate: string | null | undefined): boolean[] {
+  const grid = [false, false, false, false, false, false, false]; // Mon…Sun
+  if (streak <= 0 || !lastOrderDate) return grid;
+
+  // Parse lastOrderDate ("YYYY-MM-DD") as a local midnight date
+  const [y, m, d] = lastOrderDate.split('-').map(Number);
+  const last = new Date(y, m - 1, d); // local midnight
+
+  // Get Monday of the current week (day 0 of our grid)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayOfWeek = today.getDay(); // 0=Sun…6=Sat
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + mondayOffset);
+
+  // Fill backwards from lastOrderDate for 'streak' consecutive days
+  for (let i = 0; i < streak; i++) {
+    const orderDay = new Date(last);
+    orderDay.setDate(last.getDate() - i);
+    orderDay.setHours(0, 0, 0, 0);
+
+    // Which index in Mon-Sun grid is this day?
+    const diffMs = orderDay.getTime() - monday.getTime();
+    const diffDays = Math.round(diffMs / 86400000);
+    if (diffDays >= 0 && diffDays <= 6) {
+      grid[diffDays] = true;
+    }
+    // If diffDays < 0 the streak goes before this week - stop marking
+    if (diffDays < 0) break;
+  }
+
+  return grid;
 }
+
+
 
 export function StreakCard() {
   const { metrics } = useSkipLine();
   const streak = metrics.streak;
   const perks  = metrics.perks;
 
-  const weekGrid = buildWeekGrid(streak);
+ const weekGrid = buildWeekGrid(streak, metrics.lastOrderDate);
   const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-  const nextMilestone = MILESTONES.find(m => m > streak) ?? MILESTONES[MILESTONES.length - 1];
-  const prevMilestone = MILESTONES.filter(m => m <= streak).pop() ?? 0;
-  const progress =
-    streak >= nextMilestone
-      ? 100
-      : ((streak - prevMilestone) / (nextMilestone - prevMilestone)) * 100;
+const nextMilestone = MILESTONES.find(m => m > streak) ?? MILESTONES[MILESTONES.length - 1];
+const prevMilestone = MILESTONES.filter(m => m < streak).pop() ?? 0;
+const progress =
+  streak >= nextMilestone
+    ? 100
+    : ((streak - prevMilestone) / (nextMilestone - prevMilestone)) * 100;
 
   return (
     <motion.div

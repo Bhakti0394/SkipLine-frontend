@@ -639,7 +639,7 @@ useEffect(() => {
   }, []);
 
 
-  useEffect(() => {
+  useEffect(() => {m
     const orderIdSet = new Set(safeOrders.map(o => o.id));
     let changed = false;
     for (const id of pendingIdsRef.current) {
@@ -692,8 +692,16 @@ useEffect(() => {
     for (const order of safeOrders) {
       if (map[order.status] !== undefined) map[order.status].push(order);
     }
-    for (const status of Object.keys(map) as OrderStatus[]) {
+for (const status of Object.keys(map) as OrderStatus[]) {
       map[status].sort((a, b) => {
+        // Priority customers (streak >= 1) sort before non-priority
+        // within the same order type. Only applied to pending queue —
+        // cooking and ready columns keep time-based order.
+        if (status === 'pending') {
+          const ap = a.isPriorityCustomer ? 0 : 1;
+          const bp = b.isPriorityCustomer ? 0 : 1;
+          if (ap !== bp) return ap - bp;
+        }
         const tw = (ORDER_TYPE_WEIGHT[a.orderType] ?? 1) - (ORDER_TYPE_WEIGHT[b.orderType] ?? 1);
         if (tw !== 0) return tw;
         const aMs = a.pickupSlotMs ?? new Date(a.createdAt).getTime();
@@ -1225,12 +1233,32 @@ if (remaining <= 0) {
                                   )}
                                 </div>
 
-                              {scheduledLocked && (
+                             {scheduledLocked && (
   <ScheduledInfoBanner 
     pickupTime={order.pickupTime} 
     scheduledCookAt={order.scheduledCookAt}
   />
 )}
+
+                              {/* Usual order chip — chef hint when streak >= 7 */}
+                              {order.usualOrder && (
+                                <div style={{
+                                  display:      'inline-flex',
+                                  alignItems:   'center',
+                                  gap:          '0.3rem',
+                                  padding:      '0.18rem 0.5rem',
+                                  borderRadius: '0.375rem',
+                                  fontSize:     '0.65rem',
+                                  fontWeight:   600,
+                                  background:   'rgba(99,102,241,0.10)',
+                                  border:       '1px solid rgba(99,102,241,0.25)',
+                                  color:        '#a5b4fc',
+                                  marginBottom: '0.1rem',
+                                }}>
+                                  <ChefHat style={{ width: '0.6rem', height: '0.6rem', flexShrink: 0 }} />
+                                  Usual: {order.usualOrder}
+                                </div>
+                              )}
 
                                 <div className="order-card__items">
                                   {order.items.slice(0, 2).map((item) => (

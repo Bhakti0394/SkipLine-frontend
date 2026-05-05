@@ -1,10 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { CartItem, Order, UserMetrics, KitchenState } from '../customer-types/dashboard';
 import {
-  fetchCustomerOrders,
+ fetchCustomerOrders,
   fetchCustomerMetrics,
   fetchCustomerPerks,
-  fetchCustomerStreak,
   CustomerPerkDto,
   fetchCustomerOrder,
   fetchCustomerCart,
@@ -92,8 +91,8 @@ function mapPerks(
     name:       p.name,
     desc:       p.desc,
     unlockAt:   p.unlockAt,
-    active:     streak >= p.unlockAt,
-    usualOrder: p.usualOrder,
+    active:     p.active,
+    usualOrder: p.usualOrder ?? '',
   }));
 }
 
@@ -136,7 +135,7 @@ const STORAGE_KEYS = {
 const defaultMetrics: UserMetrics = {
   timeSaved: 0, loyaltyPoints: 0, activeOrders: 0,
   ordersThisMonth: 0, streak: 0, foodWasteReduced: 0, queueTimesSaved: 0,
-  perks: [],
+  perks: [], lastOrderDate: null,
 };
 
 // ADD THIS
@@ -404,6 +403,7 @@ const token = localStorage.getItem('auth_token');
           activeOrders: demoActiveOrders.map(o => o.id),
           queuedOrders: [],
         });
+// AFTER
 setMetrics({
   timeSaved:        40,
   loyaltyPoints:    548,
@@ -412,32 +412,36 @@ setMetrics({
   streak:           0,
   foodWasteReduced: 0.30,
   queueTimesSaved:  40,
-  perks:            [],   // ← add this
+  lastOrderDate:    null,
+  perks: [
+    { id: 'priority_pickup',  icon: '⚡',   name: 'Priority pickup',         desc: 'Your order moves to the front. Skip the wait, grab and go.',               unlockAt: 1,  active: false },
+    { id: 'chef_knows_order', icon: '👨‍🍳', name: 'Chef knows your order',   desc: 'Your usual is prepped before you even open the app.',                      unlockAt: 7,  active: false },
+    { id: 'community_badge',  icon: '🏅',   name: 'Community regular badge', desc: 'Visible on your profile. Other customers see you\'re a committed regular.', unlockAt: 14, active: false },
+    { id: 'first_to_know',    icon: '🔔',   name: 'First to know',           desc: 'New menu items, limited drops, and pop-ups — regulars hear first.',         unlockAt: 21, active: false },
+  ],
 });
       }
       return;
     }
 
 // -- Logged in -> fetch real data --
-    // Double-check token is present before firing any API calls.
+// Double-check token is present before firing any API calls.
     // authLoading=false + user!=null is not enough — the token must
     // actually be in localStorage or JwtAuthFilter will see no auth.
+    // Both must be true: React user state AND localStorage token.
+    // There is a brief window where setUser() has fired but
+    // localStorage.setItem('auth_token') hasn't completed yet —
+    // firing API calls in that window produces 403s (no Bearer header).
     const confirmedToken = localStorage.getItem('auth_token');
-    if (!confirmedToken) return;
+    if (!confirmedToken || !user) return;
 
     setLoading(true);
     setError(null);
-  // AFTER — use Promise.allSettled so loading clears only after ALL three settle
+// AFTER — perks are always last writer, loading clears only after all 4 settle
 Promise.allSettled([
-fetchCustomerCart()
+  fetchCustomerCart()
     .then(({ items }) => {
-      // Guard: if user logged out while fetch was in-flight, discard result
       if (!localStorage.getItem('auth_token')) return;
-      // Backend cart items are minimal (menuItemId, name, price, qty, spice, instructions, orderType).
-      // We need full CartItem shape for the frontend. We reconstruct it here —
-      // image and meal metadata come from the menu item name lookup.
-      // This is only used to restore a cart the user left mid-session on another device.
-      // In normal flow the cart is built locally via addToCart() and cleared after checkout.
       if (items.length === 0) return;
       const restored: CartItem[] = items.map(b => ({
         id:                  `cart-restored-${b.menuItemId}`,
@@ -474,55 +478,55 @@ fetchCustomerCart()
       const completed = dtos
         .filter(d => d.status === 'completed')
         .map(dtoToOrder);
-     setOrders(active);
-setOrderHistory(completed);
-setKitchenState({
-  activeOrders: active.filter(o => o.status !== 'cancelled').map(o => o.id),
-  queuedOrders: [],
-});
-// Patch ordersThisMonth from actual order count if backend metric is 0
-const totalOrders = dtos.filter(d => d.status !== 'cancelled').length;
-if (totalOrders > 0) {
-  setMetrics(prev => ({
-    ...prev,
-    ordersThisMonth: prev.ordersThisMonth > 0 ? prev.ordersThisMonth : totalOrders,
-  }));
-}
+      setOrders(active);
+      setOrderHistory(completed);
+      setKitchenState({
+        activeOrders: active.filter(o => o.status !== 'cancelled').map(o => o.id),
+        queuedOrders: [],
+      });
+      const totalOrders = dtos.filter(d => d.status !== 'cancelled').length;
+      if (totalOrders > 0) {
+        setMetrics(prev => ({
+          ...prev,
+          ordersThisMonth: prev.ordersThisMonth > 0 ? prev.ordersThisMonth : totalOrders,
+        }));
+      }
     })
-   .catch(err => {
-  console.warn('[SkipLineContext] Orders fetch failed:', err.message);
-  setError(err.message ?? 'Failed to load orders');
-  // Do NOT restore orders from localStorage — statuses there are stale.
-  // Orders placed this session are already in memory via addOrder().
-  // Showing stale localStorage orders would display wrong stages in OrderFlowMini.
-}),
+    .catch(err => {
+      console.warn('[SkipLineContext] Orders fetch failed:', err.message);
+      setError(err.message ?? 'Failed to load orders');
+    }),
 
-fetchCustomerMetrics()
+  fetchCustomerMetrics()
     .then(m => {
-      const updated = {
+      setMetrics(prev => ({
+        ...prev,
         ordersThisMonth:  m.ordersThisMonth,
         timeSaved:        m.timeSaved,
         loyaltyPoints:    m.loyaltyPoints,
         foodWasteReduced: m.foodWasteReduced,
-        activeOrders:     m.ordersThisMonth, // keep activeOrders in sync
-      };
-      setMetrics(prev => ({ ...prev, ...updated }));
+      }));
     })
-    .catch(err => {
-      // Backend unreachable — show zeros, do not fall back to stale
-      // localStorage values which may be from a different session/month.
-      console.warn('[SkipLineContext] Metrics fetch failed:', err.message);
-    }),
-fetchCustomerPerks()
-    .then(({ streak, perks }) => {
+    .catch(err => console.warn('[SkipLineContext] Metrics fetch failed:', err.message)),
+
+  // Perks is now the 4th member of allSettled — guaranteed to be the
+  // last writer of streak/lastOrderDate/perks, and setLoading(false)
+  // only fires after ALL four have settled (including this one).
+  fetchCustomerPerks()
+    .then(({ streak, lastOrderDate, perks }) => {
       const mapped = mapPerks(perks, streak);
-      setMetrics(prev => ({ ...prev, streak, perks: mapped }));
+      setMetrics(prev => ({
+        ...prev,
+        streak,
+        lastOrderDate: lastOrderDate ?? null,
+        perks: mapped,
+      }));
     })
     .catch(err =>
-      console.warn('[SkipLineContext] Perks fetch failed — keeping optimistic value:', err.message)
+      console.warn('[SkipLineContext] Perks fetch failed:', err.message)
     ),
 
-]).finally(() => setLoading(false));
+]).finally(() => setLoading(false));  // fires only after ALL 4 settle
 
 }, [user, authLoading]);
 
@@ -645,65 +649,62 @@ fetchCustomerPerks()
     // We still compute a local optimistic delta so the UI updates instantly
     // before the server responds — but we no longer write to localStorage
     // since the DB is the source of truth.
-    const today     = new Date().toDateString();
-    const yesterday = new Date(Date.now() - 86400000).toDateString();
-    const lastDate  = localStorage.getItem('SkipLine_last_order_date');
-
-    let streakDelta: 'increment' | 'reset' | 'keep' = 'keep';
-    if (lastDate !== today) {
-      // Only write the date key — NOT metrics. Date is needed for optimistic
-      // delta only. Real streak value always comes from DB via fetchCustomerStreak().
-      localStorage.setItem('SkipLine_last_order_date', today);
-      streakDelta = (!lastDate || lastDate === yesterday) ? 'increment' : 'reset';
-    }
+    // Use IST date string to match backend timezone (Asia/Kolkata)
+// Optimistic streak: use prev.lastOrderDate from context (server-sourced)
+// instead of localStorage — avoids stale/missing date causing wrong delta.
+// Optimistic streak uses prev.lastOrderDate (server-sourced via fetchCustomerPerks)
+// instead of localStorage — never stale, survives cache clears.
+const nowIST       = new Date(Date.now() + (5 * 60 + 30) * 60 * 1000);
+const todayIST     = nowIST.toISOString().slice(0, 10);
+const yesterdayIST = new Date(Date.now() + (5 * 60 + 30) * 60 * 1000 - 86400000)
+                       .toISOString().slice(0, 10);
 
 setMetrics(prev => {
-      const newStreak =
-        streakDelta === 'increment' ? prev.streak + 1 :
-        streakDelta === 'reset'     ? 1               :
-        prev.streak;
+  const lastDate = prev.lastOrderDate; // server-sourced, never stale
 
-      // No milestone dispatch here — wait for server confirmation below
-      // to avoid firing on a stale/wrong optimistic value.
-      return {
-        ...prev,
-        activeOrders:     prev.activeOrders + 1,
-        ordersThisMonth:  prev.ordersThisMonth + 1,
-        timeSaved:        prev.timeSaved + orderData.timeSaved,
-        loyaltyPoints:    prev.loyaltyPoints + Math.floor(orderData.price / 10),
-        foodWasteReduced: prev.foodWasteReduced + 0.15,
-        queueTimesSaved:  prev.queueTimesSaved + orderData.timeSaved,
-        streak:           newStreak,
-      };
-    });
+  const newStreak =
+    lastDate === todayIST     ? prev.streak     : // already ordered today
+    (!lastDate || lastDate === yesterdayIST)
+                              ? prev.streak + 1 : // consecutive day
+                                1;                // gap — reset
+
+  return {
+    ...prev,
+    activeOrders:     prev.activeOrders + 1,
+    ordersThisMonth:  prev.ordersThisMonth + 1,
+    timeSaved:        prev.timeSaved + orderData.timeSaved,
+    loyaltyPoints:    prev.loyaltyPoints + Math.floor(orderData.price / 10),
+    foodWasteReduced: prev.foodWasteReduced + 0.15,
+    queueTimesSaved:  prev.queueTimesSaved + orderData.timeSaved,
+    streak:           newStreak,
+    lastOrderDate:    todayIST,
+  };
+});
 
     // Re-sync streak from backend — server is source of truth.
     // Fire milestone celebration only here, using the confirmed server value,
     // so it never triggers on a wrong optimistic count (e.g. reset days).
-    fetchCustomerStreak()
-      .then(serverStreak => {
-        setMetrics(prev => {
-          const milestones = [3, 7, 14, 21, 30];
-          if (serverStreak > prev.streak && milestones.includes(serverStreak)) {
-            window.dispatchEvent(new CustomEvent('streak-milestone', {
-              detail: { streak: serverStreak },
-            }));
-          }
-          return { ...prev, streak: serverStreak };
-        });
-      })
-      .catch(() => {
-        // Server unreachable — fire milestone on optimistic value as fallback
-        setMetrics(prev => {
-          const milestones = [3, 7, 14, 21, 30];
-          if (milestones.includes(prev.streak)) {
-            window.dispatchEvent(new CustomEvent('streak-milestone', {
-              detail: { streak: prev.streak },
-            }));
-          }
-          return prev;
-        });
-      });
+ fetchCustomerPerks()
+  .then(({ streak: serverStreak, lastOrderDate: serverDate, perks }) => {
+    const mapped = mapPerks(perks, serverStreak);
+    setMetrics(prev => {
+      const milestones = [3, 7, 14, 21, 30];
+      // Fire milestone only when server confirms a new milestone was just crossed.
+      // prev.streak is the optimistic value set above — if server matches and
+      // it's a milestone, the player genuinely just hit it this order.
+      if (milestones.includes(serverStreak) && serverStreak === prev.streak) {
+        window.dispatchEvent(new CustomEvent('streak-milestone', {
+          detail: { streak: serverStreak },
+        }));
+      }
+      return { ...prev, streak: serverStreak, lastOrderDate: serverDate ?? null, perks: mapped };
+    });
+  })
+  .catch(() => {
+    // Server unreachable — suppress milestone entirely.
+    // User will see correct streak on next load. A false celebration
+    // on a reset day is worse than a missed one on a network blip.
+  });
 
    return newOrder;
   }, [orders, subscribeOrder]);
