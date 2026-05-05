@@ -283,21 +283,21 @@ let expressMinutes: ExpressMinutes | undefined;
     : expressMinutes ?? 5;
 
 return {
-    id:                dto.id,
-    orderNumber:       dto.orderRef,
-    customerName:      dto.customerName ?? dto.orderRef,
-    status:            statusMap[dto.status as BackendStatus] ?? 'pending',
-    backendStatus:     dto.status as BackendOrderStatus,
-    orderType:         resolvedType,
+    id:                  dto.id,
+    orderNumber:         dto.orderRef,
+    customerName:        dto.customerName ?? dto.orderRef,
+    status:              statusMap[dto.status as BackendStatus] ?? 'pending',
+    backendStatus:       dto.status as BackendOrderStatus,
+    orderType:           resolvedType,
     items,
-    estimatedPrepTime: resolvedEstimatedPrepTime,
+    estimatedPrepTime:   resolvedEstimatedPrepTime,
     elapsedMinutes,
-    pickupTime:     resolvePickupTime(dto, resolvedType, expressMinutes),
-    assignedTo:     dto.assignedChefName ?? undefined,
-    assignedChefId: dto.assignedChefId   ?? undefined,
-    createdAt:      placedAt ?? new Date(),
-    startedAt:      cookingStartedAt,
-    ...(readyAt     ? { readyAt }     : {}),
+    pickupTime:          resolvePickupTime(dto, resolvedType, expressMinutes),
+    assignedTo:          dto.assignedChefName ?? undefined,
+    assignedChefId:      dto.assignedChefId   ?? undefined,
+    createdAt:           placedAt ?? new Date(),
+    startedAt:           cookingStartedAt,
+    ...(readyAt          ? { readyAt }     : {}),
     completedAt,
     ...(dto.pickupSlotTime
           ? { pickupSlotMs: new Date(dto.pickupSlotTime).getTime() }
@@ -305,7 +305,9 @@ return {
             ? { pickupSlotMs: expressPickupSlotMs }
             : {}
     ),
-    scheduledCookAt: dto.scheduledCookAt ? new Date(dto.scheduledCookAt) : null,
+    scheduledCookAt:     dto.scheduledCookAt ? new Date(dto.scheduledCookAt) : null,
+isPriorityCustomer:  (dto as any).isPriorityCustomer === true,
+    usualOrder:          (dto as any).usualOrder ?? undefined,
   };
 }
 

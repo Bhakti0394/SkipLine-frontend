@@ -165,8 +165,16 @@ function AttentionCard({ order, staff, onStatusChange, onAssignChef }: {
         </div>
       )}
 
-      <div className="oq-card__meta">
+<div className="oq-card__meta">
         <span>{order.customerName}</span>
+        {order.isPriorityCustomer && (
+          <span style={{
+            fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.4rem',
+            borderRadius: '999px', background: 'rgba(249,115,22,0.15)',
+            border: '1px solid rgba(249,115,22,0.35)', color: '#fb923c',
+            marginLeft: '0.3rem', whiteSpace: 'nowrap',
+          }}>⚡ Priority</span>
+        )}
         <span className="oq-card__dot" />
         <span>{order.items.map(i => i.name).join(', ')}</span>
       </div>
@@ -307,12 +315,14 @@ const activeOrders = useMemo(() => {
 
     const unassigned = activeOrders
       .filter(o => o.status === 'pending' && !o.assignedTo && o.orderType !== 'scheduled')
-      .sort((a, b) => {
+.sort((a, b) => {
         const urgencyRank: Record<QueueUrgency, number> = { critical: 0, warning: 1, normal: 2 };
         const uDiff = urgencyRank[getQueueUrgency(a)] - urgencyRank[getQueueUrgency(b)];
         if (uDiff !== 0) return uDiff;
         const w = (a.orderType === 'express' ? 0 : 1) - (b.orderType === 'express' ? 0 : 1);
         if (w !== 0) return w;
+        const p = (a.isPriorityCustomer ? 0 : 1) - (b.isPriorityCustomer ? 0 : 1);
+        if (p !== 0) return p;
         return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       });
 

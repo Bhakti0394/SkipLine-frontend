@@ -2,26 +2,24 @@
 // CHECKOUT PAGE STYLES
 // ============================================
 
-// Spacing Variables
 $spacing-sm: 0.75rem;
 $spacing-md: 1rem;
 $spacing-lg: 1.5rem;
 $spacing-xl: 2rem;
 
-// Border Radius
 $border-radius-sm: 0.5rem;
 $border-radius-md: 0.75rem;
 $border-radius-lg: 1rem;
 $border-radius-xl: 1.5rem;
 
-// Breakpoints
 $breakpoint-lg: 1024px;
 $breakpoint-md: 768px;
 $breakpoint-sm: 640px;
 
-// ============================================
-// MIXINS
-// ============================================
+:root {
+  --color-danger: #ef4444;
+  --color-warn:   #f59e0b;
+}
 
 @mixin glass-effect {
   background: rgba(255, 255, 255, 0.05);
@@ -39,9 +37,7 @@ $breakpoint-sm: 640px;
   background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.8));
 }
 
-// ============================================
-// EMPTY CART STATE
-// ============================================
+// ─── Empty Cart ───────────────────────────────────────────────────────────
 
 .empty-cart {
   display: flex;
@@ -52,51 +48,43 @@ $breakpoint-sm: 640px;
   text-align: center;
 
   &__icon {
-    width: 6rem;
-    height: 6rem;
+    width: 6rem; height: 6rem;
     border-radius: 50%;
     background: hsl(var(--muted) / 0.5);
     @include flex-center;
     margin-bottom: $spacing-lg;
-
-    .icon {
-      width: 3rem;
-      height: 3rem;
-      color: hsl(var(--muted-foreground));
-    }
+    .icon { width: 3rem; height: 3rem; color: hsl(var(--muted-foreground)); }
   }
 
   &__title {
     font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.5rem;
-    margin-bottom: 0.5rem;
+    font-weight: 700; font-size: 1.5rem; margin-bottom: 0.5rem;
   }
 
-  &__description {
-    color: hsl(var(--muted-foreground));
-    margin-bottom: $spacing-lg;
-  }
+  &__description { color: hsl(var(--muted-foreground)); margin-bottom: $spacing-lg; }
 
   &__button {
     @include gradient-primary;
-    color: white;
-    padding: 0.75rem 2rem;
-    border-radius: $border-radius-md;
-    border: none;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.2s;
-
-    &:hover {
-      opacity: 0.9;
-    }
+    color: white; padding: 0.75rem 2rem;
+    border-radius: $border-radius-md; border: none;
+    font-weight: 600; cursor: pointer; transition: opacity 0.2s;
+    &:hover { opacity: 0.9; }
   }
 }
 
-// ============================================
-// CHECKOUT HEADER
-// ============================================
+// ─── Error Banner ─────────────────────────────────────────────────────────
+
+.checkout-error-banner {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  color: #f87171;
+  font-size: 0.875rem;
+}
+
+// ─── Header ───────────────────────────────────────────────────────────────
 
 .checkout-header {
   display: flex;
@@ -106,59 +94,32 @@ $breakpoint-sm: 640px;
 
   &__back-button {
     border-radius: 50%;
-
-    .icon {
-      width: 1.25rem;
-      height: 1.25rem;
-    }
+    .icon { width: 1.25rem; height: 1.25rem; }
   }
 
-  &__content {
-    flex: 1;
-  }
+  &__content { flex: 1; }
 
   &__title {
     font-size: 1.5rem;
     font-family: var(--font-display);
     font-weight: 700;
-
-    @media (max-width: $breakpoint-sm) {
-      font-size: 1.25rem;
-    }
+    @media (max-width: $breakpoint-sm) { font-size: 1.25rem; }
   }
 
-  &__subtitle {
-    color: hsl(var(--muted-foreground));
-    font-size: 0.875rem;
-  }
+  &__subtitle { color: hsl(var(--muted-foreground)); font-size: 0.875rem; }
 }
 
-// ============================================
-// CHECKOUT GRID LAYOUT
-// ============================================
+// ─── Grid Layout ──────────────────────────────────────────────────────────
 
 .checkout-grid {
   display: grid;
   gap: $spacing-lg;
+  @media (min-width: $breakpoint-lg) { grid-template-columns: 2fr 1fr; }
 
-  @media (min-width: $breakpoint-lg) {
-    grid-template-columns: 2fr 1fr;
-  }
-
-  &__main {
-    display: flex;
-    flex-direction: column;
-    gap: $spacing-md;
-  }
-
-  &__sidebar {
-    // Sidebar styles handled by order-summary
-  }
+  &__main { display: flex; flex-direction: column; gap: $spacing-md; }
 }
 
-// ============================================
-// CART SECTION
-// ============================================
+// ─── Cart Section ─────────────────────────────────────────────────────────
 
 .cart-section {
   @include glass-effect;
@@ -166,30 +127,14 @@ $breakpoint-sm: 640px;
   padding: $spacing-md;
 
   &__title {
-    font-weight: 600;
-    font-size: 1.125rem;
+    font-weight: 600; font-size: 1.125rem;
     margin-bottom: $spacing-md;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-
-    .icon {
-      width: 1.25rem;
-      height: 1.25rem;
-      color: hsl(var(--primary));
-    }
+    display: flex; align-items: center; gap: 0.5rem;
+    .icon { width: 1.25rem; height: 1.25rem; color: hsl(var(--primary)); }
   }
 }
 
-// ============================================
-// CART ITEMS
-// ============================================
-
-.cart-items {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-md;
-}
+.cart-items { display: flex; flex-direction: column; gap: $spacing-md; }
 
 .cart-item {
   display: flex;
@@ -200,175 +145,111 @@ $breakpoint-sm: 640px;
   border: 1px solid hsl(var(--border) / 0.5);
 
   &__image {
-    width: 5rem;
-    height: 5rem;
+    width: 5rem; height: 5rem;
     border-radius: $border-radius-md;
-    object-fit: cover;
-    flex-shrink: 0;
-
-    @media (max-width: $breakpoint-sm) {
-      width: 4rem;
-      height: 4rem;
-    }
+    object-fit: cover; flex-shrink: 0;
+    @media (max-width: $breakpoint-sm) { width: 4rem; height: 4rem; }
   }
 
-  &__details {
-    flex: 1;
-    min-width: 0;
+  &__details { flex: 1; min-width: 0; }
+
+  &__name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  &__restaurant { font-size: 0.875rem; color: hsl(var(--muted-foreground)); }
+
+  // Pill row for time / prep
+  &__meta-row {
+    display: flex; flex-wrap: wrap;
+    gap: 0.4rem; margin-top: 0.35rem;
   }
 
-  &__name {
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  &__meta-pill {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    font-size: 0.7rem; padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    .icon { width: 0.65rem; height: 0.65rem; }
 
-  &__restaurant {
-    font-size: 0.875rem;
-    color: hsl(var(--muted-foreground));
-  }
-
-  &__pickup-time {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.25rem;
-    font-size: 0.75rem;
-    color: hsl(var(--muted-foreground));
-
-    .icon {
-      width: 0.75rem;
-      height: 0.75rem;
-    }
-  }
-
-  &__addons {
-    font-size: 0.75rem;
-    color: hsl(var(--primary));
-    margin-top: 0.25rem;
-  }
-
-  &__actions {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: space-between;
-  }
-
-  &__price {
-    font-weight: 700;
-    color: hsl(var(--primary));
-  }
-
-  @media (max-width: $breakpoint-lg - 1px) {
-    flex-wrap: wrap;
-
-    &__actions {
-      width: 100%;
-      flex-direction: row;
-      justify-content: space-between;
-      margin-top: $spacing-sm;
-    }
-  }
-}
-
-// ============================================
-// QUANTITY CONTROLS
-// ============================================
-
-.quantity-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  &__button {
-    width: 1.75rem;
-    height: 1.75rem;
-    border-radius: 50%;
-    border: none;
-    cursor: pointer;
-    @include flex-center;
-    transition: all 0.2s;
-
-    .icon {
-      width: 0.75rem;
-      height: 0.75rem;
+    &--time {
+      background: hsl(var(--muted) / 0.6);
+      color: hsl(var(--muted-foreground));
     }
 
-    &--minus {
-      background: hsl(var(--muted));
-      color: hsl(var(--foreground));
-
-      &:hover {
-        opacity: 0.8;
-      }
-    }
-
-    &--plus {
-      background: hsl(var(--primary));
-      color: white;
-
-      &:hover {
-        opacity: 0.9;
-      }
-    }
-
-    &--delete {
-      margin-left: 0.5rem;
-      background: hsl(var(--destructive) / 0.1);
-      color: hsl(var(--destructive));
-
-      &:hover {
-        background: hsl(var(--destructive) / 0.2);
-      }
-    }
-  }
-
-  &__value {
-    width: 1.5rem;
-    text-align: center;
-    font-weight: 500;
-  }
-}
-
-// ============================================
-// PAYMENT SECTION
-// ============================================
-
-.payment-section {
-  @include glass-effect;
-  border-radius: $border-radius-xl;
-  padding: $spacing-md;
-
-  &__title {
-    font-weight: 600;
-    font-size: 1.125rem;
-    margin-bottom: $spacing-md;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-
-    .icon {
-      width: 1.25rem;
-      height: 1.25rem;
+    &--prep {
+      background: hsl(var(--primary) / 0.08);
       color: hsl(var(--primary));
     }
   }
+
+  // ── Real time-saved row ──
+  &__saving-row {
+    display: flex; align-items: center; gap: 0.35rem;
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
+    color: #10b981; // success green
+
+    .icon { width: 0.8rem; height: 0.8rem; flex-shrink: 0; }
+  }
+
+  &__slot-fill { color: hsl(var(--muted-foreground)); }
+  &__slot-loading { color: hsl(var(--muted-foreground)); font-style: italic; }
+
+  &__addons { font-size: 0.75rem; color: hsl(var(--primary)); margin-top: 0.25rem; }
+
+  &__actions {
+    display: flex; flex-direction: column;
+    align-items: flex-end; justify-content: space-between;
+  }
+
+  &__price { font-weight: 700; color: hsl(var(--primary)); }
+
+  @media (max-width: $breakpoint-lg - 1px) {
+    flex-wrap: wrap;
+    &__actions {
+      width: 100%; flex-direction: row;
+      justify-content: space-between; margin-top: $spacing-sm;
+    }
+  }
 }
 
-// ============================================
-// PAYMENT METHODS
-// ============================================
+// ─── Quantity Controls ────────────────────────────────────────────────────
+
+.quantity-controls {
+  display: flex; align-items: center; gap: 0.5rem;
+
+  &__button {
+    width: 1.75rem; height: 1.75rem;
+    border-radius: 50%; border: none;
+    cursor: pointer; @include flex-center; transition: all 0.2s;
+    .icon { width: 0.75rem; height: 0.75rem; }
+
+    &--minus { background: hsl(var(--muted)); color: hsl(var(--foreground)); &:hover { opacity: 0.8; } }
+    &--plus  { background: hsl(var(--primary)); color: white; &:hover { opacity: 0.9; } }
+    &--delete {
+      margin-left: 0.5rem;
+      background: hsl(var(--destructive) / 0.1); color: hsl(var(--destructive));
+      &:hover { background: hsl(var(--destructive) / 0.2); }
+    }
+  }
+
+  &__value { width: 1.5rem; text-align: center; font-weight: 500; }
+}
+
+// ─── Payment Section ──────────────────────────────────────────────────────
+
+.payment-section {
+  @include glass-effect;
+  border-radius: $border-radius-xl; padding: $spacing-md;
+
+  &__title {
+    font-weight: 600; font-size: 1.125rem;
+    margin-bottom: $spacing-md;
+    display: flex; align-items: center; gap: 0.5rem;
+    .icon { width: 1.25rem; height: 1.25rem; color: hsl(var(--primary)); }
+  }
+}
 
 .payment-methods {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: $spacing-sm;
-
-  @media (max-width: $breakpoint-sm) {
-    grid-template-columns: 1fr;
-  }
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: $spacing-sm;
+  @media (max-width: $breakpoint-sm) { grid-template-columns: 1fr; }
 }
 
 .payment-option {
@@ -376,316 +257,209 @@ $breakpoint-sm: 640px;
   border-radius: $border-radius-md;
   border: 2px solid hsl(var(--border) / 0.5);
   background: hsl(var(--muted) / 0.3);
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.2s;
+  cursor: pointer; text-align: left; transition: all 0.2s;
 
-  &:hover {
-    border-color: hsl(var(--primary) / 0.5);
-  }
+  &:hover { border-color: hsl(var(--primary) / 0.5); }
+  &--active { border-color: hsl(var(--primary)); background: hsl(var(--primary) / 0.1); }
 
-  &--active {
-    border-color: hsl(var(--primary));
-    background: hsl(var(--primary) / 0.1);
-  }
-
-  &__header {
-    display: flex;
-    align-items: center;
-    gap: $spacing-sm;
-    margin-bottom: 0.5rem;
-  }
+  &__header { display: flex; align-items: center; gap: $spacing-sm; margin-bottom: 0.5rem; }
 
   &__icon {
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 50%;
-    @include flex-center;
-    flex-shrink: 0;
+    width: 2.5rem; height: 2.5rem;
+    border-radius: 50%; @include flex-center; flex-shrink: 0;
 
     &--upi {
       background: linear-gradient(135deg, #10b981, #059669);
-      color: white;
-      font-weight: 700;
-      font-size: 0.875rem;
+      color: white; font-weight: 700; font-size: 0.875rem;
     }
-
     &--cash {
       background: linear-gradient(135deg, #f59e0b, #d97706);
-
-      .icon {
-        width: 1.25rem;
-        height: 1.25rem;
-        color: white;
-      }
+      .icon { width: 1.25rem; height: 1.25rem; color: white; }
     }
   }
 
-  &__info {
-    flex: 1;
-  }
+  &__info { flex: 1; }
+  &__name { font-weight: 600; }
+  &__method { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
+  &__benefit { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
+  &__badges { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.25rem; }
 
-  &__name {
-    font-weight: 600;
-  }
-
-  &__method {
-    font-size: 0.75rem;
-    color: hsl(var(--muted-foreground));
-  }
-
-  &__benefit {
-    font-size: 0.75rem;
-    color: hsl(var(--muted-foreground));
-
-    &--success {
-      color: hsl(var(--success));
-    }
-  }
-
-  @media (max-width: $breakpoint-sm) {
-    padding: $spacing-sm;
-  }
+  @media (max-width: $breakpoint-sm) { padding: $spacing-sm; }
 }
 
-// ============================================
-// UPI INPUT
-// ============================================
+.payment-badge {
+  display: inline-flex; align-items: center; gap: 0.2rem;
+  font-size: 0.65rem; padding: 0.15rem 0.45rem;
+  border-radius: 999px; font-weight: 500;
+  .icon { width: 0.6rem; height: 0.6rem; }
+
+  &--success { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+}
+
+.payment-option__benefit--success { color: hsl(var(--success)); }
+
+// ─── UPI Input ────────────────────────────────────────────────────────────
 
 .upi-input {
   margin-top: $spacing-md;
 
-  &__label {
-    display: block;
-    font-size: 0.875rem;
-    color: hsl(var(--muted-foreground));
-    margin-bottom: 0.5rem;
-  }
+  &__label { display: block; font-size: 0.875rem; color: hsl(var(--muted-foreground)); margin-bottom: 0.5rem; }
 
   &__field {
-    width: 100%;
-    padding: $spacing-sm;
+    width: 100%; padding: $spacing-sm;
     border-radius: $border-radius-md;
     border: 1px solid hsl(var(--border) / 0.5);
     background: hsl(var(--muted) / 0.3);
-    font-size: 0.875rem;
-    color: hsl(var(--foreground));
-    outline: none;
-    transition: all 0.2s;
-
-    &:focus {
-      outline: 2px solid hsl(var(--primary) / 0.5);
-      outline-offset: 0;
-    }
-
-    &::placeholder {
-      color: hsl(var(--muted-foreground));
-      opacity: 0.6;
-    }
+    font-size: 0.875rem; color: hsl(var(--foreground)); outline: none; transition: all 0.2s;
+    &:focus { outline: 2px solid hsl(var(--primary) / 0.5); outline-offset: 0; }
+    &::placeholder { color: hsl(var(--muted-foreground)); opacity: 0.6; }
   }
 }
 
-// ============================================
-// ORDER SUMMARY
-// ============================================
+// ─── Order Summary ────────────────────────────────────────────────────────
 
 .order-summary {
   @include glass-effect;
-  border-radius: $border-radius-xl;
-  padding: 1.25rem;
-  position: sticky;
-  top: 6rem;
+  border-radius: $border-radius-xl; padding: 1.25rem;
+  position: sticky; top: 6rem;
+  @media (max-width: $breakpoint-lg - 1px) { position: static; }
 
-  @media (max-width: $breakpoint-lg - 1px) {
-    position: static;
-  }
+  &__title { font-weight: 600; font-size: 1.125rem; margin-bottom: $spacing-md; }
 
-  &__title {
-    font-weight: 600;
-    font-size: 1.125rem;
-    margin-bottom: $spacing-md;
-  }
-
-  &__details {
-    display: flex;
-    flex-direction: column;
-    gap: $spacing-sm;
-    font-size: 0.875rem;
-  }
+  &__details { display: flex; flex-direction: column; gap: $spacing-sm; font-size: 0.875rem; }
 
   &__row {
-    display: flex;
-    justify-content: space-between;
-    color: hsl(var(--muted-foreground));
-
-    &--success {
-      color: hsl(var(--success));
-      font-size: 0.75rem;
-    }
-
-    &--total {
-      font-weight: 700;
-      font-size: 1.125rem;
-      color: hsl(var(--foreground));
-    }
+    display: flex; justify-content: space-between; color: hsl(var(--muted-foreground));
+    &--success { color: hsl(var(--success)); font-size: 0.75rem; }
+    &--total   { font-weight: 700; font-size: 1.125rem; color: hsl(var(--foreground)); }
   }
 
-  &__strikethrough {
-    text-decoration: line-through;
-  }
-
-  &__total-amount {
-    color: hsl(var(--primary));
-  }
-
-  &__divider {
-    height: 1px;
-    background: hsl(var(--border) / 0.5);
-    margin: $spacing-sm 0;
-  }
+  &__strikethrough { text-decoration: line-through; }
+  &__total-amount  { color: hsl(var(--primary)); }
+  &__divider       { height: 1px; background: hsl(var(--border) / 0.5); margin: $spacing-sm 0; }
 
   &__submit-button {
-    width: 100%;
-    height: 3rem;
-    margin-top: $spacing-lg;
+    width: 100%; height: 3rem; margin-top: $spacing-lg;
     border-radius: $border-radius-md;
     @include gradient-primary;
-    color: white;
-    font-weight: 600;
-    font-size: 1rem;
-    border: none;
-    cursor: pointer;
-    transition: opacity 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    &:hover {
-      opacity: 0.9;
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .icon {
-      width: 1.25rem;
-      height: 1.25rem;
-      margin-right: 0.5rem;
-
-      &--spinning {
-        animation: spin 1s linear infinite;
-      }
-    }
+    color: white; font-weight: 600; font-size: 1rem;
+    border: none; cursor: pointer; transition: opacity 0.2s;
+    display: flex; align-items: center; justify-content: center;
+    &:hover    { opacity: 0.9; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+    .icon { width: 1.25rem; height: 1.25rem; margin-right: 0.5rem; }
+    .icon--spinning { animation: spin 1s linear infinite; }
   }
 
   &__footer-text {
-    font-size: 0.75rem;
-    color: hsl(var(--muted-foreground));
-    text-align: center;
-    margin-top: $spacing-sm;
+    font-size: 0.75rem; color: hsl(var(--muted-foreground));
+    text-align: center; margin-top: $spacing-sm;
   }
 }
 
-// ============================================
-// TIME SAVED BADGE
-// ============================================
+// ─── Time Saved Badge (improved) ──────────────────────────────────────────
 
 .time-saved-badge {
-  margin-top: $spacing-md;
-  padding: $spacing-sm;
+  margin-top: $spacing-md; padding: $spacing-sm;
   border-radius: $border-radius-md;
-  background: hsl(var(--success) / 0.1);
-  border: 1px solid hsl(var(--success) / 0.2);
+  background: linear-gradient(135deg, hsl(var(--success) / 0.12), hsl(var(--success) / 0.06));
+  border: 1px solid hsl(var(--success) / 0.25);
+  display: flex; align-items: center; gap: 0.6rem;
 
-  &__content {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: hsl(var(--success));
-
-    .icon {
-      width: 1.25rem;
-      height: 1.25rem;
-    }
+  &__icon-wrap {
+    width: 2rem; height: 2rem; border-radius: 50%;
+    background: hsl(var(--success) / 0.2);
+    @include flex-center; flex-shrink: 0;
+    .icon { width: 1rem; height: 1rem; color: hsl(var(--success)); }
   }
+
+  &__body { flex: 1; }
 
   &__time {
-    font-weight: 600;
-    font-size: 0.875rem;
+    font-weight: 700; font-size: 0.9rem;
+    color: hsl(var(--success));
   }
+
+  &__loading { font-size: 0.7rem; font-style: italic; opacity: 0.7; }
 
   &__description {
-    font-size: 0.75rem;
-    opacity: 0.8;
+    font-size: 0.7rem; color: hsl(var(--success)); opacity: 0.8;
+  }
+
+  &__chart {
+    .icon { width: 1.1rem; height: 1.1rem; color: hsl(var(--success)); opacity: 0.6; }
   }
 }
 
-// ============================================
-// PROCESSING OVERLAY
-// ============================================
+// ─── Queue Insight ────────────────────────────────────────────────────────
+
+.queue-insight {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: $border-radius-md;
+  background: hsl(var(--muted) / 0.25);
+  border: 1px solid hsl(var(--border) / 0.4);
+
+  &__row {
+    display: flex; align-items: center; gap: 0.4rem;
+    font-size: 0.75rem; color: hsl(var(--muted-foreground));
+    margin-bottom: 0.5rem;
+    .icon { width: 0.75rem; height: 0.75rem; }
+    strong { color: hsl(var(--foreground)); }
+  }
+
+  &__bar-wrap {
+    display: flex; align-items: flex-end;
+    gap: 0.3rem; height: 2.2rem;
+  }
+
+  &__slot {
+    flex: 1; display: flex;
+    flex-direction: column; align-items: center;
+    gap: 0.15rem; height: 100%;
+    justify-content: flex-end;
+  }
+
+  &__slot-bar {
+    width: 100%; border-radius: 3px 3px 0 0;
+    min-height: 4px;
+    transition: height 0.4s ease;
+  }
+
+  &__slot-label {
+    font-size: 0.6rem; color: hsl(var(--muted-foreground));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 100%;
+  }
+}
+
+// ─── Processing Overlay ───────────────────────────────────────────────────
 
 .processing-overlay {
-  position: fixed;
-  inset: 0;
+  position: fixed; inset: 0;
   background: hsl(var(--background) / 0.9);
   backdrop-filter: blur(4px);
-  z-index: 50;
-  @include flex-center;
+  z-index: 50; @include flex-center;
 
-  &__content {
-    text-align: center;
-  }
+  &__content { text-align: center; }
 
   &__spinner {
-    width: 5rem;
-    height: 5rem;
-    border-radius: 50%;
+    width: 5rem; height: 5rem; border-radius: 50%;
     background: linear-gradient(135deg, #10b981, #059669);
-    @include flex-center;
-    margin: 0 auto $spacing-md;
-
-    .icon {
-      width: 2.5rem;
-      height: 2.5rem;
-      color: white;
-
-      &--spinning {
-        animation: spin 1s linear infinite;
-      }
-    }
+    @include flex-center; margin: 0 auto $spacing-md;
+    .icon { width: 2.5rem; height: 2.5rem; color: white; }
+    .icon--spinning { animation: spin 1s linear infinite; }
   }
 
-  &__title {
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.25rem;
-    margin-bottom: 0.5rem;
-  }
-
-  &__message {
-    color: hsl(var(--muted-foreground));
-  }
+  &__title { font-family: var(--font-display); font-weight: 700; font-size: 1.25rem; margin-bottom: 0.5rem; }
+  &__message { color: hsl(var(--muted-foreground)); }
 }
 
-// ============================================
-// ANIMATIONS
-// ============================================
+// ─── Animations ───────────────────────────────────────────────────────────
 
 @keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
-// ============================================
-// UTILITY CLASSES
-// ============================================
-
-.icon {
-  flex-shrink: 0;
-}
+.icon { flex-shrink: 0; }

@@ -109,15 +109,24 @@ export default function OrderHistory() {
         setLoading(false);
       });
   }, []);
-const showBackend              = !loading && !error && backendOrders.length > 0;
-const completedBackend         = backendOrders.filter(o => o.status === 'completed');
-const allNonCancelledBackend   = backendOrders.filter(o => o.status !== 'cancelled');
-const displayOrders            = showBackend ? completedBackend : contextHistory;
+const showBackend            = !loading && !error && backendOrders.length > 0;
+const completedBackend       = backendOrders.filter(o => o.status === 'completed');
+const allNonCancelledBackend = backendOrders.filter(o => o.status !== 'cancelled');
+const displayOrders          = showBackend ? completedBackend : contextHistory;
 
-const totalSpent     = showBackend
-    ? completedBackend.reduce((s, o) => s + (o.totalPrice ?? 0), 0)
-    : contextHistory.reduce((s, o) => s + o.price, 0);
-const totalTimeSaved = contextHistory.reduce((s, o) => s + o.timeSaved, 0);
+const totalSpent = showBackend
+  ? completedBackend.reduce((s, o) => s + (o.totalPrice ?? 0), 0)
+  : contextHistory.reduce((s, o) => s + o.price, 0);
+
+// Time saved: prefer backend (prep minutes * 0.8), fall back to context
+const totalTimeSaved = showBackend
+  ? completedBackend.reduce((s, o) => s + Math.floor((o.totalPrepMinutes ?? 0) * 0.8), 0)
+  : contextHistory.reduce((s, o) => s + o.timeSaved, 0);
+
+// Total orders: all non-cancelled backend orders, not just completed ones
+const totalOrdersCount = showBackend
+  ? allNonCancelledBackend.length
+  : contextHistory.length;
 
   const particles = Array.from({ length: 10 }, (_, i) => ({
     id: i, size: Math.random() * 4 + 2, x: Math.random() * 100, y: Math.random() * 100,
@@ -160,10 +169,10 @@ const totalTimeSaved = contextHistory.reduce((s, o) => s + o.timeSaved, 0);
 
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.3 }} className="orders__impact-stats">
           {[
-           { icon: Package,    value: showBackend ? allNonCancelledBackend.length : contextHistory.length, label: 'Total Orders',  color: '#ff6b35' },
-            { icon: TrendingUp, value: totalSpent > 0 ? `₹${totalSpent.toFixed(0)}` : '—', label: 'Total Spent',   color: '#f7931e' },
-            { icon: Zap,        value: `${totalTimeSaved} min`,                             label: 'Time Saved',    color: '#fbbf24' },
-            { icon: Leaf,       value: `${metrics.foodWasteReduced.toFixed(1)} kg`,         label: 'Waste Reduced', color: '#10b981' },
+         { icon: Package,    value: totalOrdersCount,                                      label: 'Total Orders',  color: '#ff6b35' },
+            { icon: TrendingUp, value: totalSpent > 0 ? `₹${totalSpent.toFixed(0)}` : '—',   label: 'Total Spent',   color: '#f7931e' },
+            { icon: Zap,        value: `${totalTimeSaved} min`,                               label: 'Time Saved',    color: '#fbbf24' },
+            { icon: Leaf,       value: `${metrics.foodWasteReduced.toFixed(1)} kg`,           label: 'Waste Reduced', color: '#10b981' },
           ].map(({ icon: Icon, value, label, color }) => (
             <div key={label} className="orders__stat-card">
               <div className="orders__stat-glow" style={{ background: `radial-gradient(circle, ${color}4d, transparent)` }} />

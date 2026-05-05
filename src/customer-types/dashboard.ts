@@ -130,7 +130,8 @@ export interface UserMetrics {
   streak:           number;
   foodWasteReduced: number;
   queueTimesSaved:  number;
-  perks:            CustomerPerk[];   // ← add this
+  perks:            CustomerPerk[];
+  lastOrderDate:    string | null;  // ISO-8601 "YYYY-MM-DD" from backend, null if no orders yet
 }
 
 export interface KitchenState {

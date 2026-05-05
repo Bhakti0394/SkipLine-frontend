@@ -3,6 +3,107 @@
 @tailwind components;
 @tailwind utilities;
 
+.dashboard-background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(ellipse at top, rgba(59,246,218,0.06) 0%, transparent 60%),
+              radial-gradient(ellipse at bottom right, rgba(249,115,22,0.05) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.dashboard-header {
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.25rem;
+
+  .highlight { color: #3bf6da; }
+
+  @media (min-width: 768px) { font-size: 1.875rem; }
+}
+
+.dashboard-subtitle {
+  font-size: 0.875rem;
+  color: rgba(255,255,255,0.5);
+  font-weight: 500;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.875rem;
+  margin-bottom: 1.25rem;
+
+  @media (min-width: 768px) {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+}
+
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  align-items: start;
+
+  @media (min-width: 768px) {
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+  }
+
+&__streak,
+  &__orders {
+    height: 100%;
+  }
+}
+
+.kitchen-section {
+  margin-bottom: 1.25rem;
+}
+
+.queue-alert {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.875rem;
+  background: rgba(249,115,22,0.1);
+  border: 1px solid rgba(249,115,22,0.25);
+}
+
+.alert-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.alert-indicator {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 9999px;
+  background: #fb923c;
+  box-shadow: 0 0 8px rgba(249,115,22,0.6);
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+
+.alert-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fb923c;
+  margin-bottom: 0.25rem;
+}
+
+.alert-description {
+  font-size: 0.8125rem;
+  color: rgba(255,255,255,0.6);
+  line-height: 1.5;
+}
 /* SkipLine Design System - Bold, Dark, Energetic */
 // ============================================================================
 // VARIABLES
@@ -214,11 +315,21 @@ body {
   display: grid;
   gap: $spacing-lg;
   margin-bottom: $spacing-xl;
+  align-items: stretch;
 
   @include respond-to('sm') { gap: $spacing-xl; }
   @include respond-to('lg') {
     grid-template-columns: repeat(2, 1fr);
     margin-bottom: $spacing-2xl;
+  }
+
+  &__streak,
+  &__orders {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+
+    > * { flex: 1; }
   }
 }
 

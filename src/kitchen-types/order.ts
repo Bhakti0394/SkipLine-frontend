@@ -24,27 +24,28 @@ export interface OrderItem {
 }
 
 export interface Order {
-  id:                string;
-  orderNumber:       string;
-  customerName:      string;
-  items:             OrderItem[];
-  status:            OrderStatus;
-  backendStatus?:    BackendOrderStatus;
-  orderType:         OrderType;
-  pickupTime:        string;
-  estimatedPrepTime: number;
-  elapsedMinutes:    number;
-  assignedTo?:       string;
-  assignedChefId?:   string;
-  createdAt:         Date;
-  startedAt?:        Date;   // cookingStartedAt from backend
-  readyAt?:          Date;   // FIX [F1]: was missing – useOrderTimer resolveReadyAnchorMs reads this
-  completedAt?:      Date;
-  // FIX [F2]: was missing – toFrontendOrder spreads this; useOrderTimer + KanbanBoard sort read it
-pickupSlotMs?:     number;
-  isExpress?:        boolean;
-  editLockedUntil?:  Date | null;
-  scheduledCookAt?:  Date | null;
+  id:                  string;
+  orderNumber:         string;
+  customerName:        string;
+  items:               OrderItem[];
+  status:              OrderStatus;
+  backendStatus?:      BackendOrderStatus;
+  orderType:           OrderType;
+  pickupTime:          string;
+  estimatedPrepTime:   number;
+  elapsedMinutes:      number;
+  assignedTo?:         string;
+  assignedChefId?:     string;
+  createdAt:           Date;
+  startedAt?:          Date;
+  readyAt?:            Date;
+  completedAt?:        Date;
+  pickupSlotMs?:       number;
+  isExpress?:          boolean;
+  editLockedUntil?:    Date | null;
+  scheduledCookAt?:    Date | null;
+ isPriorityCustomer?: boolean;  // true when customer streak >= 1
+  usualOrder?:         string;   // most-ordered item, shown to chef when streak >= 7
 }
 
 export interface CapacitySnapshot {
