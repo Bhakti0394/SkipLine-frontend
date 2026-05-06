@@ -45,7 +45,7 @@ function toInventoryItem(dto: InventoryItemDto): InventoryItem {
     unit:              dto.unit,
     minThreshold:      dto.minThreshold,
     criticalThreshold: dto.criticalThreshold,
-    costPerUnit:       dto.costPerUnit,
+    costPerUnit:       Number(dto.costPerUnit),  // BigDecimal safe cast
     supplier:          dto.supplier,
     lastRestocked:     new Date(dto.lastRestocked),
     expiryDate:        dto.expiryDate ? new Date(dto.expiryDate) : undefined,

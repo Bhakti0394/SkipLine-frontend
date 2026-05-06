@@ -183,6 +183,7 @@ export interface CustomerOrderDto {
   isExpress:        boolean;
   editLockedUntil:  string | null;
   scheduledCookAt:  string | null;
+  wasteReduced?:    number;
 }
 
 export interface PlaceOrderRequest {
@@ -902,4 +903,53 @@ export async function deleteInventoryItem(itemId: string): Promise<void> {
     method: 'DELETE', credentials: 'include', headers: authHeadersNoBody(),
   });
   if (!res.ok) throw new Error((await res.text()) || `Delete failed: ${res.status}`);
+}
+// ── Menu Item Reviews ────────────────────────────────────────────────────────
+
+export interface MenuItemReviewDto {
+  id:            string;
+  customerEmail: string;
+  customerName:  string;
+  rating:        number;
+  comment:       string;
+  createdAt:     string;
+}
+
+export interface SubmitReviewResponseDto {
+  review:       MenuItemReviewDto;
+  avgRating:    number;
+  totalReviews: number;
+}
+
+export async function fetchMenuItemReviews(
+  menuItemId: string,
+): Promise<MenuItemReviewDto[]> {
+  try {
+    const res = await fetch(`${CUSTOMER_URL}/reviews/${menuItemId}`, {
+      headers: customerAuthHeaders(),
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function submitMenuItemReview(
+  menuItemId: string,
+  rating: number,
+  comment: string,
+): Promise<SubmitReviewResponseDto | null> {
+  try {
+    const res = await fetch(`${CUSTOMER_URL}/reviews/${menuItemId}`, {
+      method:  'POST',
+      headers: { ...customerAuthHeaders(), 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ rating, comment }),
+    });
+    handle401(res);
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
 }

@@ -245,6 +245,7 @@ const {
     loading: inventoryLoading,
     getStockStatus, updateStock, restockItem,
     consumeForOrder, deleteInventoryItem, acknowledgeAlert,
+    refresh: refreshInventory,
   } = useInventory();
 
   const stats = {
@@ -665,7 +666,7 @@ const renderListView = () => (
   );
 const renderInventoryView = () => (
     <div className="inventory-layout">
-<InventoryPanel
+      <InventoryPanel
         inventory={inventory}
         alerts={inventoryAlerts}
         stats={inventoryStats}
@@ -675,7 +676,7 @@ const renderInventoryView = () => (
         onRestockItem={restockItem}
         onDeleteItem={deleteInventoryItem}
         onAcknowledgeAlert={acknowledgeAlert}
-        refresh={refreshBoard}
+        refresh={refreshInventory}
       />
     </div>
   );

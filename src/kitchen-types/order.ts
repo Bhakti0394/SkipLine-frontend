@@ -41,10 +41,16 @@ export interface Order {
   readyAt?:            Date;
   completedAt?:        Date;
   pickupSlotMs?:       number;
+  // Separate cooking deadline for express orders in COOKING status.
+  // pickupSlotMs anchors the PENDING queue countdown (customer arrival time).
+  // cookingDeadlineMs anchors the COOKING timer (cookingStartedAt + buffer).
+  // They must never be the same value — sharing them causes the timer to
+  // appear already-elapsed when the order first enters COOKING.
+  cookingDeadlineMs?:  number;
   isExpress?:          boolean;
   editLockedUntil?:    Date | null;
   scheduledCookAt?:    Date | null;
- isPriorityCustomer?: boolean;  // true when customer streak >= 1
+  isPriorityCustomer?: boolean;  // true when customer streak >= 1
   usualOrder?:         string;   // most-ordered item, shown to chef when streak >= 7
 }
 

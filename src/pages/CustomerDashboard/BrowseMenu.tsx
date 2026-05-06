@@ -192,9 +192,13 @@ export default function BrowseMenu() {
     totalMenuItems:       0,
     avgRating:            '4.8',
   });
-
-  const { getFeedbackForMeal, getAverageRating } = useFeedback();
+const { getFeedbackForMeal, getAverageRating } = useFeedback();
   const { isFavorite, toggleFavorite }           = useFavorites();
+  const [reviewsMap, setReviewsMap] = useState<Record<string, {
+    reviews: import('../../kitchen-api/kitchenApi').MenuItemReviewDto[];
+    avg: number;
+    total: number;
+  }>>({});
   const containerRef        = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: containerRef });
   const smoothProgress      = useSpring(scrollYProgress, { stiffness: 100, damping: 30 });
@@ -213,6 +217,24 @@ export default function BrowseMenu() {
       .catch(() => { if (!cancelled) setLoadState('error'); });
     return () => { cancelled = true; };
   }, [fetchKey]);
+
+// Fetch reviews for all loaded meals
+  useEffect(() => {
+    if (meals.length === 0) return;
+    import('../../kitchen-api/kitchenApi').then(({ fetchMenuItemReviews }) => {
+      meals.forEach(meal => {
+        fetchMenuItemReviews(meal.id).then(reviews => {
+          const avg = reviews.length > 0
+            ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length
+            : meal.rating;
+          setReviewsMap(prev => ({
+            ...prev,
+            [meal.id]: { reviews, avg: Math.round(avg * 10) / 10, total: reviews.length },
+          }));
+        });
+      });
+    });
+  }, [meals]);
 
   // Fetch real platform stats from backend
   useEffect(() => {
@@ -277,7 +299,7 @@ export default function BrowseMenu() {
               <motion.div className="browse__stats-bar" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
                 <AnimatedStat
                   value={platformStats.totalOrdersDelivered}
-                  label="Orders Delivered" icon={Package} color="#ff6b35"
+                  label="Platform Orders" icon={Package} color="#ff6b35"
                 />
                 <AnimatedStat
                   value={platformStats.avgRating}
@@ -285,7 +307,7 @@ export default function BrowseMenu() {
                 />
                 <AnimatedStat
                   value={platformStats.totalCustomers}
-                  label="Happy Customers" icon={Users} color="#22d3ee"
+                  label="Registered Users" icon={Users} color="#22d3ee"
                 />
                 <AnimatedStat
                   value={loadState === 'ok' ? meals.length : platformStats.totalMenuItems}
@@ -510,11 +532,17 @@ export default function BrowseMenu() {
 
           {loadState === 'ok' && filteredMeals.length > 0 && (
             <motion.div className="browse__meals-grid" layout>
-              {filteredMeals.map((meal, index) => (
-                <MealCard key={meal.id} meal={meal} onOrder={handleOrderMeal}
+              {filteredMeals.map((meal, index) => (<MealCard key={meal.id} meal={meal} onOrder={handleOrderMeal}
                   index={index} delay={Math.min(index * 0.04, 0.3)}
-                  averageRating={getAverageRating(meal.id)} comments={getFeedbackForMeal(meal.id)}
-                  isFavorite={isFavorite(meal.id)} onToggleFavorite={toggleFavorite} />
+                  averageRating={reviewsMap[meal.id]?.avg ?? getAverageRating(meal.id)}
+                  comments={getFeedbackForMeal(meal.id)}
+                  isFavorite={isFavorite(meal.id)} onToggleFavorite={toggleFavorite}
+                  reviews={reviewsMap[meal.id]?.reviews ?? []}
+                  onReviewsUpdated={(id, avg, total) => setReviewsMap(prev => ({
+                    ...prev,
+                    [id]: { ...prev[id], avg, total, reviews: prev[id]?.reviews ?? [] },
+                  }))}
+                />
               ))}
             </motion.div>
           )}
