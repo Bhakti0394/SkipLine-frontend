@@ -84,7 +84,7 @@ function getImageForOrder(dto: CustomerOrderDto): string {
 
 export default function OrderHistory() {
   const navigate = useNavigate();
-  const { orderHistory: contextHistory, metrics } = useSkipLine();
+const { orderHistory: contextHistory, metrics } = useSkipLine();
 
   const [backendOrders, setBackendOrders] = useState<CustomerOrderDto[]>([]);
   const [loading, setLoading]             = useState(true);
@@ -108,11 +108,10 @@ export default function OrderHistory() {
         setError('Could not load from server — showing local history');
         setLoading(false);
       });
-  }, []);
-const showBackend            = !loading && !error && backendOrders.length > 0;
+  }, []);const showBackend            = !loading && !error && backendOrders.length > 0;
 const completedBackend       = backendOrders.filter(o => o.status === 'completed');
 const allNonCancelledBackend = backendOrders.filter(o => o.status !== 'cancelled');
-const displayOrders          = showBackend ? completedBackend : contextHistory;
+const displayOrders          = showBackend ? allNonCancelledBackend : contextHistory;
 
 const totalSpent = showBackend
   ? completedBackend.reduce((s, o) => s + (o.totalPrice ?? 0), 0)
@@ -125,7 +124,7 @@ const totalTimeSaved = showBackend
 
 // Total orders: all non-cancelled backend orders, not just completed ones
 const totalOrdersCount = showBackend
-  ? allNonCancelledBackend.length
+  ? metrics.ordersThisMonth
   : contextHistory.length;
 
   const particles = Array.from({ length: 10 }, (_, i) => ({
@@ -214,9 +213,9 @@ const totalOrdersCount = showBackend
           </motion.div>
         )}
 
-        {!loading && showBackend && completedBackend.length > 0 && (
+       {!loading && showBackend && allNonCancelledBackend.length > 0 && (
           <div className="orders__list">
-            {completedBackend.map((order, index) => (
+{allNonCancelledBackend.map((order, index) => (
               <motion.div key={order.id} initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5, delay: 0.5 + index * 0.1 }} className="orders__card">
                 <div className="orders__card-glow" />
@@ -238,9 +237,14 @@ const totalOrdersCount = showBackend
                       </div>
                     </div>
                     <div className="orders__badges">
-                      <span className="orders__status-badge orders__status-badge--success">
-                        <Star className="orders__badge-icon" />Completed
-                      </span>
+                      <span className={`orders__status-badge orders__status-badge--${
+  order.status === 'completed' ? 'success' :
+  order.status === 'cancelled' ? 'error' :
+  order.status === 'ready'     ? 'ready' : 'pending'
+}`}>
+  <Star className="orders__badge-icon" />
+  {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+</span>
                     </div>
                   </div>
                 </div>

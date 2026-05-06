@@ -77,6 +77,13 @@ const statusMapReverse: Record<OrderStatus, BackendStatus> = {
 
 const AUTO_COMPLETE_DELAY_MS = 300_000;
 
+// Local registry of when each order actually entered COOKING in this session.
+// Keyed by orderId → timestamp ms at the moment the frontend triggered the
+// PENDING→COOKING transition (or first saw the order in COOKING status).
+// This overrides backend cookingStartedAt which is unreliable — the backend
+// stamps it at order creation time instead of at status transition time.
+const cookingStartRegistry = new Map<string, number>();
+
 const SPEED_INTERVALS: Record<'slow' | 'normal' | 'fast', number> = {
   slow: 25_000, normal: 12_000, fast: 5_000,
 };
@@ -222,7 +229,7 @@ function resolvePickupTime(
   return 'ASAP';
 }
 
-function toFrontendOrder(dto: OrderCardDto): Order {
+function toFrontendOrder(dto: OrderCardDto, localCookingStartMs?: number): Order {
 const items = dto.itemSummary.map((summary, i) => {
     // Match "2× Item Name" or "2x Item Name" — use Unicode escape for
     // multiplication sign (U+00D7) to avoid source encoding corruption.
@@ -236,9 +243,14 @@ const items = dto.itemSummary.map((summary, i) => {
     };
   });
 
-  const isCompleted      = dto.status === 'COMPLETED';
+const isCompleted      = dto.status === 'COMPLETED';
   const placedAt         = safeDate(dto.placedAt);
-  const cookingStartedAt = safeDate(dto.cookingStartedAt);
+  // Use localCookingStartMs if available — it's stamped at the exact moment
+  // the chef clicked "Start Cooking" and is more accurate than the backend's
+  // cookingStartedAt which reflects order creation time, not transition time.
+  const cookingStartedAt = localCookingStartMs
+    ? new Date(localCookingStartMs)
+    : safeDate(dto.cookingStartedAt);
   const readyAt          = safeDate(dto.readyAt);
 
   let completedAt: Date | undefined = safeDate(dto.completedAt);
@@ -260,7 +272,7 @@ const items = dto.itemSummary.map((summary, i) => {
 let expressMinutes: ExpressMinutes | undefined;
   let expressPickupSlotMs: number | undefined;
 
-  if (resolvedType === 'express' && !dto.pickupSlotTime) {
+ if (resolvedType === 'express' && !dto.pickupSlotTime) {
     // FIX: use actual DB prep time instead of random hash.
     // Previously expressMinutes was picked from [5,10,15] via simpleHash(dto.id)
     // causing Vada Pav (5 min DB) to show ~10 min on the kitchen card randomly.
@@ -271,9 +283,23 @@ let expressMinutes: ExpressMinutes | undefined;
 
     const base          = placedAt ?? new Date();
     const fromPlacement = base.getTime() + expressMinutes * 60_000;
-    const anchor        = cookingStartedAt ?? base;
     const MIN_BUFFER_MS = 2 * 60_000;
-    expressPickupSlotMs = Math.max(fromPlacement, anchor.getTime() + MIN_BUFFER_MS);
+
+    if (cookingStartedAt) {
+      // cookingStartedAt is available — apply buffer so deadline is at least
+      // MIN_BUFFER_MS after cooking actually began, preventing instant-overdue.
+      expressPickupSlotMs = Math.max(fromPlacement, cookingStartedAt.getTime() + MIN_BUFFER_MS);
+    } else if (dto.status === 'COOKING') {
+      // Order is COOKING but cookingStartedAt not yet returned by backend
+      // (first poll after PENDING→COOKING transition). Do NOT set pickupSlotMs
+      // from placedAt — that anchor is already partially elapsed and will make
+      // useOrderTimer show instant-overdue. Omit it so useOrderTimer uses its
+      // own null-safe fallback (Fix 1+2 above) and shows "Starting…" instead.
+      expressPickupSlotMs = undefined;
+    } else {
+      // Still PENDING — use placement anchor, cooking hasn't started yet.
+      expressPickupSlotMs = fromPlacement;
+    }
   }
 
   // Always use actual DB prep time for the cooking timer — expressMinutes
@@ -282,7 +308,23 @@ let expressMinutes: ExpressMinutes | undefined;
     ? dto.totalPrepMinutes
     : expressMinutes ?? 5;
 
-return {
+// For express orders, compute a cooking deadline separately from the
+  // queue pickup slot. The queue shows a countdown to when the customer
+  // ARRIVES. The cooking timer counts down from when cooking STARTS.
+  // These must never share the same ms anchor or the cooking timer will
+  // appear to have been running since the order was placed.
+ let cookingDeadlineMs: number | undefined;
+  if (resolvedType === 'express' && dto.status === 'COOKING' && cookingStartedAt) {
+    // Anchor deadline to cookingStartedAt, never to placedAt/createdAt.
+    // Using placedAt means queue wait time eats into the cooking window —
+    // a 5-min order that waited 2min in queue would show 3min remaining
+    // the moment cooking starts. cookingStartedAt + prepTime gives the
+    // chef the full window from when they actually started cooking.
+    const prepMs      = (dto.totalPrepMinutes > 0 ? dto.totalPrepMinutes : expressMinutes ?? 5) * 60_000;
+    cookingDeadlineMs = cookingStartedAt.getTime() + prepMs;
+  }
+
+  return {
     id:                  dto.id,
     orderNumber:         dto.orderRef,
     customerName:        dto.customerName ?? dto.orderRef,
@@ -299,14 +341,20 @@ return {
     startedAt:           cookingStartedAt,
     ...(readyAt          ? { readyAt }     : {}),
     completedAt,
-    ...(dto.pickupSlotTime
-          ? { pickupSlotMs: new Date(dto.pickupSlotTime).getTime() }
-          : expressPickupSlotMs !== undefined
-            ? { pickupSlotMs: expressPickupSlotMs }
-            : {}
+    // pickupSlotMs drives the PENDING queue countdown only.
+    // For express COOKING, cookingDeadlineMs is the authoritative deadline.
+    // Never let a COOKING express order carry pickupSlotMs — it would make
+    // useOrderTimer use the queue-start anchor as the cooking deadline.
+    ...(dto.status === 'COOKING' && resolvedType === 'express'
+      ? { ...(cookingDeadlineMs !== undefined ? { cookingDeadlineMs } : {}) }
+      : dto.pickupSlotTime
+        ? { pickupSlotMs: new Date(dto.pickupSlotTime).getTime() }
+        : expressPickupSlotMs !== undefined
+          ? { pickupSlotMs: expressPickupSlotMs }
+          : {}
     ),
     scheduledCookAt:     dto.scheduledCookAt ? new Date(dto.scheduledCookAt) : null,
-isPriorityCustomer:  (dto as any).isPriorityCustomer === true,
+    isPriorityCustomer:  (dto as any).isPriorityCustomer === true,
     usualOrder:          (dto as any).usualOrder ?? undefined,
   };
 }
@@ -445,9 +493,8 @@ const activeOrders = [
         ...(data.columns.COOKING ?? []),
         ...(data.columns.READY   ?? []),
       ]
-        // FIX: strip any cancelled orders the backend may include in active columns
         .filter(dto => (dto.status as string) !== 'CANCELLED')
-        .map(toFrontendOrder);
+        .map(dto => toFrontendOrder(dto, cookingStartRegistry.get(dto.id)));
 
       if (isFirstLoad.current) {
         activeOrders.forEach(o => knownOrderIds.current.add(o.id));
@@ -489,7 +536,7 @@ setOrders(visibleOrders);
 setCompletedOrders(
   (data.columns.COMPLETED ?? [])
     .slice(0, 50)
-    .map(toFrontendOrder)
+    .map(dto => toFrontendOrder(dto, cookingStartRegistry.get(dto.id)))
 );
       setError(null);
     } catch (err: any) {
@@ -659,13 +706,29 @@ const updateOrderStatus = useCallback(async (
 // AFTER
 const originalStatus = order.status;
 
-setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+// Record the exact moment cooking started in our local registry.
+// This is the authoritative cook-start time for the timer — the backend's
+// cookingStartedAt is wrong (it reflects order creation time, not transition time).
+if (newStatus === 'cooking') {
+  cookingStartRegistry.set(orderId, Date.now());
+}
+
+const optimisticStartedAt = newStatus === 'cooking' ? new Date() : order.startedAt;
+
+setOrders(prev => prev.map(o =>
+  o.id === orderId
+    ? { ...o, status: newStatus, startedAt: optimisticStartedAt }
+    : o
+));
 
 statusUpdateInFlightRef.current = true;
 try {
- await changeOrderStatus(orderId, toBackend);
-if (toBackend === 'COMPLETED') cancelAutoComplete(orderId);
-await loadBoard();
+await changeOrderStatus(orderId, toBackend);
+  if (toBackend === 'COMPLETED') {
+    cancelAutoComplete(orderId);
+    cookingStartRegistry.delete(orderId);
+  }
+  await loadBoard();
 } catch (err: any) {
     const msg = (err.message ?? '').toLowerCase();
     const alreadyThere =
@@ -876,6 +939,7 @@ setIsSimTriggerPending(true);
 
   const removeOrder = useCallback((orderId: string) => {
     setCompletedOrders(prev => prev.filter(o => o.id !== orderId));
+    cookingStartRegistry.delete(orderId);
   }, []);
 
   const triggerBurst = useCallback(async (count: number): Promise<SimulationResult> => {

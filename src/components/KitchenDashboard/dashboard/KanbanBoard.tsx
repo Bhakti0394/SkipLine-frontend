@@ -639,7 +639,7 @@ useEffect(() => {
   }, []);
 
 
-  useEffect(() => {m
+ useEffect(() => {
     const orderIdSet = new Set(safeOrders.map(o => o.id));
     let changed = false;
     for (const id of pendingIdsRef.current) {
@@ -836,12 +836,21 @@ useEffect(() => {
     const prepMs = (order.estimatedPrepTime ?? 0) * 60_000;
     if (prepMs <= 0) continue;
 
-    if (!order.startedAt) continue;
+   if (!order.startedAt) continue;
+
+    // Sanity-check: startedAt must be >= createdAt and not in the future.
+    // A startedAt that predates createdAt means the backend returned a stale
+    // or incorrect timestamp — using it would make `remaining` negative and
+    // fire the auto-advance immediately, wrongly promoting the order.
+    const startedAtMs  = order.startedAt.getTime();
+    const createdAtMs2 = order.createdAt instanceof Date
+      ? order.createdAt.getTime()
+      : new Date(order.createdAt).getTime();
+    if (startedAtMs < createdAtMs2 || startedAtMs > Date.now() + 5_000) continue;
 
   // Always read from ref at timer-fire time, not at timer-creation time.
 // This way speed changes mid-cook are respected on the next tick check.
 const startedAt = order.startedAt.getTime();
-
 // Sample current speed at schedule time for initial delay only.
 // The timeout callback re-reads simulationSpeedRef at fire time.
 const speedNow = COOK_SPEED_MULTIPLIERS[simulationSpeedRef?.current ?? 'normal'];

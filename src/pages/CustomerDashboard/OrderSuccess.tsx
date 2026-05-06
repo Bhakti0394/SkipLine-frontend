@@ -103,7 +103,7 @@ function menuItemToSwapDish(item: MenuItemDto): SwapDish {
     meal:      item.name,
     price:     item.price ?? 0,
     image,
-
+    timeSaved: Math.floor((item.prepTimeMinutes ?? 0) * 0.8),
     category:  item.category ?? 'Other',
     isExpress: item.isExpress ?? item.prepTimeMinutes <= 15,
   };
@@ -662,17 +662,36 @@ const navigateToOrders = () => navigate('/customer-dashboard/orders', {
           </div>
         </motion.div>
 
-        {/* Metrics */}
+       {/* Metrics */}
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.4 }} className="order-success__metrics">
           {[
-            { icon: <Zap />,     mod: 'primary', val: `${totalTimeSaved} min`,               label: 'Time Saved'     },
-           { icon: <Leaf />,    mod: 'success', val: `${metrics.foodWasteReduced.toFixed(2)} kg`, label: 'Waste Reduced' },
-           
-          ].map(({ icon, mod, val, label }) => (
+            {
+              icon:  <Zap />,
+              mod:   'primary',
+              val:   `${totalTimeSaved} min`,
+              label: 'Time Saved',
+              sub:   'vs waiting in queue',
+            },
+           {
+              icon:  <Leaf />,
+              mod:   'success',
+              val:   `${orders.reduce((s, o) => s + ((o as any).wasteReduced ?? 0.15), 0).toFixed(2)} kg`,
+              label: 'Waste Reduced',
+              sub:   'food waste saved today',
+            },
+            {
+              icon:  <ChefHat />,
+              mod:   'warning',
+              val:   `${orders.reduce((s, o) => s + Math.floor((o as any).totalPrepMinutes ?? o.timeSaved), 0)} min`,
+              label: 'Prep Time',
+              sub:   'kitchen is working on it',
+            },
+          ].map(({ icon, mod, val, label, sub }) => (
             <div key={label} className="order-success__metric-card">
               <div className={`order-success__metric-icon order-success__metric-icon--${mod}`}>{icon}</div>
               <p className="order-success__metric-value">{val}</p>
               <p className="order-success__metric-label">{label}</p>
+              {sub && <p style={{ fontSize: '0.62rem', opacity: 0.5, marginTop: '0.15rem', textAlign: 'center' }}>{sub}</p>}
             </div>
           ))}
         </motion.div>

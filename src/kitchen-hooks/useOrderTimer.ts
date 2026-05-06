@@ -206,38 +206,27 @@ function resolveExpressDeadlineMs(order: Order, cookingStartMs: number | null): 
   if (order.orderType !== 'express') return null;
   const o = order as any;
 
+  // ── Priority 1: cookingDeadlineMs from toFrontendOrder ────────────────────
+  // = cookingStartedAt + prepTime. Always anchored to actual cook start.
+  if (order.cookingDeadlineMs) return order.cookingDeadlineMs;
+
+  // ── Priority 2: explicit backend deadline field ────────────────────────────
   const fromDeadline = toMs(o.pickupDeadlineAt);
   if (fromDeadline !== null) return fromDeadline;
 
-  // FIX: prefer actual pickupTime clock string over pickupSlotMs.
-  // pickupSlotMs is set by toFrontendOrder using estimatedPrepTime (e.g. 15 min),
-  // but the customer chose a specific arrival window (e.g. 5 min → "12:06 PM").
-  // Using pickupSlotMs here would show the wrong deadline on the Kanban cooking card.
-  const display = order.pickupTime;
-  if (display && display !== 'TBD' && display !== 'ASAP' && !display.startsWith('~')) {
-    const parsed = display.includes('T') || display.includes('-')
-      ? new Date(display).getTime()
-      : new Date(`${new Date().toDateString()} ${display}`).getTime();
-    if (!isNaN(parsed)) return parsed;
-  }
-
-  // Fallback: pickupSlotMs with cookStart buffer
-  const fromSlot = toMs(o.pickupSlotMs) ?? toMs(o.expressPickupSlotMs);
-  if (fromSlot !== null) {
-    if (cookingStartMs !== null) {
-      return Math.max(fromSlot, cookingStartMs + MIN_COOK_BUFFER_MS);
-    }
-    return fromSlot;
-  }
-
-  // Last resort: createdAt + EXPRESS_MAX_MS with buffer
-  const anchor = toMs(order.createdAt);
-  if (anchor === null) return null;
-  const fromPlacement = anchor + EXPRESS_MAX_MS;
+  // ── Priority 3: cookingStartMs + prepTime ─────────────────────────────────
+  // cookingStartMs is available (optimistic stamp from clicking Start Cooking).
+  // Give the chef the full prep window from the moment cooking started.
+  // NEVER use createdAt/placedAt as anchor — queue wait time must not eat
+  // into the cooking window.
   if (cookingStartMs !== null) {
-    return Math.max(fromPlacement, cookingStartMs + MIN_COOK_BUFFER_MS);
+    const prepMs = (order.estimatedPrepTime ?? 5) * 60_000;
+    return cookingStartMs + prepMs;
   }
-  return fromPlacement;
+
+  // ── Priority 4: cookingStartedAt not yet available ────────────────────────
+  // Return null → caller renders "Starting…" instead of instant-overdue.
+  return null;
 }
 
 function resolvePickupSlotMs(order: Order): number | null {
@@ -443,12 +432,31 @@ export function useOrderTimer(order: Order, sla: SlaBudgets = DEFAULT_SLA): Time
     }
 
     // ─── COOKING ──────────────────────────────────────────────────────────────
+// ─── COOKING ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     if (order.status === 'cooking') {
+
+      // TEMP DEBUG — paste the console output here
+console.log(`[TIMER DEBUG] ${order.orderNumber} | type=${order.orderType} | createdAt=${order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt} | startedAt=${order.startedAt instanceof Date ? order.startedAt.toISOString() : order.startedAt} | cookingStartMs=${cookingStartMs} | diff_seconds=${cookingStartMs ? Math.floor((nowMs - cookingStartMs) / 1000) : 'NULL'} | pickupSlotMs=${(order as any).pickupSlotMs} | cookingDeadlineMs=${(order as any).cookingDeadlineMs} | prepTime=${order.estimatedPrepTime} | pickupTime=${order.pickupTime} | nowMs=${nowMs}`);
 
       if (isExpress) {
         // FIX: resolveExpressDeadlineMs now takes cookingStartMs so the fallback
         // applies the MIN_COOK_BUFFER_MS floor, preventing instant-overdue.
         const deadlineMs = resolveExpressDeadlineMs(order, cookingStartMs);
+
+        // cookingStartedAt not yet polled (first render after PENDING→COOKING).
+        // Show a neutral waiting state instead of instant-overdue.
+        if (deadlineMs === null) {
+          return {
+            elapsed: 0, orderAge: createdAge,
+            cookingElapsed: 0, cookingDisplay: 'Starting…',
+            isOverdue: false, overdueBySeconds: 0, overdueDisplay: '',
+            expressDeadlineMs: null,
+            cookingTime: 0, eta: 0, queuedTime: 0,
+            remaining: 0, progress: 0, overdueBy: 0,
+            slaBudgetSeconds: 0, pickupCountdownSeconds: null, isPendingUrgent: false,
+          };
+        }
+
         if (deadlineMs !== null) {
           const secsRemaining    = Math.floor((deadlineMs - now) / 1000);
           const isOverdue        = secsRemaining <= 0;
@@ -542,13 +550,13 @@ export function useOrderTimer(order: Order, sla: SlaBudgets = DEFAULT_SLA): Time
 
     return FROZEN_COMPLETE;
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
  // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [
     nowMs,
     order.id, order.status, order.orderType,
     cookingStartMs,
     pickupSlotMs,
+    order.cookingDeadlineMs,
     // Use primitive ms values instead of Date objects to avoid
     // re-running memo on every poll when reference changes but value doesn't
     order.createdAt instanceof Date ? order.createdAt.getTime() : order.createdAt,

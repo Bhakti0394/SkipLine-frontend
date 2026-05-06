@@ -122,8 +122,7 @@ const [isEditing, setIsEditing] = useState(false);
 // orderHistory = completed orders from backend
 // orders = active orders from backend
 // ordersThisMonth = metric from backend
-const totalOrders = (orderHistory?.length ?? 0) + (orders?.length ?? 0) 
-  || (metrics.ordersThisMonth ?? 0);
+const totalOrders = metrics.ordersThisMonth ?? 0;
   const stats = [
     { label: 'Total Orders',  value: totalOrders > 0 ? String(totalOrders) : '—',                     icon: Calendar,   color: '#ff6b35' },
     { label: 'Time Saved',    value: metrics.timeSaved > 0 ? formatTimeSaved(metrics.timeSaved) : '—', icon: TrendingUp, color: '#f7931e' },
