@@ -123,13 +123,13 @@ updateOrderStatus:       (orderId: string, status: Order['status']) => void;
 
 
 const SkipLineContext = createContext<SkipLineContextType | undefined>(undefined);
-
 const STORAGE_KEYS = {
   CART:    'SkipLine_cart',
   ORDERS:  'SkipLine_orders',
   HISTORY: 'SkipLine_history',
   METRICS: 'SkipLine_metrics',
   KITCHEN: 'SkipLine_kitchen',
+  CACHED_HISTORY: 'SkipLine_cached_history',  // ADD THIS
 };
 
 const defaultMetrics: UserMetrics = {
@@ -257,14 +257,27 @@ export function SkipLineProvider({ children }: { children: React.ReactNode }) {
 
   const [cart,         setCart]         = useState<CartItem[]>([]);
   const [orders,       setOrders]       = useState<Order[]>([]);
-  const [orderHistory, setOrderHistory] = useState<Order[]>([]);
+const [orderHistory, setOrderHistory] = useState<Order[]>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.CACHED_HISTORY);
+      if (raw) {
+        const dtos: CustomerOrderDto[] = JSON.parse(raw);
+        return dtos.filter(d => d.status === 'completed').map(dtoToOrder);
+      }
+    } catch { /* ignore parse errors */ }
+    return [];
+  });
 const [metrics, setMetrics] = useState<UserMetrics>(defaultMetrics);
   const [kitchenState, setKitchenState] = useState<KitchenState>({
     activeOrders: [], queuedOrders: [],
   });
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
-  const sseUnsubscribers = useRef<Map<string, () => void>>(new Map());
+const sseUnsubscribers = useRef<Map<string, () => void>>(new Map());
+const notifiedRef      = useRef<Set<string>>(new Set());
+  // FIX: prevents re-fetching all data when SkipLineProvider remounts on
+  // route navigation, which was wiping metrics back to defaults every page visit.
+  const dataFetchedRef = useRef(false);
   // -- SSE status handler --
 const updateOrderStatusFromSse = useCallback((orderId: string, rawStatus: string) => {
  const statusMap: Record<string, Order['status']> = {
@@ -287,9 +300,13 @@ if (rawStatus.toLowerCase() === 'completed') {
           const order = prev.find(o => o.id === orderId);
           if (order) {
             const completed = { ...order, status: 'completed' as const };
-            setOrderHistory(h => {
+           setOrderHistory(h => {
               if (h.some(o => o.id === orderId)) return h;
-              return [completed, ...h];
+              const next = [completed, ...h];
+              try {
+                localStorage.setItem(STORAGE_KEYS.CACHED_HISTORY, JSON.stringify(next));
+              } catch { /* quota exceeded — ignore */ }
+              return next;
             });
             setMetrics(m => ({ ...m, activeOrders: Math.max(0, m.activeOrders - 1) }));
             setKitchenState(ks => {
@@ -313,36 +330,50 @@ if (!order || order.status === mappedStatus) return prev;
     }
 
  // Look up meal name for this order — gives personalised notification text
-    const orderForNotif = orders.find(o => o.id === orderId);
-    const mealName = orderForNotif?.meal ?? 'Your order';
+setOrders(prev => {
+      const orderForNotif = prev.find(o => o.id === orderId);
+      const mealName = orderForNotif?.meal ?? 'Your order';
 
-    const statusTitles: Record<string, string> = {
-      ready:     'Ready for Pickup! 🎉',
-      cooking:   'Now Cooking! 👨‍🍳',
-      pending:   'Order Confirmed',
-      confirmed: 'Order Confirmed',
-      cancelled: 'Order Cancelled',
-    };
-    const statusMessages: Record<string, string> = {
-      ready:     `${mealName} is ready — head to the Pickup Counter!`,
-      cooking:   `${mealName} has started cooking.`,
-      pending:   `${mealName} is confirmed and in the queue.`,
-      confirmed: `${mealName} is confirmed and in the queue.`,
-      cancelled: `${mealName} has been cancelled.`,
-    };
-const notifType =
-      rawStatus === 'ready'     ? 'order_ready'   :
-      rawStatus === 'cooking'   ? 'order_cooking' :
-      rawStatus === 'cancelled' ? 'warning'       : 'order_confirmed';
+      // Deduplicate — only fire notification once per orderId+status combo
+      const notifKey = `${orderId}:${rawStatus}`;
+      if (!notifiedRef.current.has(notifKey)) {
+        notifiedRef.current.add(notifKey);
 
-    window.dispatchEvent(new CustomEvent('order-status-changed', {
-      detail: {
-        title:   statusTitles[rawStatus]   ?? `Order ${rawStatus}`,
-        message: statusMessages[rawStatus] ?? `Status updated to ${rawStatus}.`,
-        type:    notifType,
-        orderId,
-      },
-    })); }, []);    
+       const statusTitles: Record<string, string> = {
+          ready:     'Ready for Pickup! 🎉',
+          cooking:   'Now Cooking! 👨‍🍳',
+          pending:   'Order Confirmed',
+          confirmed: 'Order Confirmed',
+          cancelled: 'Order Cancelled',
+          completed: 'Order Completed! ✅',
+        };
+        const statusMessages: Record<string, string> = {
+          ready:     `${mealName} is ready — head to the Pickup Counter!`,
+          cooking:   `${mealName} has started cooking.`,
+          pending:   `${mealName} is confirmed and in the queue.`,
+          confirmed: `${mealName} is confirmed and in the queue.`,
+          cancelled: `${mealName} has been cancelled.`,
+          completed: `${mealName} has been completed. Enjoy your meal!`,
+        };
+        const notifType =
+          rawStatus === 'ready'     ? 'order_ready'   :
+          rawStatus === 'cooking'   ? 'order_cooking' :
+          rawStatus === 'cancelled' ? 'warning'       :
+          rawStatus === 'completed' ? 'success'       : 'order_confirmed';
+        window.dispatchEvent(new CustomEvent('order-status-changed', {
+          detail: {
+            title:   statusTitles[rawStatus]   ?? `Order ${rawStatus}`,
+            message: statusMessages[rawStatus] ?? `Status updated to ${rawStatus}.`,
+            type:    notifType,
+            orderId,
+          },
+        }));
+      }
+
+      return prev;
+    });
+
+   }, []);
 
   const startPollingFallback = useCallback((orderId: string) => {
     const interval = setInterval(async () => {
@@ -425,15 +456,15 @@ setMetrics({
     }
 
 // -- Logged in -> fetch real data --
-// Double-check token is present before firing any API calls.
-    // authLoading=false + user!=null is not enough — the token must
-    // actually be in localStorage or JwtAuthFilter will see no auth.
-    // Both must be true: React user state AND localStorage token.
-    // There is a brief window where setUser() has fired but
-    // localStorage.setItem('auth_token') hasn't completed yet —
-    // firing API calls in that window produces 403s (no Bearer header).
     const confirmedToken = localStorage.getItem('auth_token');
     if (!confirmedToken || !user) return;
+
+    // FIX: if we already loaded real data this session, skip the re-fetch.
+    // Without this, every route navigation that remounts SkipLineProvider
+    // (if it sits inside a route component) resets metrics to defaults and
+    // then re-fetches, causing a visible flash of zeroed stats on every page.
+    if (dataFetchedRef.current) return;
+    dataFetchedRef.current = true;
 
     setLoading(true);
     setError(null);
@@ -470,8 +501,10 @@ Promise.allSettled([
     })
     .catch(err => console.warn('[SkipLineContext] Cart fetch failed:', err.message)),
 
-  fetchCustomerOrders()
+fetchCustomerOrders()
     .then((dtos: CustomerOrderDto[]) => {
+      // Cache to localStorage — survives backend restart
+      try { localStorage.setItem(STORAGE_KEYS.CACHED_HISTORY, JSON.stringify(dtos)); } catch {}
       const active = dtos
         .filter(d => d.status !== 'completed' && d.status !== 'cancelled')
         .map(dtoToOrder);
@@ -493,7 +526,29 @@ Promise.allSettled([
       }
     })
     .catch(err => {
-      console.warn('[SkipLineContext] Orders fetch failed:', err.message);
+      console.warn('[SkipLineContext] Orders fetch failed, restoring from cache:', err.message);
+      // Restore from cache so order history survives a backend restart
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.CACHED_HISTORY);
+        if (raw) {
+          const dtos: CustomerOrderDto[] = JSON.parse(raw);
+          const active = dtos
+            .filter(d => d.status !== 'completed' && d.status !== 'cancelled')
+            .map(dtoToOrder);
+          const completed = dtos
+            .filter(d => d.status === 'completed')
+            .map(dtoToOrder);
+          setOrders(active);
+          setOrderHistory(completed);
+          const totalOrders = dtos.filter(d => d.status !== 'cancelled').length;
+          if (totalOrders > 0) {
+            setMetrics(prev => ({
+              ...prev,
+              ordersThisMonth: prev.ordersThisMonth > 0 ? prev.ordersThisMonth : totalOrders,
+            }));
+          }
+        }
+      } catch {}
       setError(err.message ?? 'Failed to load orders');
     }),
 
@@ -729,9 +784,13 @@ const swapOrder = useCallback((orderId: string, newMeal: string, newImage: strin
         // Side effects queued as microtasks — outside the updater to comply
         // with React's rule of no side effects inside setState updaters.
         Promise.resolve().then(() => {
-          setOrderHistory(h => {
+setOrderHistory(h => {
             if (h.some(o => o.id === orderId)) return h;
-            return [updated, ...h];
+            const next = [updated, ...h];
+            try {
+              localStorage.setItem(STORAGE_KEYS.CACHED_HISTORY, JSON.stringify(next));
+            } catch { /* quota exceeded — ignore */ }
+            return next;
           });
           setMetrics(m => ({ ...m, activeOrders: Math.max(0, m.activeOrders - 1) }));
           setKitchenState(ks => {
@@ -765,9 +824,10 @@ const swapOrder = useCallback((orderId: string, newMeal: string, newImage: strin
   }, [kitchenState]);
 
   // -- resetDemo --
-  const resetDemo = useCallback(() => {
+const resetDemo = useCallback(() => {
     sseUnsubscribers.current.forEach(u => u());
     sseUnsubscribers.current.clear();
+    dataFetchedRef.current = false; // FIX: allow fresh fetch after reset
     setCart([]);
     setOrders([]);
     setOrderHistory([]);

@@ -281,26 +281,33 @@ let expressMinutes: ExpressMinutes | undefined;
     const actualPrep = dto.totalPrepMinutes > 0 ? dto.totalPrepMinutes : 5;
     expressMinutes = actualPrep <= 5 ? 5 : actualPrep <= 10 ? 10 : 15;
 
-    const base          = placedAt ?? new Date();
+const base          = placedAt ?? new Date();
     const fromPlacement = base.getTime() + expressMinutes * 60_000;
     const MIN_BUFFER_MS = 2 * 60_000;
 
     if (cookingStartedAt) {
-      // cookingStartedAt is available — apply buffer so deadline is at least
-      // MIN_BUFFER_MS after cooking actually began, preventing instant-overdue.
+      // cookingStartedAt is available (confirmed by backend at PENDING→COOKING
+      // transition via stampTimestamp). Anchor deadline to actual cook start,
+      // not placedAt — queue wait time must never eat into the cooking window.
       expressPickupSlotMs = Math.max(fromPlacement, cookingStartedAt.getTime() + MIN_BUFFER_MS);
     } else if (dto.status === 'COOKING') {
       // Order is COOKING but cookingStartedAt not yet returned by backend
-      // (first poll after PENDING→COOKING transition). Do NOT set pickupSlotMs
-      // from placedAt — that anchor is already partially elapsed and will make
-      // useOrderTimer show instant-overdue. Omit it so useOrderTimer uses its
-      // own null-safe fallback (Fix 1+2 above) and shows "Starting…" instead.
+      // (first poll after PENDING→COOKING transition, backend hasn't flushed yet).
+      // Do NOT set pickupSlotMs from placedAt — it's already partially elapsed
+      // and makes useOrderTimer show instant-overdue. Omit it so useOrderTimer
+      // shows "Starting…" until the next poll brings cookingStartedAt back.
       expressPickupSlotMs = undefined;
     } else {
-      // Still PENDING — use placement anchor, cooking hasn't started yet.
-      expressPickupSlotMs = fromPlacement;
-    }
-  }
+      // FIX: PENDING express order — do NOT anchor to placedAt.
+      // Backend confirmed: cookingStartedAt is only stamped at PENDING→COOKING
+      // transition (OrderService.stampTimestamp). For PENDING orders it is null.
+      // Setting pickupSlotMs = placedAt + expressMinutes makes the timer count
+      // down from order placement — so a 5-min order sitting 3min in queue
+      // already shows "2m left" before a chef has touched it.
+      // Set undefined so useOrderTimer hits the SLA queue-wait branch instead,
+      // which shows "in queue" — correct for orders not yet cooking.
+      expressPickupSlotMs = undefined;
+    }  }
 
   // Always use actual DB prep time for the cooking timer — expressMinutes
   // is only used for the pickup slot deadline, not the prep time display.

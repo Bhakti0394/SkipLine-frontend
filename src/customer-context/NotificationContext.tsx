@@ -94,21 +94,22 @@ const defaultPreferences: NotificationPreferences = {
 };
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-
-  const [preferences,   setPreferences]   = useState<NotificationPreferences>(defaultPreferences);
-
-  // Load from localStorage on mount
-  useEffect(() => {
+ const [notifications, setNotifications] = useState<Notification[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setNotifications(JSON.parse(saved));
+      if (saved) return JSON.parse(saved) as Notification[];
+    } catch { /* ignore */ }
+    return [];
+  });
+  const [preferences,   setPreferences]   = useState<NotificationPreferences>(defaultPreferences);
 
+// Load preferences from localStorage on mount
+  // Notifications already restored via useState lazy initializer above
+  useEffect(() => {
+    try {
       const savedPrefs = localStorage.getItem(PREFERENCES_KEY);
       if (savedPrefs) setPreferences({ ...defaultPreferences, ...JSON.parse(savedPrefs) });
-    } catch {
-      // ignore parse errors
-    }
+    } catch { /* ignore */ }
   }, []);
 
   // Persist notifications (single effect — removed duplicate)
