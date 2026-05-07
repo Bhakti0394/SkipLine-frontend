@@ -183,7 +183,7 @@ export interface CustomerOrderDto {
   isExpress:        boolean;
   editLockedUntil:  string | null;
   scheduledCookAt:  string | null;
-  wasteReduced?:    number;
+wasteReduced:     number;
 }
 
 export interface PlaceOrderRequest {

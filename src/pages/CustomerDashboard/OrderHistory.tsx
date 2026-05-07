@@ -90,7 +90,7 @@ const { orderHistory: contextHistory, metrics } = useSkipLine();
   const [loading, setLoading]             = useState(true);
   const [error, setError]                 = useState<string | null>(null);
 
-  useEffect(() => {
+useEffect(() => {
     const token = localStorage.getItem('auth_token');
     if (!token) {
       setLoading(false);
@@ -100,12 +100,32 @@ const { orderHistory: contextHistory, metrics } = useSkipLine();
 
     fetchCustomerOrders()
       .then(orders => {
+        // Always update the cache on a successful fetch
+        try { localStorage.setItem('SkipLine_cached_history', JSON.stringify(orders)); } catch {}
         setBackendOrders(orders);
         setLoading(false);
       })
       .catch(err => {
-        console.warn('[OrderHistory] Backend unavailable, using context history:', err.message);
-        setError('Could not load from server — showing local history');
+        console.warn('[OrderHistory] Backend unavailable, restoring from cache:', err.message);
+        // Try localStorage cache first — populated by last successful fetch
+        try {
+          const raw = localStorage.getItem('SkipLine_cached_history');
+          if (raw) {
+            const cached: CustomerOrderDto[] = JSON.parse(raw);
+            if (cached.length > 0) {
+              setBackendOrders(cached);
+              setError('Showing cached history — server temporarily unavailable');
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {}
+        // Fall through to contextHistory if cache is also empty
+        setError(
+          contextHistory.length > 0
+            ? 'Showing cached history — server temporarily unavailable'
+            : 'Could not load from server'
+        );
         setLoading(false);
       });
   }, []);const showBackend            = !loading && !error && backendOrders.length > 0;
@@ -117,15 +137,24 @@ const totalSpent = showBackend
   ? completedBackend.reduce((s, o) => s + (o.totalPrice ?? 0), 0)
   : contextHistory.reduce((s, o) => s + o.price, 0);
 
-// Time saved: prefer backend (prep minutes * 0.8), fall back to context
 const totalTimeSaved = showBackend
   ? completedBackend.reduce((s, o) => s + Math.floor((o.totalPrepMinutes ?? 0) * 0.8), 0)
   : contextHistory.reduce((s, o) => s + o.timeSaved, 0);
 
-// Total orders: all non-cancelled backend orders, not just completed ones
+// FIX: derive totalOrdersCount directly from backend array — never from
+// metrics.ordersThisMonth which resets on navigation (SkipLineContext re-fetch).
 const totalOrdersCount = showBackend
-  ? metrics.ordersThisMonth
+  ? allNonCancelledBackend.length
   : contextHistory.length;
+
+// FIX: derive waste from backend when available — metrics.foodWasteReduced
+// resets on navigation so we can't rely on it here.
+// FIX: use || instead of ?? — backend sends 0.0 for old orders that existed
+// before wasteReduced was added to the Order entity. ?? only catches null/undefined,
+// not 0.0, so all legacy orders showed 0.0 kg total. || catches falsy 0.0 too.
+const totalWasteReduced = showBackend
+  ? completedBackend.reduce((s, o) => s + (o.wasteReduced || 0.15), 0)
+  : metrics.foodWasteReduced;
 
   const particles = Array.from({ length: 10 }, (_, i) => ({
     id: i, size: Math.random() * 4 + 2, x: Math.random() * 100, y: Math.random() * 100,
@@ -168,10 +197,10 @@ const totalOrdersCount = showBackend
 
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.3 }} className="orders__impact-stats">
           {[
-         { icon: Package,    value: totalOrdersCount,                                      label: 'Total Orders',  color: '#ff6b35' },
-            { icon: TrendingUp, value: totalSpent > 0 ? `₹${totalSpent.toFixed(0)}` : '—',   label: 'Total Spent',   color: '#f7931e' },
-            { icon: Zap,        value: `${totalTimeSaved} min`,                               label: 'Time Saved',    color: '#fbbf24' },
-            { icon: Leaf,       value: `${metrics.foodWasteReduced.toFixed(1)} kg`,           label: 'Waste Reduced', color: '#10b981' },
+        { icon: Package,    value: totalOrdersCount,                                      label: 'Total Orders',  color: '#ff6b35' },
+{ icon: TrendingUp, value: totalSpent > 0 ? `₹${totalSpent.toFixed(0)}` : '—',   label: 'Total Spent',   color: '#f7931e' },
+{ icon: Zap,        value: `${totalTimeSaved} min`,                               label: 'Time Saved',    color: '#fbbf24' },
+{ icon: Leaf,       value: `${totalWasteReduced.toFixed(1)} kg`,                  label: 'Waste Reduced', color: '#10b981' },
           ].map(({ icon: Icon, value, label, color }) => (
             <div key={label} className="orders__stat-card">
               <div className="orders__stat-glow" style={{ background: `radial-gradient(circle, ${color}4d, transparent)` }} />
@@ -192,7 +221,7 @@ const totalOrdersCount = showBackend
               <div className="orders__ready-text">
                 <div className="orders__ready-title">Sustainability Champion!</div>
                 <div className="orders__ready-description">
-                  You've saved {metrics.foodWasteReduced.toFixed(1)}kg of food waste. Keep it up!
+                You've saved {totalWasteReduced.toFixed(1)}kg of food waste. Keep it up!
                 </div>
               </div>
               <Sparkles className="orders__ready-sparkle" />
