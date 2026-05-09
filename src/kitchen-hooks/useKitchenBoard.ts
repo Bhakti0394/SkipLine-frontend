@@ -795,10 +795,18 @@ const assignChef = useCallback(async (orderId: string, chefId: string) => {
     return id;
   }, [loadBoard]);
 
-  const stopSimulation = useCallback(() => {
-    setIsSimulating(false);
-    setSimulationError(null);
-  }, []);
+const wasSimOverloadedRef = useRef(false);
+
+const stopSimulation = useCallback((dueToOverload = false) => {
+  wasSimOverloadedRef.current = dueToOverload;
+  setIsSimulating(false);
+  setSimulationError(null);
+}, []);
+
+const startSimulation = useCallback(() => {
+  wasSimOverloadedRef.current = false;
+  setIsSimulating(true);
+}, []);
 
  const runSimulationTick = useCallback(async () => {
     // FIX [ROLE-GUARD]: never trigger simulation with a CUSTOMER token
@@ -816,11 +824,10 @@ const assignChef = useCallback(async (orderId: string, chefId: string) => {
     else setSimulationError(null);
 
 // AFTER:
-    if (tier === 'stopped') {
-      // Kitchen full — skip new injection this tick entirely.
-      // simulateAdvance() still fires so existing COOKING→READY→COMPLETED
-      // transitions drain normally and free up slots for the next tick.
-      // Do NOT call setIsSimulating(false) — sim stays alive for auto-resume.
+   if (tier === 'stopped') {
+      // Kitchen full — stop sim and mark overload flag so existing cooking
+      // timers keep draining automatically without chef clicking manually.
+      stopSimulation(true);
       try { await simulateAdvance(); } catch { /* best-effort — drain existing orders */ }
       await new Promise(r => setTimeout(r, 300));
       await loadBoard();
@@ -961,9 +968,13 @@ setIsSimTriggerPending(true);
     try {
       const slots: SlotCapacityDto[] = boardDataRef.current?.upcomingSlots ?? [];
       const result = await triggerSimulation(count, currentMenuItems, slots);
-  if (result.generated > 0) {
-  try { await simulateAdvance(); } catch { /* best-effort */ }
-  await new Promise(r => setTimeout(r, 300));
+if (result.generated > 0) {
+  // Only auto-advance (PENDING→COOKING) when sim is actively running.
+  // Manual +1 inject should leave orders in PENDING for chef to action.
+  if (isSimulatingRef.current) {
+    try { await simulateAdvance(); } catch { /* best-effort */ }
+    await new Promise(r => setTimeout(r, 300));
+  }
   await loadBoard();
 }
       setSimulationError(result.rejected > 0 ? (result.reason ?? null) : null);
@@ -982,7 +993,7 @@ return {
     activateBackupChef, activatingChefId, removeChefFromShift,
     initiateStaffRemoval, confirmStaffRemoval, cancelStaffRemoval,
     removalValidation, removalTargetId, isValidatingRemoval, isConfirmingRemoval,
-    isSimulating, setIsSimulating, stopSimulation,
+isSimulating, setIsSimulating, stopSimulation, startSimulation, wasSimOverloadedRef,
     simulationSpeed, setSimulationSpeed, simulationSpeedRef,
     simulationError, isSimTriggerPending, triggerBurst, menuItems,
     canTransition,
