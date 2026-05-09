@@ -472,9 +472,28 @@ const confirmCancelOrder = async () => {
     });
   }, 1500);
 };
-  const handleFeedbackSubmit = (rating: number, comment: string) => {
+  const handleFeedbackSubmit = async (rating: number, comment: string) => {
     const order    = orders[currentFeedbackIndex];
     const mealName = order?.meal || '';
+
+    // Submit to backend so it appears in BrowseMenu reviews
+    try {
+      const { submitMenuItemReview } = await import('../../kitchen-api/kitchenApi');
+      // Find the menuItemId from the order — order.id is the order UUID,
+      // we need the menu item id. Fetch menu items to match by name.
+      const { fetchCustomerMenuItems } = await import('../../kitchen-api/kitchenApi');
+      const menuItems = await fetchCustomerMenuItems();
+const menuItem  = menuItems.find(
+        m => m.name === mealName ||
+             m.name.toLowerCase() === mealName.toLowerCase()
+      );
+      if (menuItem) {
+        await submitMenuItemReview(menuItem.id, rating, comment);
+      }
+    } catch (err) {
+      console.warn('[OrderSuccess] Review submit failed:', err);
+    }
+
     addNotification({ title: 'Thank You!', message: `Rated ${mealName} ${rating}/5 stars.`, type: 'success' });
     if (currentFeedbackIndex < orders.length - 1) setCurrentFeedbackIndex(p => p + 1);
     else { toast({ title: 'Thank you!' }); setShowFeedback(false); }

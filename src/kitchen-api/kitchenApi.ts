@@ -172,6 +172,7 @@ export interface CustomerOrderDto {
   status:           'pending' | 'cooking' | 'ready' | 'completed' | 'cancelled';
   customerName:     string;
   itemSummary:      string[];
+  menuItemIds:      string[];
   totalPrice:       number;
   pickupSlotId:     string | null;
   pickupSlotTime:   string | null;
@@ -183,7 +184,8 @@ export interface CustomerOrderDto {
   isExpress:        boolean;
   editLockedUntil:  string | null;
   scheduledCookAt:  string | null;
-wasteReduced:     number;
+  wasteReduced:     number;
+  timeSaved:        number;
 }
 
 export interface PlaceOrderRequest {
@@ -699,10 +701,14 @@ export async function fetchCustomerKitchenSummary(): Promise<CustomerKitchenSumm
 
 export async function fetchCustomerSlots(prepTimeMinutes: number): Promise<CustomerSlotDto[]> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(`${CUSTOMER_URL}/slots?prepTimeMinutes=${prepTimeMinutes}`, {
       headers: customerAuthHeaders(),
+      signal: controller.signal,
     });
-   handle401(res);
+    clearTimeout(timeoutId);
+    handle401(res);
     if (!res.ok) return [];
     return res.json();
   } catch {
@@ -712,9 +718,13 @@ export async function fetchCustomerSlots(prepTimeMinutes: number): Promise<Custo
 
 export async function fetchCustomerSlotsTomorrow(): Promise<CustomerSlotDto[]> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(`${CUSTOMER_URL}/slots/tomorrow`, {
       headers: customerAuthHeaders(),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     handle401(res);
     if (!res.ok) return [];
     return res.json();

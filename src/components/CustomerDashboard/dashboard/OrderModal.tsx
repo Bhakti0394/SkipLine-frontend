@@ -165,7 +165,7 @@ export function OrderModal({
   // ── useEffect #2: fetch slots (only when Smart Slot is ON) ───────────────
   // When smartSlotEnabled is false we skip the fetch entirely — no slots
   // are shown and the user places the order with a default ASAP pickup time.
-  useEffect(() => {
+ useEffect(() => {
     if (!isOpen || !meal) return;
     if (!smartSlotEnabled) return;           // ← Smart Slot OFF: skip slot fetch
     if (isExpressMode && meal.prepTime <= 15) return;
@@ -173,15 +173,20 @@ export function OrderModal({
     let cancelled = false;
     setSlotsLoading(true);
 
-    if (isScheduleMode) {
-      fetchCustomerSlotsTomorrow()
-        .then(slots => { if (!cancelled) { setTomorrowSlots(slots); setSlotsLoading(false); } })
-        .catch(() => { if (!cancelled) setSlotsLoading(false); });
-    } else {
-      fetchCustomerSlots(meal.prepTime)
-        .then(slots => { if (!cancelled) { setTodaySlots(slots); setSlotsLoading(false); } })
-        .catch(() => { if (!cancelled) setSlotsLoading(false); });
-    }
+    const fetchSlots = isScheduleMode
+      ? fetchCustomerSlotsTomorrow()
+      : fetchCustomerSlots(meal.prepTime);
+
+    fetchSlots
+      .then(slots => {
+        if (cancelled) return;
+        if (isScheduleMode) setTomorrowSlots(slots);
+        else setTodaySlots(slots);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setSlotsLoading(false);
+      });
 
     return () => { cancelled = true; };
   }, [isOpen, meal, isScheduleMode, isExpressMode, smartSlotEnabled]);

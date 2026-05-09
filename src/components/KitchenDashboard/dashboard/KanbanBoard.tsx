@@ -520,14 +520,15 @@ const columns: { status: OrderStatus; label: string; icon: React.ElementType; co
 // ── KanbanBoard props ──────────────────────────────────────────────────────────
 
 export interface KanbanBoardProps {
-  orders:              Order[];
-  staff:               StaffWorkloadDto[];
-  readyCountdowns?:    Record<string, number>;
-  isSimulating?:       boolean;
-  simulationSpeedRef?: React.MutableRefObject<'slow' | 'normal' | 'fast'>;
-  onStatusChange:      (orderId: string, status: OrderStatus) => Promise<void>;
-  onChefAssign:        (orderId: string, chefId: string)       => Promise<void>;
-  columnRefs?:         Partial<Record<OrderStatus, React.RefObject<HTMLDivElement>>>;
+  orders:                Order[];
+  staff:                 StaffWorkloadDto[];
+  readyCountdowns?:      Record<string, number>;
+  isSimulating?:         boolean;
+  simulationSpeedRef?:   React.MutableRefObject<'slow' | 'normal' | 'fast'>;
+  wasSimOverloadedRef?:  React.MutableRefObject<boolean>;
+  onStatusChange:        (orderId: string, status: OrderStatus) => Promise<void>;
+  onChefAssign:          (orderId: string, chefId: string)       => Promise<void>;
+  columnRefs?:           Partial<Record<OrderStatus, React.RefObject<HTMLDivElement>>>;
 }
 
 const MAX_PENDING_MS = 30_000;
@@ -565,7 +566,7 @@ const COOK_SPEED_MULTIPLIERS: Record<'slow' | 'normal' | 'fast', number> = {
 
 export function KanbanBoard({
   orders, staff, readyCountdowns = {}, isSimulating = false,
-  simulationSpeedRef,
+  simulationSpeedRef, wasSimOverloadedRef,
   onStatusChange, onChefAssign, columnRefs = {},
 }: KanbanBoardProps) {
   const safeOrders = orders ?? [];
@@ -859,11 +860,12 @@ const scaledPrepMs = prepMs / speedNow;
 const remaining = startedAt + scaledPrepMs - Date.now();
 
 if (remaining <= 0) {
-  // Order is already overdue — fire immediately
   const orderId = order.id;
   const orderNumber = order.orderNumber;
   timerMap[orderId] = setTimeout(async () => {
     delete timerMap[orderId];
+    // ✅ GATE: only auto-advance if sim is running OR was force-stopped by overload
+    if (!isSimulating && !(wasSimOverloadedRef?.current)) return;
     const liveOrder = ordersRef.current.find(o => o.id === orderId);
     if (!liveOrder || liveOrder.status !== 'cooking') return;
     if (!(liveOrder.assignedChefId || liveOrder.assignedTo)) {
@@ -877,7 +879,7 @@ if (remaining <= 0) {
       duration: 3000,
     });
     try { await onStatusChange(orderId, 'ready'); } catch { /* handled internally */ }
-  }, 0); // fire on next tick
+  }, 0);
   continue;
 }
 
@@ -887,11 +889,12 @@ if (remaining <= 0) {
     // even if simulationSpeedRef changes before the timeout fires.
     const capturedSpeed = simulationSpeedRef?.current ?? 'normal';
 
- timerMap[orderId] = setTimeout(async () => {
+timerMap[orderId] = setTimeout(async () => {
   delete timerMap[orderId];
 
-  // Re-check remaining time with current speed at fire time.
-  // If speed changed (e.g. slow → fast) and timer fired too early, reschedule.
+  // ✅ GATE: only auto-advance if sim is running OR was force-stopped by overload
+  if (!isSimulating && !(wasSimOverloadedRef?.current)) return;
+
   const liveOrder = ordersRef.current.find(o => o.id === orderId);
   if (!liveOrder || liveOrder.status !== 'cooking') return;
 
@@ -902,6 +905,8 @@ if (remaining <= 0) {
     // Speed changed — reschedule with correct remaining time
     timerMap[orderId] = setTimeout(async () => {
       delete timerMap[orderId];
+      // ✅ GATE again in rescheduled timer
+      if (!isSimulating && !(wasSimOverloadedRef?.current)) return;
       const stillCooking = ordersRef.current.find(o => o.id === orderId);
       if (!stillCooking || stillCooking.status !== 'cooking') return;
       try { await onStatusChange(orderId, 'ready'); } catch { /* handled internally */ }
@@ -909,21 +914,22 @@ if (remaining <= 0) {
     return;
   }
 
-      if (!(liveOrder.assignedChefId || liveOrder.assignedTo)) {
-        toast.warning(`⚠ Cannot auto-advance ${orderNumber}`, {
-          description: 'Chef was unassigned before prep time elapsed.',
-          duration: 4000,
-        });
-        return;
-      }
-
-      toast.info(`Auto-advancing ${orderNumber} to Ready`, {
-        description: `Prep time elapsed (${capturedSpeed} speed).`,
-        duration: 3000,
-      });
-      try { await onStatusChange(orderId, 'ready'); } catch { /* onStatusChange handles errors */ }
-    }, remaining);
+  if (!(liveOrder.assignedChefId || liveOrder.assignedTo)) {
+    toast.warning(`⚠ Cannot auto-advance ${orderNumber}`, {
+      description: 'Chef was unassigned before prep time elapsed.',
+      duration: 4000,
+    });
+    return;
   }
+
+  toast.info(`Auto-advancing ${orderNumber} to Ready`, {
+    description: `Prep time elapsed (${capturedSpeed} speed).`,
+    duration: 3000,
+  });
+  try { await onStatusChange(orderId, 'ready'); } catch { /* onStatusChange handles errors */ }
+}, remaining);
+
+  } // ← closes: for (const order of cookingOrders)
 
   // Prune startedAtMap for orders no longer on board
   for (const id of Object.keys(startedAtMapRef.current)) {
@@ -931,7 +937,7 @@ if (remaining <= 0) {
       delete startedAtMapRef.current[id];
     }
   }
-}, [safeOrders, onStatusChange, simulationSpeedRef]);
+}, [safeOrders, onStatusChange, simulationSpeedRef, isSimulating, wasSimOverloadedRef]);
     // Clean up auto-advance timers on unmount
   useEffect(() => {
 

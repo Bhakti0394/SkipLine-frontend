@@ -175,7 +175,7 @@ const toastedOrderIds      = useRef<Set<string>>(new Set());
     staff, allStaff, backupStaff, capacityPercent, currentCapacity, activatingChefId,
     updateOrderStatus, assignChef, addOrder, triggerBurst,
     refresh: refreshBoard,
-isSimulating, setIsSimulating, stopSimulation,
+isSimulating, setIsSimulating, stopSimulation, startSimulation, wasSimOverloadedRef,
     simulationSpeed, setSimulationSpeed, simulationSpeedRef,
     simulationError, isSimTriggerPending,
     initiateStaffRemoval, confirmStaffRemoval, cancelStaffRemoval,
@@ -421,16 +421,16 @@ const handleAddOrder = useCallback(async () => {
   }, [triggerBurst]);
 
 // AFTER:
-  const handleToggleSimulation = useCallback(() => {
+const handleToggleSimulation = useCallback(() => {
     if (isSimulating) {
       stopSimulation();
     } else {
       // Clear notification cache on sim restart so fresh injected orders
       // always fire notifications even if they reuse previously seen IDs.
       clearNotificationCache();
-      setIsSimulating(true);
+      startSimulation();
     }
-  }, [isSimulating, stopSimulation, setIsSimulating, clearNotificationCache]);
+  }, [isSimulating, stopSimulation, startSimulation, clearNotificationCache]);
 
   // ── Inventory alerts ───────────────────────────────────────────────────────
   // Guard: skip initial load — only fire toasts when stock actually DROPS after mount.
@@ -608,6 +608,7 @@ const renderKanbanView = () => (
           readyCountdowns={readyCountdowns}
           isSimulating={isSimulating}
           simulationSpeedRef={simulationSpeedRef}
+          wasSimOverloadedRef={wasSimOverloadedRef}
           onStatusChange={handleStatusChange}
           onChefAssign={assignChef}
         />

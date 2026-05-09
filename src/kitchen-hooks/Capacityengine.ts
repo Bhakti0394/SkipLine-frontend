@@ -81,10 +81,10 @@ export function selectCapacity(boardData: KanbanBoardResponse | null): CapacityS
   const cookingCount  = (boardData.columns.COOKING ?? []).length;
   const pendingCount  = (boardData.columns.PENDING  ?? []).length;
   const maxQueueDepth = Math.max(totalSlots * 2, 10);
-
+const activeLoad   = cookingCount + pendingCount;
   const freeSlots    = Math.max(0, totalSlots - cookingCount);
-  const capacityPct  = totalSlots > 0
-    ? Math.min(100, Math.round((cookingCount / totalSlots) * 100))
+const capacityPct  = totalSlots > 0
+    ? Math.min(100, Math.round((pendingCount / maxQueueDepth) * 100))
     : 0;
 
   const isOverloaded = (totalSlots > 0 && cookingCount >= totalSlots)
