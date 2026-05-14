@@ -97,7 +97,7 @@ function mapPerks(
 }
 
 // -- Context type --
-interface SkipLineContextType {
+interface QShiftContextType {
   cart:                    CartItem[];
   addToCart:               (item: Omit<CartItem, 'id'>) => void;
   removeFromCart:          (itemId: string) => void;
@@ -122,14 +122,14 @@ updateOrderStatus:       (orderId: string, status: Order['status']) => void;
 }
 
 
-const SkipLineContext = createContext<SkipLineContextType | undefined>(undefined);
+const QShiftContext = createContext<QShiftContextType | undefined>(undefined);
 const STORAGE_KEYS = {
-  CART:    'SkipLine_cart',
-  ORDERS:  'SkipLine_orders',
-  HISTORY: 'SkipLine_history',
-  METRICS: 'SkipLine_metrics',
-  KITCHEN: 'SkipLine_kitchen',
-  CACHED_HISTORY: 'SkipLine_cached_history',  // ADD THIS
+  CART:    'QShift_cart',
+  ORDERS:  'QShift_orders',
+  HISTORY: 'QShift_history',
+  METRICS: 'QShift_metrics',
+  KITCHEN: 'QShift_kitchen',
+  CACHED_HISTORY: 'QShift_cached_history',  // ADD THIS
 };
 
 const defaultMetrics: UserMetrics = {
@@ -252,7 +252,7 @@ const demoActiveOrders: Order[] = [
 const TERMINAL_STATUSES = new Set(['completed', 'cancelled']);
 
 // =============================================================================
-export function SkipLineProvider({ children }: { children: React.ReactNode }) {
+export function QShiftProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth();
 
   const [cart,         setCart]         = useState<CartItem[]>([]);
@@ -275,7 +275,7 @@ const [metrics, setMetrics] = useState<UserMetrics>(defaultMetrics);
   const [error,   setError]   = useState<string | null>(null);
 const sseUnsubscribers = useRef<Map<string, () => void>>(new Map());
 const notifiedRef      = useRef<Set<string>>(new Set());
-  // FIX: prevents re-fetching all data when SkipLineProvider remounts on
+  // FIX: prevents re-fetching all data when QShiftProvider remounts on
   // route navigation, which was wiping metrics back to defaults every page visit.
   const dataFetchedRef = useRef(false);
   // -- SSE status handler --
@@ -460,7 +460,7 @@ setMetrics({
     if (!confirmedToken || !user) return;
 
     // FIX: if we already loaded real data this session, skip the re-fetch.
-    // Without this, every route navigation that remounts SkipLineProvider
+    // Without this, every route navigation that remounts QShiftProvider
     // (if it sits inside a route component) resets metrics to defaults and
     // then re-fetches, causing a visible flash of zeroed stats on every page.
     if (dataFetchedRef.current) return;
@@ -499,7 +499,7 @@ Promise.allSettled([
       }));
       setCart(restored);
     })
-    .catch(err => console.warn('[SkipLineContext] Cart fetch failed:', err.message)),
+    .catch(err => console.warn('[QShiftContext] Cart fetch failed:', err.message)),
 
 fetchCustomerOrders()
     .then((dtos: CustomerOrderDto[]) => {
@@ -526,7 +526,7 @@ fetchCustomerOrders()
       }
     })
     .catch(err => {
-      console.warn('[SkipLineContext] Orders fetch failed, restoring from cache:', err.message);
+      console.warn('[QShiftContext] Orders fetch failed, restoring from cache:', err.message);
       // Restore from cache so order history survives a backend restart
       try {
         const raw = localStorage.getItem(STORAGE_KEYS.CACHED_HISTORY);
@@ -562,7 +562,7 @@ fetchCustomerOrders()
         foodWasteReduced: m.foodWasteReduced,
       }));
     })
-    .catch(err => console.warn('[SkipLineContext] Metrics fetch failed:', err.message)),
+    .catch(err => console.warn('[QShiftContext] Metrics fetch failed:', err.message)),
 
   // Perks is now the 4th member of allSettled — guaranteed to be the
   // last writer of streak/lastOrderDate/perks, and setLoading(false)
@@ -577,9 +577,12 @@ fetchCustomerOrders()
         perks: mapped,
       }));
     })
-    .catch(err =>
-      console.warn('[SkipLineContext] Perks fetch failed:', err.message)
-    ),
+    .catch(err => {
+      console.warn('[QShiftContext] Perks fetch failed:', err.message);
+      // Allow a retry next load — don't let one failed fetch permanently
+      // lock streak at 0 for this session
+      dataFetchedRef.current = false;
+    }),
 
 ]).finally(() => setLoading(false));  // fires only after ALL 4 settle
 
@@ -709,10 +712,11 @@ fetchCustomerOrders()
 // instead of localStorage — avoids stale/missing date causing wrong delta.
 // Optimistic streak uses prev.lastOrderDate (server-sourced via fetchCustomerPerks)
 // instead of localStorage — never stale, survives cache clears.
-const nowIST       = new Date(Date.now() + (5 * 60 + 30) * 60 * 1000);
-const todayIST     = nowIST.toISOString().slice(0, 10);
-const yesterdayIST = new Date(Date.now() + (5 * 60 + 30) * 60 * 1000 - 86400000)
-                       .toISOString().slice(0, 10);
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+const nowIST        = new Date(Date.now() + IST_OFFSET_MS);
+const todayIST      = nowIST.toISOString().slice(0, 10);
+const yesterdayIST  = new Date(Date.now() + IST_OFFSET_MS - 86_400_000)
+                        .toISOString().slice(0, 10);
 
 setMetrics(prev => {
   const lastDate = prev.lastOrderDate; // server-sourced, never stale
@@ -841,19 +845,21 @@ const resetDemo = useCallback(() => {
     setMetrics(prev => ({ ...prev, ...updates })), []);
 
   return (
-<SkipLineContext.Provider value={{
+<QShiftContext.Provider value={{
       cart, addToCart, removeFromCart, updateCartItem, clearCart, cartTotal, cartItemsCount,
       orders, addOrder, updateOrderStatus, swapOrder, orderHistory, kitchenState, getQueuePosition,
        metrics, updateMetrics, resetDemo, simulateKitchenProgress,
       loading, error,
     }}>
       {children}
-    </SkipLineContext.Provider>
+    </QShiftContext.Provider>
   );
 }
 
-export function useSkipLine() {
-  const ctx = useContext(SkipLineContext);
-  if (!ctx) throw new Error('useSkipLine must be used within a SkipLineProvider');
+export function useQShift() {
+  const ctx = useContext(QShiftContext);
+  if (!ctx) throw new Error('useQShift must be used within a QShiftProvider');
   return ctx;
 }
+
+

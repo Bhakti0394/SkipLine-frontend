@@ -1,7 +1,7 @@
-// SkipLineLogo Component Styles
+// QShiftLogo Component Styles
 // Maintains exact same theme colors and appearance as Tailwind version
 
-.SkipLine-logo {
+.QShift-logo {
   position: relative;
   border-radius: 0.75rem; // rounded-xl
   background: linear-gradient(to bottom right, hsl(var(--primary)), hsl(var(--primary)), hsl(var(--primary) / 0.8));
@@ -77,3 +77,6 @@
     border-top-left-radius: 9999px; // rounded-tl-full
   }
 }
+
+
+

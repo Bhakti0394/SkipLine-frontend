@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { KitchenSettings, defaultSettings } from '../kitchen-types/settings';
 
-const STORAGE_KEY = 'SkipLine-settings';
+const STORAGE_KEY = 'QShift-settings';
 
 export function useSettings() {
   const [settings, setSettings] = useState<KitchenSettings>(defaultSettings);
@@ -70,3 +70,6 @@ export function useSettings() {
     resetSettings,
   };
 }
+
+
+

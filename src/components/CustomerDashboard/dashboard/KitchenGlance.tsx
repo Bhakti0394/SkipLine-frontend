@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { ChefHat, TrendingUp, Clock, Flame, AlertCircle } from 'lucide-react';
-import { useSkipLine } from '../../../customer-context/SkipLineContext';
+import { useQShift } from '../../../customer-context/QShiftContext';
 import '../overview-styles/Kitchenglance.scss';
 
 interface KitchenGlanceProps {
@@ -21,7 +21,7 @@ export function KitchenGlance({
   bottleneck,
   kitchenCapacity = 3,
 }: KitchenGlanceProps) {
-  const { orders, kitchenState } = useSkipLine();
+  const { orders, kitchenState } = useQShift();
 
   const activeCount    = kitchenState.activeOrders.length;
   const queuedCount    = kitchenState.queuedOrders.length;
@@ -172,3 +172,6 @@ const isOverCapacity = !!bottleneck;
     </motion.div>
   );
 }
+
+
+

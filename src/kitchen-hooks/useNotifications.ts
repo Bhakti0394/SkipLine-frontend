@@ -165,7 +165,7 @@ const [notifications, setNotifications] = useState<Notification[]>(() => {
     return [{
       id: 'welcome',
       type: 'system',
-      title: 'Welcome to SkipLine',
+      title: 'Welcome to QShift',
       message: 'Your kitchen dashboard is ready. Start managing orders efficiently!',
       timestamp: new Date(),
       read: false,
@@ -365,3 +365,5 @@ const soundMap: Record<string, SoundType> = {
     notifyCapacity,
   };
 }
+
+

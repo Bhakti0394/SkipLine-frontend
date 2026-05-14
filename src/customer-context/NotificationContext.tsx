@@ -82,8 +82,8 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-const STORAGE_KEY     = 'SkipLine_notifications';
-const PREFERENCES_KEY = 'SkipLine_notification_preferences';
+const STORAGE_KEY     = 'QShift_notifications';
+const PREFERENCES_KEY = 'QShift_notification_preferences';
 
 const defaultPreferences: NotificationPreferences = {
   orderUpdates:      true,
@@ -225,3 +225,5 @@ export function useNotifications() {
   if (!context) throw new Error('useNotifications must be used within a NotificationProvider');
   return context;
 }
+
+

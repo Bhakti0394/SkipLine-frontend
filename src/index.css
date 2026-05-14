@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* SkipLine Design System - Bold, Dark, Energetic */
+/* QShift Design System - Bold, Dark, Energetic */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap');
 
@@ -38,7 +38,7 @@
 
     --radius: 0.75rem;
 
-    /* Custom SkipLine tokens */
+    /* Custom QShift tokens */
     --glow-primary: 16 90% 55%;
     --glow-accent: 155 70% 45%;
     --gradient-start: 16 90% 55%;
@@ -171,3 +171,7 @@
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
+
+
+
+

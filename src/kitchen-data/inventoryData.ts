@@ -64,3 +64,5 @@ export const menuIngredients: MenuItemIngredients[] = [
   { menuItemId: 'm14', ingredients: [{ itemId: 'inv2',  quantity: 0.35 }, { itemId: 'inv13', quantity: 0.35 }] },
   { menuItemId: 'm15', ingredients: [{ itemId: 'inv5',  quantity: 0.2  }, { itemId: 'inv7',  quantity: 0.5  }, { itemId: 'inv8',  quantity: 0.3  }] },
 ];
+
+

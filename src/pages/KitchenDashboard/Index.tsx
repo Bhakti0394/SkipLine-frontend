@@ -792,3 +792,5 @@ const renderInventoryView = () => (
 };
 
 export default Index;
+
+

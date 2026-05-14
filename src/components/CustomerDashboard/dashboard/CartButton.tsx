@@ -1,12 +1,12 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingCart } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useSkipLine } from '../../../customer-context/SkipLineContext';
+import { useQShift } from '../../../customer-context/QShiftContext';
 import '../overview-styles/Cartbutton.scss';
 
 export function CartButton() {
   const navigate = useNavigate();
-  const { cartItemsCount, cartTotal } = useSkipLine();
+  const { cartItemsCount, cartTotal } = useQShift();
 
   if (cartItemsCount === 0) return null;
 
@@ -38,3 +38,6 @@ export function CartButton() {
     </AnimatePresence>
   );
 }
+
+
+

@@ -12,7 +12,7 @@
 //   • Order.orderType? added — Checkout.tsx passes orderType inside addOrder();
 //     without this field TypeScript rejects the extra property on object literals.
 //   • Order.wasSwapped? and Order.originalMeal? added — used by OrderSuccess.tsx
-//     and SkipLineContext to track swap state on active orders.
+//     and QShiftContext to track swap state on active orders.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type OrderType = 'express' | 'normal' | 'scheduled';
@@ -96,7 +96,7 @@ export interface Order {
   // FIX: Checkout.tsx passes orderType inside addOrder() — must be on Order
   // or TypeScript rejects the extra property on the object literal.
   orderType?:           OrderType;
-  // FIX: OrderSuccess.tsx and SkipLineContext track these on active orders.
+  // FIX: OrderSuccess.tsx and QShiftContext track these on active orders.
   wasSwapped?:          boolean;
   originalMeal?:        string;
   totalPrepMinutes?:    number;
@@ -138,3 +138,5 @@ export interface KitchenState {
   activeOrders: string[];
   queuedOrders: string[];
 }
+
+

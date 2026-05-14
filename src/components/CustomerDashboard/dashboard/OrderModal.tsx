@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { Meal, AddOn, OrderType } from '../../../customer-types/dashboard';
 import { Button }        from '../../../components/ui/button';
-import { useSkipLine }   from '../../../customer-context/SkipLineContext';
+import { useQShift }   from '../../../customer-context/QShiftContext';
 import { useNavigate }   from 'react-router-dom';
 import {
   SlotCapacityDto,
@@ -72,7 +72,7 @@ function queueLevel(remaining: number, max: number): 'low' | 'medium' | 'high' {
 // Returns true (show slot picker) by default — opt-out, not opt-in.
 function readSmartSlotPref(): boolean {
   try {
-    const saved = localStorage.getItem('SkipLine_smart_slot');
+    const saved = localStorage.getItem('QShift_smart_slot');
     if (saved !== null) return saved === 'true';
   } catch { /* ignore */ }
   return true;
@@ -108,7 +108,7 @@ export function OrderModal({
   orderMode        = 'now',
   forceExpressMode = false,
 }: OrderModalProps) {
-  const { addToCart, cartItemsCount } = useSkipLine();
+  const { addToCart, cartItemsCount } = useQShift();
   const navigate = useNavigate();
 
   // ── Smart Slot: read on every open so changes in Settings take effect ──
@@ -779,3 +779,6 @@ export function OrderModal({
     </AnimatePresence>
   );
 }
+
+
+

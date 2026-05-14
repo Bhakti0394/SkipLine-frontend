@@ -41,7 +41,7 @@ export function AuthProvider({ children }) {
   }
 
   // FIX: set user synchronously from localStorage BEFORE the network call.
-  // This means SkipLineContext sees a real user immediately on page load
+  // This means QShiftContext sees a real user immediately on page load
   // instead of null → demo data → real data (two resets).
   setUser({ email, fullName: fullName ?? email, role });
 
@@ -61,7 +61,7 @@ export function AuthProvider({ children }) {
       // Server confirmed — use server role as source of truth,
       // keep fullName from localStorage (not returned by /me).
       // IMPORTANT: setUser only if data actually changed — creating a new object
-      // every time triggers SkipLineContext's useEffect([user]) which resets metrics.
+      // every time triggers QShiftContext's useEffect([user]) which resets metrics.
       setUser(prev => {
         const newEmail    = data.email;
         const newFullName = fullName ?? data.email;
@@ -72,7 +72,7 @@ export function AuthProvider({ children }) {
           prev.fullName === newFullName &&
           prev.role     === newRole
         ) {
-          return prev; // same reference — no re-render, no SkipLineContext re-fetch
+          return prev; // same reference — no re-render, no QShiftContext re-fetch
         }
         return { email: newEmail, fullName: newFullName, role: newRole };
       });
@@ -100,7 +100,7 @@ export function AuthProvider({ children }) {
     // Store token + metadata in localStorage so:
     //   • kitchenApi.ts authHeaders() can attach Bearer token to all requests
     //   • AuthContext can restore the session on next page load (above useEffect)
-    //   • SkipLineContext re-fetches real data when `user` changes (its useEffect
+    //   • QShiftContext re-fetches real data when `user` changes (its useEffect
     //     depends on `user` from useAuth())
     localStorage.setItem('auth_token',     data.token);
     localStorage.setItem('auth_role',      data.role);
@@ -112,7 +112,7 @@ export function AuthProvider({ children }) {
       fullName: data.fullName ?? data.email,
       role:     data.role,
     };
-    setUser(userData);   // ← triggers SkipLineContext useEffect([user]) → real fetch
+    setUser(userData);   // ← triggers QShiftContext useEffect([user]) → real fetch
     return userData;
   };
 
@@ -183,3 +183,6 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
+
+
+

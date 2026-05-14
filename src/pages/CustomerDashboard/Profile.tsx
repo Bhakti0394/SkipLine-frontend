@@ -10,7 +10,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { toast } from '../../customer-hooks/use-toast';
 import { useAuth } from '../../context/AuthContext';
-import { useSkipLine } from '../../customer-context/SkipLineContext';
+import { useQShift } from '../../customer-context/QShiftContext';
 import '../../components/CustomerDashboard/styles/Profile.scss';
 
 const PROFILE_PARTICLES = Array.from({ length: 8 }, (_, i) => ({
@@ -63,8 +63,8 @@ function formatStreak(streak: number): string {
 
 export default function Profile() {
   const { user } = useAuth();
-  // FIX: all stats come from SkipLineContext (which fetches from backend on load)
-const { metrics, orderHistory, orders } = useSkipLine();
+  // FIX: all stats come from QShiftContext (which fetches from backend on load)
+const { metrics, orderHistory, orders } = useQShift();
 
 const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -118,7 +118,7 @@ const [isEditing, setIsEditing] = useState(false);
     }
   };
 
-  // FIX: stats derived from real metrics fetched by SkipLineContext
+  // FIX: stats derived from real metrics fetched by QShiftContext
 // orderHistory = completed orders from backend
 // orders = active orders from backend
 // ordersThisMonth = metric from backend
@@ -164,7 +164,7 @@ const totalOrders = metrics.ordersThisMonth ?? 0;
           </motion.div>
         </div>
 
-        {/* FIX: stats grid now uses real metrics from backend via SkipLineContext */}
+        {/* FIX: stats grid now uses real metrics from backend via QShiftContext */}
         <div className="profile__stats-grid">
           {stats.map((stat, index) => (
             <motion.div key={stat.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + index * 0.05 }} className="profile__stat-card">
@@ -299,3 +299,5 @@ const totalOrders = metrics.ordersThisMonth ?? 0;
     </DashboardLayout>
   );
 }
+
+

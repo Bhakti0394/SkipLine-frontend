@@ -27,7 +27,7 @@ import { KitchenGlance } from '../../components/CustomerDashboard/dashboard/Kitc
 import { OrderFlowMini } from '../../components/CustomerDashboard/dashboard/OrderFlowMini';
 import { StreakCard } from '../../components/CustomerDashboard/dashboard/StreakCard';
 import { CartButton } from '../../components/CustomerDashboard/dashboard/CartButton';
-import { useSkipLine } from '../../customer-context/SkipLineContext';
+import { useQShift } from '../../customer-context/QShiftContext';
 import { useAuth } from '../../context/AuthContext';
 import { fetchCustomerKitchenSummary } from '../../kitchen-api/kitchenApi';
 import '../../components/CustomerDashboard/styles/Index.scss';
@@ -61,7 +61,7 @@ const FALLBACK_KITCHEN: KitchenGlanceData = {
 
 const Index = () => {
   const { user }                      = useAuth();
-  const { metrics, kitchenState }     = useSkipLine();
+  const { metrics, kitchenState }     = useQShift();
   const [kitchenData, setKitchenData] = useState<KitchenGlanceData>(FALLBACK_KITCHEN);
 
   const firstName = user?.fullName?.split(' ')[0] ?? user?.email ?? 'there';
@@ -223,3 +223,5 @@ const Index = () => {
 };
 
 export default Index;
+
+

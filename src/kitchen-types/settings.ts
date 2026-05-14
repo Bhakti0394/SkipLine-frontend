@@ -51,3 +51,5 @@ export const defaultSettings: KitchenSettings = {
   // Kitchen
   urgentThresholdMinutes: 5,
 };
+
+

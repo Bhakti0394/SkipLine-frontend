@@ -191,7 +191,7 @@ function FeedbackBlock({
 }
 
 // ── Smart Slot (controlled + persisted) ──────────────────────────────────────
-const SMART_SLOT_KEY = 'SkipLine_smart_slot';
+const SMART_SLOT_KEY = 'QShift_smart_slot';
 function loadSmartSlot(): boolean {
   try {
     const saved = localStorage.getItem(SMART_SLOT_KEY);
@@ -324,7 +324,7 @@ const handleNotifToggle = (key: keyof typeof preferences) => {
               <SettingsIcon className="settings__title-badge-icon" /><span>Customize</span>
             </motion.div>
             <h1 className="settings__title"><span className="settings__title-grad">Settings</span></h1>
-            <p className="settings__subtitle">Personalize your SkipLine experience</p>
+            <p className="settings__subtitle">Personalize your QShift experience</p>
           </motion.div>
         </div>
 
@@ -453,3 +453,5 @@ const handleNotifToggle = (key: keyof typeof preferences) => {
     </DashboardLayout>
   );
 }
+
+

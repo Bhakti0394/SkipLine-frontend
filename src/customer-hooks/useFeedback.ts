@@ -24,7 +24,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { MealFeedback } from '../customer-types/dashboard';
 
-const STORAGE_KEY = 'SkipLine_feedback';
+const STORAGE_KEY = 'QShift_feedback';
 
 // Demo feedback for unauthenticated users.
 // mealId values here are numeric strings that match the OLD static indianMeals
@@ -121,3 +121,5 @@ const addFeedback = useCallback((mealId: string, rating: number, comment: string
 
   return { feedback, addFeedback, getFeedbackForMeal, getAverageRating };
 }
+
+

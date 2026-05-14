@@ -111,3 +111,5 @@ export const ORDER_TYPE_BADGE: Record<OrderType, {
 
 
 export const PRIORITY_BADGE: typeof ORDER_TYPE_BADGE = { ...ORDER_TYPE_BADGE };
+
+
