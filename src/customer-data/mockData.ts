@@ -316,3 +316,5 @@ export const mockUserMetrics: UserMetrics = {
     { id: 'first_to_know',    icon: '🔔',   name: 'First to know',           desc: 'New menu items, limited drops, and pop-ups — regulars hear first.',         unlockAt: 21, active: false },
   ],
 };
+
+

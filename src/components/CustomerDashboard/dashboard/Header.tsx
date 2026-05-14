@@ -7,7 +7,7 @@
 //   with 100+ orders.
 //
 // AFTER: memberTier is passed as a prop from DashboardLayout (which reads
-//   useSkipLine().metrics + useSkipLine().orderHistory to compute the tier).
+//   useQShift().metrics + useQShift().orderHistory to compute the tier).
 //   Tiers: Member → Silver (10+) → Gold (25+) → Platinum (50+) → Legendary (100+).
 //   Falls back to "Member" when metrics haven't loaded yet.
 
@@ -37,7 +37,7 @@ export function Header({ userName, streak, memberTier = 'Member' }: HeaderProps)
           <div className="header__logo-icon">
             <span className="header__logo-text">S</span>
           </div>
-          <span className="header__logo-name">SkipLine</span>
+          <span className="header__logo-name">QShift</span>
         </motion.div>
 
         <motion.div
@@ -70,3 +70,6 @@ export function Header({ userName, streak, memberTier = 'Member' }: HeaderProps)
     </motion.header>
   );
 }
+
+
+

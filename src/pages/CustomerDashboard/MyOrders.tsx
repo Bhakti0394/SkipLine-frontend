@@ -26,7 +26,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from '../../customer-hooks/use-toast';
 import { fetchCustomerOrders, CustomerOrderDto } from '../../kitchen-api/kitchenApi';
 import { useNotifications } from '../../customer-context/NotificationContext';
-import { useSkipLine } from '../../customer-context/SkipLineContext';
+import { useQShift } from '../../customer-context/QShiftContext';
 import '../../components/CustomerDashboard/styles/Myorders.scss';
 
 const FALLBACK_POLL_INTERVAL = 15_000;
@@ -233,7 +233,7 @@ export default function MyOrders() {
   const location      = useLocation();
   const locationState = location.state as LocationState | null;
   const { addNotification }   = useNotifications();
-  const { orders: contextOrders, updateOrderStatus: ctxUpdateStatus } = useSkipLine();
+  const { orders: contextOrders, updateOrderStatus: ctxUpdateStatus } = useQShift();
 
 const [orders, setOrders] = useState<LocalOrder[]>(() => {
     const newOrders: LocalOrder[] = locationState?.fromOrderSuccess && locationState?.orders?.length
@@ -819,3 +819,5 @@ const updateOrderStatus = useCallback((orderId: string, newStatus: string) => {
     </DashboardLayout>
   );
 }
+
+

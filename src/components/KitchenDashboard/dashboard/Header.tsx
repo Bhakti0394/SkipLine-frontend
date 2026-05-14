@@ -82,7 +82,7 @@ export function Header({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // FIX: read the real logged-in kitchen user from localStorage.
-  // Previously hardcoded to "Jordan Davis / jordan.davis@SkipLine.com".
+  // Previously hardcoded to "Jordan Davis / jordan.davis@QShift.com".
   // localStorage keys are set by AuthContext on login (auth_full_name, auth_email).
   // Falls back to sensible defaults if somehow not set.
 const { user } = useAuth();
@@ -141,7 +141,7 @@ const { user } = useAuth();
                       <span className="header__logo-text">S</span>
                     </div>
                     <div className="header__mobile-brand">
-                      <span className="header__brand-name">SkipLine</span>
+                      <span className="header__brand-name">QShift</span>
                       <span className="header__brand-subtitle">Kitchen Control</span>
                     </div>
                   </SheetTitle>
@@ -248,7 +248,7 @@ const { user } = useAuth();
               <span className="header__logo-text">S</span>
             </div>
             <div className="header__brand">
-              <h1 className="header__brand-name">SkipLine</h1>
+              <h1 className="header__brand-name">QShift</h1>
               <p className="header__brand-subtitle">Kitchen Control</p>
             </div>
           </div>
@@ -316,3 +316,6 @@ const { user } = useAuth();
     </header>
   );
 }
+
+
+

@@ -7,23 +7,23 @@ import "../../styles/Whydifferent.scss";
 const comparisons = [
   {
     others: "Solve delivery logistics",
-    SkipLine: "Solve on-site congestion",
+    QShift: "Solve on-site congestion",
   },
   {
     others: "Focus on order volume",
-    SkipLine: "Focus on kitchen productivity",
+    QShift: "Focus on kitchen productivity",
   },
   {
     others: "Generic user experience",
-    SkipLine: "Behavioral UX design",
+    QShift: "Behavioral UX design",
   },
   {
     others: "Ignore food waste",
-    SkipLine: "Sustainability-first approach",
+    QShift: "Sustainability-first approach",
   },
   {
     others: "Theoretical optimizations",
-    SkipLine: "Real-world constraints",
+    QShift: "Real-world constraints",
   },
 ];
 
@@ -54,7 +54,7 @@ const WhyDifferent = () => {
         >
           <span className="why-different__badge">
             <Trophy className="why-different__badge-icon" />
-            Why SkipLine
+            Why QShift
           </span>
           <h2 className="why-different__title">
             Most Food Apps Solve Delivery.
@@ -75,8 +75,8 @@ const WhyDifferent = () => {
             <div className="why-different__header-others">
               <span>Other Food Apps</span>
             </div>
-            <div className="why-different__header-SkipLine">
-              <span>SkipLine</span>
+            <div className="why-different__header-QShift">
+              <span>QShift</span>
             </div>
           </div>
 
@@ -98,12 +98,12 @@ const WhyDifferent = () => {
                   <span className="why-different__text why-different__text--others">{item.others}</span>
                 </div>
 
-                {/* SkipLine */}
-                <div className="why-different__item why-different__item--SkipLine">
-                  <div className="why-different__icon-wrapper why-different__icon-wrapper--SkipLine">
+                {/* QShift */}
+                <div className="why-different__item why-different__item--QShift">
+                  <div className="why-different__icon-wrapper why-different__icon-wrapper--QShift">
                     <Check className="why-different__icon" />
                   </div>
-                  <span className="why-different__text why-different__text--SkipLine">{item.SkipLine}</span>
+                  <span className="why-different__text why-different__text--QShift">{item.QShift}</span>
                 </div>
               </motion.div>
             ))}
@@ -139,3 +139,6 @@ const WhyDifferent = () => {
 };
 
 export default WhyDifferent;
+
+
+

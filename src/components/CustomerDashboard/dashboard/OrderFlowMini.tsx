@@ -3,7 +3,7 @@ import {
   Clock, Flame, CheckCircle2, ChevronRight,
   RefreshCw, XCircle, Zap, ShoppingBag, Star, ArrowRight, Loader2,
 } from 'lucide-react';
-import { useSkipLine } from '../../../customer-context/SkipLineContext';
+import { useQShift } from '../../../customer-context/QShiftContext';
 import { useState, useEffect } from 'react';
 import '../overview-styles/OrderFlowMini.scss';
 
@@ -22,7 +22,7 @@ const orderPerks = [
 
 
 export function OrderFlowMini() {
-  const { orders, loading } = useSkipLine();
+  const { orders, loading } = useQShift();
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
 
   // Reset filter when orders change so stale filter doesn't hide newly arrived orders
@@ -356,3 +356,6 @@ const step = statusSteps.find(s => s.key === order.status) ?? statusSteps[0];
     </motion.div>
   );
 }
+
+
+

@@ -2,7 +2,7 @@
 //
 // FIX [IMAGE-MAP]: Expanded MEAL_IMAGE_MAP from 5 dishes to all 21 dishes.
 // Previously any dish not in the 5-entry map fell back to butterChicken image.
-// Now imports all the same assets as SkipLineContext so every dish shows
+// Now imports all the same assets as QShiftContext so every dish shows
 // its correct image in order history.
 
 import { useEffect, useState } from 'react';
@@ -12,7 +12,7 @@ import {
   Package, Sparkles, TrendingUp, Award, Loader2,
 } from 'lucide-react';
 import { DashboardLayout } from '../../components/CustomerDashboard/layout/DashboardLayout';
-import { useSkipLine } from '../../customer-context/SkipLineContext';
+import { useQShift } from '../../customer-context/QShiftContext';
 import { useNavigate } from 'react-router-dom';
 import { fetchCustomerOrders, CustomerOrderDto } from '../../kitchen-api/kitchenApi';
 import '../../components/CustomerDashboard/styles/Orderhistory.scss';
@@ -40,7 +40,7 @@ import prawnMasala      from '../../customer-assets/prawn-masala.jpg';
 import muttonRoganJosh  from '../../customer-assets/mutton-rogan-josh.jpg';
 import butterGarlicNaan from '../../customer-assets/butter-garlic-naan.jpg';
 
-// FIX: full 21-dish map — mirrors MEAL_IMAGE_MAP in SkipLineContext exactly
+// FIX: full 21-dish map — mirrors MEAL_IMAGE_MAP in QShiftContext exactly
 // so the same dish always shows the same image everywhere in the app.
 const MEAL_IMAGE_MAP: Record<string, string> = {
   'Butter Chicken':     butterChicken,
@@ -84,7 +84,7 @@ function getImageForOrder(dto: CustomerOrderDto): string {
 
 export default function OrderHistory() {
   const navigate = useNavigate();
-const { orderHistory: contextHistory, metrics } = useSkipLine();
+const { orderHistory: contextHistory, metrics } = useQShift();
 
   const [backendOrders, setBackendOrders] = useState<CustomerOrderDto[]>([]);
   const [loading, setLoading]             = useState(true);
@@ -101,7 +101,7 @@ useEffect(() => {
     fetchCustomerOrders()
       .then(orders => {
         // Always update the cache on a successful fetch
-        try { localStorage.setItem('SkipLine_cached_history', JSON.stringify(orders)); } catch {}
+        try { localStorage.setItem('QShift_cached_history', JSON.stringify(orders)); } catch {}
         setBackendOrders(orders);
         setLoading(false);
       })
@@ -109,7 +109,7 @@ useEffect(() => {
         console.warn('[OrderHistory] Backend unavailable, restoring from cache:', err.message);
         // Try localStorage cache first — populated by last successful fetch
         try {
-          const raw = localStorage.getItem('SkipLine_cached_history');
+          const raw = localStorage.getItem('QShift_cached_history');
           if (raw) {
             const cached: CustomerOrderDto[] = JSON.parse(raw);
             if (cached.length > 0) {
@@ -142,7 +142,7 @@ const totalTimeSaved = showBackend
   : contextHistory.reduce((s, o) => s + o.timeSaved, 0);
 
 // FIX: derive totalOrdersCount directly from backend array — never from
-// metrics.ordersThisMonth which resets on navigation (SkipLineContext re-fetch).
+// metrics.ordersThisMonth which resets on navigation (QShiftContext re-fetch).
 const totalOrdersCount = showBackend
   ? allNonCancelledBackend.length
   : contextHistory.length;
@@ -389,3 +389,5 @@ const totalWasteReduced = showBackend
     </DashboardLayout>
   );
 }
+
+

@@ -37,7 +37,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { toast } from '../../customer-hooks/use-toast';
 import { useNotifications } from '../../customer-context/NotificationContext';
-import { useSkipLine } from '../../customer-context/SkipLineContext';
+import { useQShift } from '../../customer-context/QShiftContext';
 import { CustomerSlotDto } from '../../kitchen-api/kitchenApi';
 import {
   cancelCustomerOrder,
@@ -186,7 +186,7 @@ export default function OrderSuccess() {
   const location      = useLocation();
   const locationState = location.state as LocationState | null;
 const { addNotification } = useNotifications();
-const { updateOrderStatus: ctxUpdateStatus, swapOrder: ctxSwapOrder, metrics } = useSkipLine();
+const { updateOrderStatus: ctxUpdateStatus, swapOrder: ctxSwapOrder, metrics } = useQShift();
 
 
   // Unified helper — persists to bell (via context) AND fires popup immediately
@@ -949,3 +949,5 @@ const navigateToOrders = () => navigate('/customer-dashboard/orders', {
     </div>
   );
 }
+
+

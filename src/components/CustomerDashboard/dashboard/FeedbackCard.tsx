@@ -88,3 +88,6 @@ export function FeedbackCard({ mealName, onSubmit, onSkip }: FeedbackCardProps) 
     </motion.div>
   );
 }
+
+
+

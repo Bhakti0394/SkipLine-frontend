@@ -3,7 +3,7 @@ import { ArrowRight, Clock, Zap, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import HeroMockup from "./HeroMockup";
-import SkipLineLogo from "./SkipLineLogo";
+import QShiftLogo from "./QShiftLogo";
 import "../../styles/Hero.scss";
 
 const Hero = () => {
@@ -65,8 +65,8 @@ const Hero = () => {
               className="hero__heading"
             >
               <span className="hero__heading-logo">
-                <SkipLineLogo size="lg" className="hero__logo-icon" />
-                <span>SkipLine</span>
+                <QShiftLogo size="lg" className="hero__logo-icon" />
+                <span>QShift</span>
               </span>
               <span className="hero__heading-tagline">
                 Smart Pre-Ordering.{" "}
@@ -158,3 +158,6 @@ const StatCard = ({ icon, value, label }: { icon: React.ReactNode; value: string
 );
 
 export default Hero;
+
+
+

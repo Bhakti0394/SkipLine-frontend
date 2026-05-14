@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 // FIX: was '@/types/dashboard' which doesn't exist — corrected to actual path
 import { Meal } from '../customer-types/dashboard';
 
-const STORAGE_KEY = 'SkipLine_favorites';
+const STORAGE_KEY = 'QShift_favorites';
 
 export function useFavorites() {
   // Initialize directly from localStorage — avoids the write effect
@@ -45,3 +45,5 @@ export function useFavorites() {
 
   return { favorites, addFavorite, removeFavorite, toggleFavorite, isFavorite };
 }
+
+

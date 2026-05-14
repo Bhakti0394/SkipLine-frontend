@@ -5,7 +5,7 @@ import {
   User, Mail, Lock, Eye, EyeOff, ArrowRight, ChefHat, Shield,
   Building2, UtensilsCrossed, Leaf, Clock, TrendingUp, Send, KeyRound,
 } from "lucide-react";
-import SkipLineLogo from "@/components/landing/SkipLineLogo";
+import QShiftLogo from "@/components/landing/QShiftLogo";
 import { useAuth } from "@/context/AuthContext";
 import "./Auth.scss";
 
@@ -23,11 +23,11 @@ const Auth = () => {
   // ── FIX: use AuthContext.login() so setUser() fires ───────────────────────
   // Previously Auth.tsx called fetch() directly, stored token in localStorage,
   // and used window.location.href to navigate. This bypassed AuthContext
-  // entirely — setUser() was never called, so SkipLineContext's
+  // entirely — setUser() was never called, so QShiftContext's
   // useEffect([user, authLoading]) never re-ran, and real orders/metrics/streak
   // were never fetched (causing 401/403 on every page load).
   //
-  // Now: login() → setUser() → SkipLineContext re-runs → real data fetched ✓
+  // Now: login() → setUser() → QShiftContext re-runs → real data fetched ✓
  const { login, syncUser } = useAuth();
 
   const [mode,          setMode]          = useState<Mode>("login");
@@ -92,7 +92,7 @@ useEffect(() => {
 
   // ── Admin Login Step 2: Verify OTP ────────────────────────────────────────
   // Admin login keeps direct fetch + window.location.href because the kitchen
-  // dashboard doesn't use SkipLineContext — no need to go through AuthContext.login().
+  // dashboard doesn't use QShiftContext — no need to go through AuthContext.login().
   const handleVerifyAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -136,11 +136,11 @@ useEffect(() => {
       // FIX: use AuthContext.login() instead of raw fetch.
       // AuthContext.login() calls the same /api/auth/login endpoint, stores
       // the token in localStorage, AND calls setUser() — which triggers
-      // SkipLineContext's useEffect([user, authLoading]) to re-run and fetch
+      // QShiftContext's useEffect([user, authLoading]) to re-run and fetch
       // real orders/metrics/streak with the valid Bearer token.
       //
       // Old code used raw fetch + window.location.href which stored the token
-      // but never called setUser(), so SkipLineContext always saw user=null
+      // but never called setUser(), so QShiftContext always saw user=null
       // and never made authenticated API calls → 401/403 on every page load.
       if (role === "customer" && mode === "login") {
         const userData = await login(formData.email, formData.password);
@@ -148,7 +148,7 @@ useEffect(() => {
         // Use navigate() instead of window.location.href so React state
         // (including the updated user from setUser()) is preserved across
         // the route transition. window.location.href causes a full page
-        // reload which wipes React state before SkipLineContext can re-fetch.
+        // reload which wipes React state before QShiftContext can re-fetch.
         if (userData.role === "CUSTOMER") {
           navigate("/customer-dashboard/overview");
         } else {
@@ -249,8 +249,8 @@ setErrorMessage(null);
         <div className="floating-orb orb-accent" />
         <div className="left-panel-content">
           <div className="logo-section" onClick={() => navigate("/")}>
-            <SkipLineLogo size="md" />
-            <span className="logo-text">SkipLine</span>
+            <QShiftLogo size="md" />
+            <span className="logo-text">QShift</span>
           </div>
           <div className="feature-showcase">
             <motion.div
@@ -289,7 +289,7 @@ setErrorMessage(null);
             </motion.div>
           </div>
           <div className="testimonial-card">
-            <p className="testimonial-text">"SkipLine transformed our canteen operations. Students love the zero-wait experience."</p>
+            <p className="testimonial-text">"QShift transformed our canteen operations. Students love the zero-wait experience."</p>
             <p className="testimonial-author">— Campus Dining Director</p>
           </div>
         </div>
@@ -302,7 +302,7 @@ setErrorMessage(null);
       >
         <div className="auth-form-wrapper">
           <div className="mobile-logo" onClick={() => navigate("/")}>
-            <SkipLineLogo size="lg" /><span className="logo-text">SkipLine</span>
+            <QShiftLogo size="lg" /><span className="logo-text">QShift</span>
           </div>
           <div className="auth-header">
             <AnimatePresence mode="wait">
@@ -317,8 +317,8 @@ setErrorMessage(null);
             </AnimatePresence>
             <p className="auth-subtitle">
               {mode === "login"
-                ? "Sign in to continue to SkipLine"
-                : "Start optimizing meal operations with SkipLine"}
+                ? "Sign in to continue to QShift"
+                : "Start optimizing meal operations with QShift"}
             </p>
           </div>
 
@@ -515,3 +515,5 @@ setErrorMessage(null);
 };
 
 export default Auth;
+
+

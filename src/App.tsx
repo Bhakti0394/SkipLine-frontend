@@ -6,7 +6,7 @@ import { AuthProvider }    from "@/context/AuthContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster }         from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { SkipLineProvider }      from "./customer-context/SkipLineContext";
+import { QShiftProvider }      from "./customer-context/QShiftContext";
 import { NotificationProvider }  from "./customer-context/NotificationContext";
 
 import Index    from "./pages/Index";
@@ -77,11 +77,11 @@ const handleLoaderComplete = useCallback(() => {
             path="/customer-dashboard/*"
             element={
               <ProtectedRoute allowedRole="CUSTOMER">
-                <SkipLineProvider>
+                <QShiftProvider>
                   <NotificationProvider>
                     <CustomerApp />
                   </NotificationProvider>
-                </SkipLineProvider>
+                </QShiftProvider>
               </ProtectedRoute>
             }
           />
@@ -124,3 +124,6 @@ const App = () => {
 };
 
 export default App;
+
+
+

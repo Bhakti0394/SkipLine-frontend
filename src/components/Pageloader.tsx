@@ -421,7 +421,7 @@ export function PageLoader({ onComplete, minDuration = 6200 }: PageLoaderProps) 
           {/* Logo */}
           <div className="pl-logo">
             <div className="pl-logo-box">S</div>
-            <div className="pl-brand">SkipLine</div>
+            <div className="pl-brand">QShift</div>
           </div>
         </div>
 
@@ -465,3 +465,7 @@ export function PageLoader({ onComplete, minDuration = 6200 }: PageLoaderProps) 
     </>
   );
 }
+
+
+
+

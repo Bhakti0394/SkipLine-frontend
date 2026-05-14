@@ -221,3 +221,5 @@ export function canAcceptOrder(boardData: KanbanBoardResponse): boolean {
   const maxQueueDepth = Math.max(snap.totalSlots * 2, 10);
   return snap.freeSlots > 0 || pendingCount < maxQueueDepth;
 }
+
+

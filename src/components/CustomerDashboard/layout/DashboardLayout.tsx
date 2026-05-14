@@ -15,7 +15,7 @@
 // AFTER:
 //   totalOrders = orderHistory.length + activeOrders.length
 //
-//   orderHistory = all completed orders (from SkipLineContext, fetched from backend)
+//   orderHistory = all completed orders (from QShiftContext, fetched from backend)
 //   orders (active) = in-flight orders not yet completed
 //   Together they represent the true all-time order count without double-counting.
 //
@@ -31,7 +31,7 @@ import { Header }            from '../../CustomerDashboard/dashboard/Header';
 import { Navigation }        from '../../CustomerDashboard/dashboard/Navigation';
 import { NotificationPopup } from '../../CustomerDashboard/dashboard/NotificationPopup';
 import { useAuth }           from '../../../context/AuthContext';
-import { useSkipLine }       from '../../../customer-context/SkipLineContext';
+import { useQShift }       from '../../../customer-context/QShiftContext';
 import '../../../customer-main/index.css';
 
 interface DashboardLayoutProps {
@@ -48,7 +48,7 @@ function computeMemberTier(totalOrders: number): string {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user }                           = useAuth();
-  const { metrics, orders, orderHistory }  = useSkipLine();
+  const { metrics, orders, orderHistory }  = useQShift();
 
   const displayName =
     user?.fullName?.split(' ')[0] ??
@@ -79,3 +79,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     </div>
   );
 }
+
+
+

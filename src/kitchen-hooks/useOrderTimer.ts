@@ -81,8 +81,8 @@ type TickCallback = (nowMs: number) => void;
 // Keyed by a stable symbol so HMR module re-execution and React StrictMode
 // double-invocation both find the same singleton on the window object instead
 // of creating a second Set and a second interval on the re-executed module.
-const TICK_KEY      = Symbol.for('__skipline_tick_subscribers__');
-const INTERVAL_KEY  = Symbol.for('__skipline_tick_interval__');
+const TICK_KEY      = Symbol.for('__QShift_tick_subscribers__');
+const INTERVAL_KEY  = Symbol.for('__QShift_tick_interval__');
 
 function getTickStore(): { subscribers: Set<TickCallback>; interval: ReturnType<typeof setInterval> | null } {
   const w = window as any;
@@ -567,3 +567,5 @@ console.log(`[TIMER DEBUG] ${order.orderNumber} | type=${order.orderType} | crea
     sla,
   ]);
 }
+
+

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { DashboardLayout } from '../../components/CustomerDashboard/layout/DashboardLayout';
 import { Button } from '../../components/ui/button';
-import { useSkipLine } from '../../customer-context/SkipLineContext';
+import { useQShift } from '../../customer-context/QShiftContext';
 import {
   placeCustomerOrder,
   PlaceOrderRequest,
@@ -124,7 +124,7 @@ function toValidUUIDs(ids: string[]): string[] {
 
 export default function Checkout() {
   const navigate = useNavigate();
-  const { cart, cartTotal, removeFromCart, updateCartItem, clearCart, addOrder } = useSkipLine();
+  const { cart, cartTotal, removeFromCart, updateCartItem, clearCart, addOrder } = useQShift();
 
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethod>('upi');
   const [isProcessing,    setIsProcessing]    = useState(false);
@@ -558,3 +558,5 @@ export default function Checkout() {
     </DashboardLayout>
   );
 }
+
+

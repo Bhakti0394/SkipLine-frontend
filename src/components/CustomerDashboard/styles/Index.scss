@@ -104,7 +104,7 @@
   color: rgba(255,255,255,0.6);
   line-height: 1.5;
 }
-/* SkipLine Design System - Bold, Dark, Energetic */
+/* QShift Design System - Bold, Dark, Energetic */
 // ============================================================================
 // VARIABLES
 // ============================================================================
@@ -431,3 +431,4 @@ body {
 .hidden-desktop { @include respond-to('lg') { display: none !important; } }
 .mobile-only    { @include respond-to('sm') { display: none !important; } }
 .desktop-only   { display: none !important; @include respond-to('lg') { display: block !important; } }
+

@@ -1,6 +1,6 @@
-# SkipLine — Pre-Order. Pick Up. Skip the Line.
+# QShift — Real-time kitchen orchestration that shifts your wait time to zero.
 
-> A scalable, full-stack food pre-ordering platform built for any high-volume food service operation — corporate canteens, college mess halls, hospital pantries, food courts, co-working spaces, and event venues. Customers order ahead and choose a pickup slot. Kitchen staff manage a live queue with real-time status transitions, inventory tracking, and analytics.
+> A production-grade, full-stack kitchen orchestration platform built for high-volume food service operations — where every order is intelligent, every slot is calculated, and wait time is engineered out of existence.
 
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -27,9 +27,9 @@
 
 ## Overview
 
-SkipLine solves a problem that exists in every high-footfall food service venue: the queue. At peak hours, customers wait 15–30 minutes — not because food takes long to prepare, but because demand arrives all at once with no coordination.
+QShift solves a problem that exists in every high-footfall food service venue: the queue. At peak hours, customers wait 15–30 minutes — not because food takes long to prepare, but because demand arrives all at once with no coordination.
 
-SkipLine fixes this at a systems level. Orders are placed ahead of time with a chosen pickup slot. The kitchen receives a live, prioritised queue. Customers get status updates the moment their order moves. The result is a predictable, smooth flow for both sides — no waiting, no guessing.
+QShift fixes this at a systems level. Orders are placed ahead of time with a chosen pickup slot. The kitchen receives a live, prioritised queue. Customers get status updates the moment their order moves. The result is a predictable, smooth flow for both sides — no waiting, no guessing.
 
 Two user roles:
 
@@ -159,7 +159,7 @@ Two user roles:
 | Styling | SCSS Modules (per-component) |
 | UI Components | shadcn/ui (40+ components) |
 | Animation | Framer Motion |
-| State | React Context API (Auth, SkipLine, Notifications) |
+| State | React Context API (Auth, QShift, Notifications) |
 | Real-time | SSE via `EventSource` with polling fallback |
 | Auth | JWT in localStorage, restored via session check on load |
 | Routing | React Router v6 with role-based protected routes |
@@ -237,9 +237,11 @@ src/
 │           ├── TimelineSlots.tsx     # Slot occupancy across the day
 │           ├── SimulationControls.tsx# Dev-only order simulation tools
 │           └── Header.tsx            # Kitchen top bar
+
+     
 │
 ├── customer-context/
-│   ├── SkipLineContext.tsx           # Cart, orders, metrics, streak, SSE connections
+│   ├── QShiftContext.tsx           # Cart, orders, metrics, streak, SSE connections
 │   └── NotificationContext.tsx      # Notification queue with sound and preference gating
 │
 ├── kitchen-api/
@@ -266,7 +268,7 @@ src/
 │   ├── inventory.ts                 # InventoryItem, InventoryCategory
 │   └── settings.ts                  # Kitchen settings shape
 │
-└── customer-assets/                 # 21 dish images (all mapped in SkipLineContext)
+└── customer-assets/                 # 21 dish images (all mapped in QShiftContext)
     ├── butter-chicken.jpg
     ├── butter-garlic-naan.jpg
     ├── chicken-korma.jpg
@@ -298,7 +300,7 @@ src/
 
 - Node.js 18+
 - npm 9+
-- Backend running (see [skipline-backend](https://github.com/Bhakti0394/QLess-backend))
+- Backend running (see [QShift-backend](https://github.com/Bhakti0394/QLess-backend))
 
 ### Installation
 
@@ -369,16 +371,16 @@ BrowseMenu
 
 ```
 Customer places order
-  └── SkipLineContext.addOrder() calls subscribeToOrderStatus(orderId)
+  └── QShiftContext.addOrder() calls subscribeToOrderStatus(orderId)
         └── EventSource opens /api/customer/sse/orders/{id}/stream?token=<jwt>
               └── Backend pushes SSE event on each status transition
-                    └── SkipLineContext.updateOrderStatusFromSse() updates order state
+                    └── QShiftContext.updateOrderStatusFromSse() updates order state
                           └── window.dispatchEvent('order-status-changed')
                                 ├── MyOrders.tsx re-renders order card with new status
                                 └── NotificationContext shows toast + plays sound
 ```
 
-On SSE error, `SkipLineContext` automatically falls back to polling every 15 seconds for that order.
+On SSE error, `QShiftContext` automatically falls back to polling every 15 seconds for that order.
 
 ### SSE Deduplication
 
@@ -458,14 +460,14 @@ All calls go through `src/kitchen-api/kitchenApi.ts`.
 | Auth race condition | `setLoading(false)` ran before `setUser` — caused a flash where `(loading=false, user=null)` was briefly true, triggering a redirect to `/auth` even with a valid token | Fixed order: `setUser` → then `setLoading(false)` |
 | 403 on every dashboard load | Customer dashboard called `fetchBoard()` which hits `GET /api/kitchen/board` — a KITCHEN-role endpoint. Customer JWT doesn't have KITCHEN role → 403 on every page load | Replaced with `fetchCustomerKitchenSummary()` hitting `GET /api/customer/kitchen-summary` |
 | Order creation broken | Checkout sent `meal.id` (a frontend string) as `menuItemId`. If the meal came from anywhere other than a fresh backend fetch, this string would not be a valid UUID → 404 on the backend | Fixed to use `item.menuItemId` (explicitly set to backend UUID at `addToCart` time). Added UUID format guard — surfaces a clear error if a non-UUID slips through instead of sending a malformed order |
-| SSE events arriving twice | `SkipLineContext` created a new `EventSource` on every context re-render. Two connections meant every status update fired the handler twice → duplicate toasts, double state updates | Fixed with a `useRef` Map — one connection per order ID, cleaned up on terminal status |
+| SSE events arriving twice | `QShiftContext` created a new `EventSource` on every context re-render. Two connections meant every status update fired the handler twice → duplicate toasts, double state updates | Fixed with a `useRef` Map — one connection per order ID, cleaned up on terminal status |
 | Notification gate logic broken | `readyAlerts: false` was blocking all notification types, not just ready alerts | Fixed: each preference gates only its own type. Ready Alerts only gates `order_ready`. Order Updates gates `order_confirmed`, `order_preparing`, `order_cooking` |
 | Member tier always "Premium" | Tier was a hardcoded string constant in Header — every user always saw "Premium" | Computed from `metrics.totalOrders` in `DashboardLayout` and passed to `Header` as a prop |
 | Slot picker was static | `OrderModal` had hardcoded time strings that never reflected real availability | Replaced with `fetchCustomerSlots()` and `fetchCustomerSlotsTomorrow()` — real slots with remaining capacity |
 | Menu search was static | `HeaderSearch` used a 12-item hardcoded array | Replaced with `fetchCustomerMenuItems()` — live menu on every search open |
 | Platform stats were fake | Browse hero showed hardcoded numbers (e.g. "12847 orders") | Replaced with `fetchCustomerPlatformStats()` — real counts from `GET /api/customer/stats` |
 | Feedback mealId wrong | Post-order feedback submitted with the frontend meal name string as the ID → feedback could never be retrieved against a real order | Fixed to use `order.id` (backend UUID) as the `mealId` so feedback is stored and retrieved by the same key |
-| Order history missing images | `MEAL_IMAGE_MAP` only had 5 entries — 16 dishes fell back to the Butter Chicken image | Expanded to all 21 dishes in `OrderHistory`, `SkipLineContext`, and `OrderSuccess` |
+| Order history missing images | `MEAL_IMAGE_MAP` only had 5 entries — 16 dishes fell back to the Butter Chicken image | Expanded to all 21 dishes in `OrderHistory`, `QShiftContext`, and `OrderSuccess` |
 | OrderFlowMini had wrong steps | Included `'preparing'` step which does not exist in backend `OrderStatus` enum → step never matched any real status | Removed — stepper now shows only `confirmed → cooking → ready → completed` |
 | Hardcoded pickup counter | "Counter #3" was hardcoded in `MyOrders` and `OrderSuccess` — every order at every venue showed the same wrong counter | Replaced with a dynamic `getPickupPointLabel()` function that reads from order data, falls back to "Pickup Counter" |
 | Settings had fake badges | "2 cards", "English", "3 devices" were static strings that never matched reality | Badges removed — only shown when real data backs them up |
@@ -491,8 +493,9 @@ All calls go through `src/kitchen-api/kitchenApi.ts`.
 
 | Repository | Description |
 |---|---|
-| [skipline-backend](https://github.com/Bhakti0394/QLess-backend) | Spring Boot backend — auth, orders, inventory, SSE, slots |
+| [QShift-backend](https://github.com/Bhakti0394/QLess-backend) | Spring Boot backend — auth, orders, inventory, SSE, slots |
 
 ---
 
-*Built by Bhakti.*
+*Built by Bhakti — because waiting in line is a solved problem.*
+

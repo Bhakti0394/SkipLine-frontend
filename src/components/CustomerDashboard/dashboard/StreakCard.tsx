@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Flame, Zap } from 'lucide-react';
-import { useSkipLine } from '../../../customer-context/SkipLineContext';
+import { useQShift } from '../../../customer-context/QShiftContext';
 import '../overview-styles/Streakcard.scss';
 
 const MILESTONES = [3, 7, 14, 21, 30];
@@ -53,7 +53,7 @@ function buildWeekGrid(streak: number, lastOrderDate: string | null | undefined)
 
 
 export function StreakCard() {
-  const { metrics } = useSkipLine();
+  const { metrics } = useQShift();
   const streak = metrics.streak;
   const perks  = metrics.perks;
 
@@ -217,3 +217,6 @@ const progress =
     </motion.div>
   );
 }
+
+
+
